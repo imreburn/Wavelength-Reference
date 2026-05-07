@@ -1,9 +1,21 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import plotly.express as px
 from scipy.signal import find_peaks, peak_widths
 
+# Plain plot with matplotlib
+def matplotlib_plain(df):
+    plt.plot(df["Wavelength"], df["Power"])
+    plt.show()
 
+# Plot with plotly
+def plotly_plain(df):
+    fig = px.line(df, x="Wavelength", y="Power")
+    fig.show()
+
+# Detect peak data
+# Plot with matplotlib
 def simple_analysis(df):
 
     x = df["Wavelength"]
@@ -11,22 +23,21 @@ def simple_analysis(df):
     y_values = y.to_numpy()
 
     # Find peaks
+    # Assume a peak should be deeper than 3/4 of max-min
     simple_prominence = (y.max() - y.min())*(3/4)
+
     max_indices, peak_properties = find_peaks(y, prominence=simple_prominence, distance=8000)
 
     # Wavelengths (nm) of peaks
     peak_wavs = [w*1e9 for w in x.iloc[max_indices].to_list()]
-    print("Peak wavelenghs:", [f"{wx:.3f} nm" for wx in peak_wavs])
 
     # Find FWHM
     widths, width_heights, left_ips, right_ips = peak_widths(y_values, max_indices, rel_height=0.5)
 
-    fwhm = []   # pm
+    fwhm = []   # in (pm)
     for n, (peak_idx, lx, rx, wx) in enumerate(zip(max_indices, left_ips, right_ips, widths), start=1):
         # print(f"Peak {n}: peak index={peak_idx}, left x={round(lx)}, right x={round(rx)}, width={(x.iloc[round(rx)]-x.iloc[round(lx)])*1e12:.3f}")
-        fwhm.append((x.iloc[round(rx)]-x.iloc[round(lx)])*1e12)
-    
-    print("FWHM: ", [f"{fw:.3f} pm" for fw in fwhm])
+        fwhm.append((x.iloc[round(rx)]-x.iloc[round(lx)])*1e12)    
 
     rounded_left = [round(lx) for lx in left_ips]
     rounded_right = [round(rx) for rx in right_ips]
@@ -47,8 +58,10 @@ def simple_analysis(df):
     for _, (lx, rx) in enumerate(zip(bases, peak_y)):
         peak_height.append(rx-lx)
     
-    print("peak heights: ", [f"{h:.3f}" for h in peak_height])
-
+    # Print result
+    for n, (w, fw, ph) in enumerate(zip(peak_wavs, fwhm, peak_height), start=1):
+        print(f"Peak {n}: Wavelength={w:.3f} nm, Depth={ph:.3f}, FWHM={fw:.3f} pm")
+    
     # Plot
     plt.figure(figsize=(12,6))
     plt.plot(x, y)

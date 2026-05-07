@@ -9,7 +9,7 @@ from reset import reset_inst
 from plot import plot_data, simple_analysis
 
 
-def run(params):
+def run(params, pm, laser):
     wav_start    = params["wav_start"]
     wav_stop     = params["wav_stop"]
     sweep_speed  = params["sweep_speed"]
@@ -19,14 +19,6 @@ def run(params):
     save_csv     = params["save_csv"]
     file_name    = params["file_name"]
 
-    rm = pyvisa.ResourceManager()
-    rm.list_resources()
-
-    pm    = rm.open_resource('USB0::0x0957::0x3718::DE53500131::0::INSTR')
-    laser = rm.open_resource('TCPIP0::100.65.2.45::inst0::INSTR')
-
-    pm.read_termination    = '\n'
-    laser.read_termination = '\n'
 
     # ----- Power Meter -----
     pm.write(":INIT1:CONT 0")
@@ -59,32 +51,38 @@ def run(params):
 
     print(laser.query(":SOUR0:WAV:SWE:CHEC?"))
 
+    # PM: arm logging function before sweep starts
     pm.write(":SENS1:FUNC:STAT LOGG, START")
+
+    # TLS: starts continuous sweep
     laser.write(":SOURCE0:WAV:SWE:STATE 1")
     print("Sweep start")
 
+    # Hold execution until sweep finishes
     while int(laser.query(":SOURCE0:WAV:SWE:STATE?")) == 1:
         print("Laser sweeping...")
         time.sleep(1)
 
     print("Sweep finished")
 
+    # PM: read logged date
     pm.write(":SENS1:FUNC:RES?")
     time.sleep(1)
 
     data_arr = pm.read_binary_values(container=np.ndarray)
-    arr_dbm  = 10 * np.log10(data_arr / 1e-3)   # convert to dBm
+    
+    arr_dbm  = 10 * np.log10(data_arr / 1e-3)   # convert: W -> dBm
     arr_dbm *= -1   # power loss? 
+    # Generate x-axis
     wav_range = np.linspace(wav_start, wav_stop, num=len(arr_dbm))
 
-    
     df = pd.DataFrame({"Wavelength": wav_range, "Power": arr_dbm})
 
-    # Save result to
+    # Save result to CSV
     if save_csv == 'y':
         os.makedirs("Measurements", exist_ok=True)
         df.to_csv(os.path.join("Measurements", file_name), index=False)    
     
     
     # plot_data(df)
-    simple_analysis(df)
+    # simple_analysis(df)

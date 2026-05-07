@@ -1,5 +1,6 @@
 import csv
 import tkinter as tk
+from prep_instruments import reset_inst
 
 FIELD_LABELS = ["Start Wavelength (nm)", "Stop Wavelength (nm)", "Sweep Speed (nm/s)", "TLS Power (dBm)", "Averaging Time (us)"]
 DEFAULTS = ["0", "0", "0", "0.1", "25"]
@@ -23,7 +24,7 @@ def load_presets():
         return {}
 
 
-def get_inputs():
+def get_inputs(pm=None, laser=None):
     params = {}
     saved = {"ok": False}
     ran = {"ok": False}
@@ -84,6 +85,12 @@ def get_inputs():
             file_name_entry.config(state="disabled")
         on_entry_change()
 
+    def on_reset():
+        result_label.config(text="Resetting instruments...")
+        root.update()
+        reset_inst(pm, laser)
+        result_label.config(text="Reset complete.")
+
     def on_run():
         if not saved["ok"]:
             return
@@ -132,6 +139,7 @@ def get_inputs():
     tk.Button(btn_frame, text="Save", command=on_save, width=10).pack(side="left", padx=5)
     run_btn = tk.Button(btn_frame, text="Run", command=on_run, width=10, state="disabled")
     run_btn.pack(side="left", padx=5)
+    tk.Button(btn_frame, text="Reset", command=on_reset, width=10).pack(side="left", padx=5)
 
     result_label = tk.Label(frame, text="")
     result_label.grid(row=N+4, column=0, columnspan=2)

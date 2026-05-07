@@ -2,12 +2,9 @@ import os
 import sys
 import tkinter as tk
 from tkinter import filedialog
-import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import plotly.express as px
 
-from plot import plot_data, simple_analysis
+import plot
 
 root = tk.Tk()
 root.withdraw()
@@ -28,14 +25,7 @@ if "keysight" in csv_path:
 else:
     df = pd.read_csv(csv_path)
 
-# Plain plot with matplotlib
-# plt.plot(df["Wavelength"], df["Power"])
-# plt.show()
-
-# Analyze data, still plotting with matplotlib
-simple_analysis(df)
-# plot_data(df)
-
-# Plot with plotly
-# fig = px.line(df, x="Wavelength", y="Power")
-# fig.show()
+# Pick one
+# plot.matplotlib_plain(df)
+plot.simple_analysis(df)
+# plot.plotly_plain(df)
