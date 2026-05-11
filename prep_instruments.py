@@ -1,20 +1,60 @@
 import pyvisa
 import time
 
-def prep_inst():
+VISA_ADDRESS_POWER_METER    = 'USB0::0x0957::0x3718::DE53500131::0::INSTR'
+VISA_ADDRESS_TLS            = 'TCPIP0::100.65.2.45::inst0::INSTR'       
+
+def get_inst():
+    print("Connect to instruments...")
     rm = pyvisa.ResourceManager()
     rm.list_resources()
 
-    pm    = rm.open_resource('USB0::0x0957::0x3718::DE53500131::0::INSTR')
-    laser = rm.open_resource('TCPIP0::100.65.2.45::inst0::INSTR')
+    pm    = rm.open_resource(VISA_ADDRESS_POWER_METER)
+    laser = rm.open_resource(VISA_ADDRESS_TLS)
 
-    pm.read_termination    = '\n'
-    laser.read_termination = '\n'
-    
+    print("Connected\n")
     return pm, laser
 
+
 def reset_inst(pm, laser):
-    """ Reset Instruments; Do only if necessary """
+    print("[PM] Reset")
     pm.write("*RST")
+    
+    print("[LASER] Reset")
     laser.write("*RST")
-    time.sleep(2)
+    time.sleep(3)
+
+    pm.read_termination    = '\n'
+    laser.read_termination = '\n'   
+
+    print(pm.query("*IDN?"))
+    print(laser.query("*IDN?"))
+
+
+
+def init_inst(pm, laser):
+    print("Initialize instruments...")
+    reset_inst(pm, laser)
+
+    # Laser
+    if (int(laser.query(":LOCK?")) == 1):
+        print("[LASER] TLS Locked. Unlock")
+        laser.write(":LOCK 0, 1234")
+
+    laser.write(":STAT:QUES:ENAB 32767")    
+    
+    # Power Meter
+    pm.write(":STAT:QUES:ENAB 32767")
+
+    print("Initialization finished")
+
+
+def prep_inst():
+    pm, laser = get_inst()
+
+    init_inst(pm, laser)
+
+    return pm, laser
+
+if __name__ == "__main__":
+    pm, laser = prep_inst()

@@ -1,15 +1,13 @@
 import os
+import sys
 import pyvisa
 import time
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from reset import reset_inst
-from plot import plot_data, simple_analysis
+from prep_instruments import prep_inst
 
-
-def run(params, pm, laser):
+def run(params, pm, laser, dryrun=False):
     wav_start    = params["wav_start"]
     wav_stop     = params["wav_stop"]
     sweep_speed  = params["sweep_speed"]
@@ -35,6 +33,7 @@ def run(params, pm, laser):
     pm.write(f":SENSE1:CHAN1:FUNC:PAR:LOGG {num_data}, {avg_time:e}")
 
     # ----- Laser -----
+        
     laser.write(f":SOURCE0:WAVE  {wav_stop:e}")
     laser.write(":SOURCE0:POWER:UNIT  0")
     laser.write(f":SOURCE0:POWER {source_power:f} dBm")
@@ -49,40 +48,46 @@ def run(params, pm, laser):
     laser.write(f":SOURCE0:WAV:SWE:STAR     {wav_start:e}")
     laser.write(f":SOURCE0:WAV:SWE:STOP     {wav_stop:e}")
 
-    print(laser.query(":SOUR0:WAV:SWE:CHEC?"))
+    print("[LASER] Check parameters: ", laser.query(":SOUR0:WAV:SWE:CHEC?"))
 
-    # PM: arm logging function before sweep starts
-    pm.write(":SENS1:FUNC:STAT LOGG, START")
+    if not dryrun:
+        # PM: arm logging function before sweep starts
+        pm.write(":SENS1:FUNC:STAT LOGG, START")
 
-    # TLS: starts continuous sweep
-    laser.write(":SOURCE0:WAV:SWE:STATE 1")
-    print("Sweep start")
+        # TLS: starts continuous sweep
+        laser.write(":SOURCE0:WAV:SWE:STATE 1")
+        print("[LASER] Start a continuous sweep")
 
-    # Hold execution until sweep finishes
-    while int(laser.query(":SOURCE0:WAV:SWE:STATE?")) == 1:
-        print("Laser sweeping...")
-        time.sleep(1)
+        # Hold execution until sweep finishes
+        while int(laser.query(":SOURCE0:WAV:SWE:STATE?")) == 1:
+            print("[LASER] Sweeping...")
+            time.sleep(1)
 
-    print("Sweep finished")
+        print("[LASER] Sweep finished")
 
-    # PM: read logged date
-    pm.write(":SENS1:FUNC:RES?")
-    time.sleep(1)
+        # PM: read logged date
+        print("[PM] Read logged data\n")
+        pm.write(":SENS1:FUNC:RES?")
+        time.sleep(2)
 
-    data_arr = pm.read_binary_values(container=np.ndarray)
-    
-    arr_dbm  = 10 * np.log10(data_arr / 1e-3)   # convert: W -> dBm
-    arr_dbm *= -1   # power loss? 
-    # Generate x-axis
-    wav_range = np.linspace(wav_start, wav_stop, num=len(arr_dbm))
+        data_arr = pm.read_binary_values(container=np.ndarray)
+        
+        arr_dbm  = 10 * np.log10(data_arr / 1e-3)   # convert: W -> dBm
+        arr_dbm *= -1   # power loss? 
+        # Generate x-axis
+        wav_range = np.linspace(wav_start, wav_stop, num=len(arr_dbm))
 
-    df = pd.DataFrame({"Wavelength": wav_range, "Power": arr_dbm})
+        df = pd.DataFrame({"Wavelength": wav_range, "Power": arr_dbm})
 
-    # Save result to CSV
-    if save_csv == 'y':
-        os.makedirs("Measurements", exist_ok=True)
-        df.to_csv(os.path.join("Measurements", file_name), index=False)    
-    
-    
-    # plot_data(df)
-    # simple_analysis(df)
+        # Save raw data to CSV
+        print("Save raw data to CSV? ", save_csv)
+        if save_csv == 'y':
+            os.makedirs("Test Results-Raw data", exist_ok=True)
+            df.to_csv(os.path.join("Test Results-Raw data", file_name), index=False)    
+            print("Saved to a file: ", file_name)
+        
+        pm.write(":SENS1:FUNC:STAT LOGG, STOP")
+        return df
+
+if __name__ == "__main__":
+    pm, laser = prep_inst()
