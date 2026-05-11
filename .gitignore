@@ -4,3 +4,5 @@ __pycache__/
 Measurements/
 Archives/
 Simple Data Analaysis/
+build/
+dist/
