@@ -2,13 +2,9 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import plotly.express as px
 from scipy.signal import find_peaks, peak_widths
 
-# Plain plot with matplotlib
-# def matplotlib_plain(df):
-#     plt.plot(df["Wavelength"], df["Power"])
-#     plt.show()
+# import plotly.express as px
 
 # Analyze peak(s)
 def peak_analysis(df, params=None):
@@ -33,14 +29,12 @@ def peak_analysis(df, params=None):
     simple_prominence = (y.max() - y.min())*(3/4)
     peak_indices, peak_properties = find_peaks(y, prominence=simple_prominence, distance=8000)
 
-    
-
     # These are actual indices
     peak_prominences    = peak_properties['prominences']
     left_bases          = peak_properties['left_bases']
     right_bases         = peak_properties['right_bases']
     
-    # Find peak depths
+    # Find peak depths - MinMax
     peak_depths = [max(p-l, p-r) for p, l, r in zip(y.iloc[peak_indices], y.iloc[left_bases], y.iloc[right_bases])]
 
     # Find FWHM
@@ -58,22 +52,26 @@ def peak_analysis(df, params=None):
     max_peak_x      = x.iloc[peak_indices[max_peak_num]]*1e9
     max_peak_fwhm   = widths_x[max_peak_num]
     
-    # Construct pandas DataFrame
-    peak_dict = {
-        "Label": [label],
-        "Peak Depth": [max_peak_depth],
-        "Wavelength": [max_peak_x],
-        "FWHM": [max_peak_fwhm]
-    }
-    peak_df = pd.DataFrame(data=peak_dict)
-
     # Save max peak information to CSV
     print("Save Peak information to CSV? ", peak_csv)
-    if peak_csv == "y":
-        os.makedirs("Test Results-Peak", exist_ok=True)
-        csv_path = os.path.join("Test Results-Peak", file_name)
+    if params != None and params["peak_csv"] == "y":
+        file_name   = params["peak_file_name"]
+        label       = params["peak_label"]
+        timestamp   = params["peak_timestamp"]
+        # Construct pandas DataFrame
+        peak_dict = {
+            "Label": [label],
+            "Timestamp": [timestamp],
+            "Peak Depth": [max_peak_depth],
+            "Wavelength": [max_peak_x],
+            "FWHM": [max_peak_fwhm]
+        }
+        peak_df = pd.DataFrame(data=peak_dict)
+
+        os.makedirs(os.path.join("Test Results", "Peak Analyses"), exist_ok=True)
+        csv_path = os.path.join("Test Results", "Peak Analyses", file_name)
         peak_df.to_csv(csv_path, index=False, mode='a', header=not os.path.exists(csv_path))    
-        print("Saved to a file: ", file_name)
+        print("Saved to a file: ", file_name, "\n")
 
     peak_info = {
         "peak_indices": peak_indices,
@@ -136,8 +134,9 @@ def plot_matplotlib(df, peak_info=None):
 
 # Plot with plotly
 def plot_plotly(df, peak_info=None):
-    fig = px.line(df, x="Wavelength", y="Power")
-    fig.show()
+    print("Under development")
+    # fig = px.line(df, x="Wavelength", y="Power")
+    # fig.show()
 
 def analyze(df, params):
     peak_info = peak_analysis(df, params)

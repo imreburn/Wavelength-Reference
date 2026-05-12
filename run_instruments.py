@@ -17,6 +17,7 @@ def run(params, pm, laser, dryrun=False):
     save_csv     = params["save_csv"]
     file_name    = params["file_name"]
 
+    print("--- Start a test ---")
 
     # ----- Power Meter -----
     pm.write(":INIT1:CONT 0")
@@ -48,7 +49,12 @@ def run(params, pm, laser, dryrun=False):
     laser.write(f":SOURCE0:WAV:SWE:STAR     {wav_start:e}")
     laser.write(f":SOURCE0:WAV:SWE:STOP     {wav_stop:e}")
 
-    print("[LASER] Check parameters: ", laser.query(":SOUR0:WAV:SWE:CHEC?"))
+    laser_check_param = (laser.query(":SOUR0:WAV:SWE:CHEC?")).split(',')
+    if int(laser_check_param[0]) != 0:
+        print("[LASER] Failed Parameter Checks: ", laser_check_param[1])
+        sys.exit("Exit program")
+    else:
+        print("[LASER] Passed Parameter Checks")
 
     if not dryrun:
         # PM: arm logging function before sweep starts
@@ -66,12 +72,13 @@ def run(params, pm, laser, dryrun=False):
         print("[LASER] Sweep finished")
 
         # PM: read logged date
-        print("[PM] Read logged data\n")
+        print("[PM] Read logged data")
         pm.write(":SENS1:FUNC:RES?")
         time.sleep(2)
-
         data_arr = pm.read_binary_values(container=np.ndarray)
-        
+        print("[PM] Number of logged data: ", len(data_arr))
+        print("--- Test finished ---\n")
+
         arr_dbm  = 10 * np.log10(data_arr / 1e-3)   # convert: W -> dBm
         arr_dbm *= -1   # power loss? 
         # Generate x-axis
@@ -82,9 +89,9 @@ def run(params, pm, laser, dryrun=False):
         # Save raw data to CSV
         print("Save raw data to CSV? ", save_csv)
         if save_csv == 'y':
-            os.makedirs("Test Results-Raw data", exist_ok=True)
-            df.to_csv(os.path.join("Test Results-Raw data", file_name), index=False)    
-            print("Saved to a file: ", file_name)
+            os.makedirs(os.path.join("Test Results", "Raw Data"), exist_ok=True)
+            df.to_csv(os.path.join("Test Results", "Raw Data", file_name), index=False)    
+            print("Saved to a file: ", file_name, "\n")
         
         pm.write(":SENS1:FUNC:STAT LOGG, STOP")
         return df

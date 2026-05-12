@@ -11,6 +11,12 @@ def get_inst():
 
     pm    = rm.open_resource(VISA_ADDRESS_POWER_METER)
     laser = rm.open_resource(VISA_ADDRESS_TLS)
+    
+    pm.read_termination    = '\n'
+    laser.read_termination = '\n'   
+
+    print(pm.query("*IDN?"))
+    print(laser.query("*IDN?"))
 
     print("Connected\n")
     return pm, laser
@@ -23,13 +29,6 @@ def reset_inst(pm, laser):
     print("[LASER] Reset")
     laser.write("*RST")
     time.sleep(3)
-
-    pm.read_termination    = '\n'
-    laser.read_termination = '\n'   
-
-    print(pm.query("*IDN?"))
-    print(laser.query("*IDN?"))
-
 
 
 def init_inst(pm, laser):
@@ -51,7 +50,6 @@ def init_inst(pm, laser):
 
 def prep_inst():
     pm, laser = get_inst()
-
     init_inst(pm, laser)
 
     return pm, laser

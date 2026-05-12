@@ -13,14 +13,6 @@ PADDING = 50 # addtional padding in pm
 
 _last = {}  # persists raw field values within one execution
 
-
-def get_dt(dx, ss): # dx in pm, ss in nm, return dt in us
-    return dx/ss*1e3
-
-def get_dx(dt, ss): # dt in us, ss in nm, return dx in pm
-    return (ss/1e3)*dt
-
-
 def load_presets():
     """Return {material: [val, ...]} from preset.csv, or {} on any failure."""
     try:
@@ -55,18 +47,18 @@ def get_inputs(pm=None, laser=None):
                 run_btn.config(state="disabled")
                 return
 
-        speed_tmp = values[2]
-        step_tmp = values[3]
+        speed_tmp = values[2]   # nm/s
+        step_tmp = values[3]    # pm
 
-        at_tmp = int(get_dt(step_tmp, speed_tmp))
+        at_tmp = int(step_tmp/speed_tmp*1e3)    # us
         at_tmp = 25 if at_tmp < 25 else at_tmp
-        step_tmp = get_dx(at_tmp, speed_tmp)
+        step_tmp = (speed_tmp/1e3) * at_tmp
 
         num_data_tmp = int((values[1] - values[0])/step_tmp*1e3)
 
         num_data.set(f"{num_data_tmp}")
         avg_time.set(f"{at_tmp}")
-        values[3] = step_tmp
+        
         entries[3].delete(0, tk.END)
         entries[3].insert(0, f"{step_tmp:.4f}")
         entries[3].config(fg="red")
@@ -76,19 +68,19 @@ def get_inputs(pm=None, laser=None):
         params["wav_start"]    = values[0] * 1e-9
         params["wav_stop"]     = values[1] * 1e-9
         params["sweep_speed"]  = values[2] * 1e-9
-        params["step_size"]    = values[3] * 1e-12
+        params["step_size"]    = step_tmp * 1e-12
         params["tls_power"]    = values[4]
         params["num_data"]     = num_data_tmp
         params["avg_time"]     = at_tmp * 1e-6
         params["plot_backend"] = plot_backend_var.get()
         params["save_csv"]     = save_csv_var.get()
-        stem, ext = os.path.splitext(file_name_var.get())
-        ts = datetime.now().strftime("%Y-%m-%d_%H-%M")
-        params["file_name"] = f"{stem}_{ts}{ext}"
+        ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        params["file_name"] = f"{file_name_var.get()}_{ts}{".csv"}"
 
         params["peak_csv"]       = save_csv_var2.get()
-        params["peak_file_name"] = file_name_var2.get()
+        params["peak_file_name"] = file_name_var2.get()+".csv"
         params["peak_label"]     = label2_var.get()
+        params["peak_timestamp"] = ts
 
         saved["ok"] = True
         run_btn.config(state="normal")
@@ -136,6 +128,10 @@ def get_inputs(pm=None, laser=None):
         _last["preset"] = preset_var.get()
         _last["save_csv"] = save_csv_var.get()
         _last["file_name"] = file_name_var.get()
+        _last["peak_csv"]   = save_csv_var2.get()
+        _last["peak_file_name"] = file_name_var2.get()
+        _last["peak_label"] = label2_var.get()
+        _last["plot_backend"]   = plot_backend_var.get()
         ran["ok"] = True
         result_label.config(text="Running...")
         root.after(200, root.destroy)
@@ -177,38 +173,38 @@ def get_inputs(pm=None, laser=None):
 
     tk.Frame(frame, height=1, bg="gray").grid(row=N+3, column=0, columnspan=2, sticky="ew", pady=8)
 
-    save_csv_var = tk.StringVar(value="n")
+    save_csv_var = tk.StringVar(value=_last.get("save_csv", "n"))
     tk.Label(frame, text="Save raw data to CSV?", anchor="w", width=22).grid(row=N+4, column=0, pady=4, sticky="w")
     tk.OptionMenu(frame, save_csv_var, "n", "y").grid(row=N+4, column=1, pady=4, sticky="w")
     save_csv_var.trace_add("write", on_save_csv_change)
 
-    file_name_var = tk.StringVar(value=".csv")
+    file_name_var = tk.StringVar(value=_last.get("file_name", ""))
     tk.Label(frame, text=" - CSV File name", anchor="w", width=22).grid(row=N+5, column=0, pady=4, sticky="w")
     file_name_entry = tk.Entry(frame, textvariable=file_name_var, width=20,
                                state="normal" if save_csv_var.get() == "y" else "disabled")
     file_name_entry.grid(row=N+5, column=1, pady=4)
     file_name_entry.bind("<Key>", on_entry_change)
 
-    save_csv_var2 = tk.StringVar(value="n")
+    save_csv_var2 = tk.StringVar(value=_last.get("peak_csv", "n"))
     tk.Label(frame, text="Save peak analysis to CSV?", anchor="w", width=22).grid(row=N+6, column=0, pady=4, sticky="w")
     tk.OptionMenu(frame, save_csv_var2, "n", "y").grid(row=N+6, column=1, pady=4, sticky="w")
     save_csv_var2.trace_add("write", on_save_csv2_change)
 
-    file_name_var2 = tk.StringVar(value=".csv")
+    file_name_var2 = tk.StringVar(value=_last.get("peak_file_name", ""))
     tk.Label(frame, text=" - CSV File name", anchor="w", width=22).grid(row=N+7, column=0, pady=4, sticky="w")
     file_name_entry2 = tk.Entry(frame, textvariable=file_name_var2, width=20,
                                 state="normal" if save_csv_var2.get() == "y" else "disabled")
     file_name_entry2.grid(row=N+7, column=1, pady=4)
     file_name_entry2.bind("<Key>", on_entry_change)
 
-    label2_var = tk.StringVar(value="none")
+    label2_var = tk.StringVar(value=_last.get("peak_label", "none"))
     tk.Label(frame, text=" - Label", anchor="w", width=22).grid(row=N+8, column=0, pady=4, sticky="w")
     label2_entry = tk.Entry(frame, textvariable=label2_var, width=20,
                             state="normal" if save_csv_var2.get() == "y" else "disabled")
     label2_entry.grid(row=N+8, column=1, pady=4)
     label2_entry.bind("<Key>", on_entry_change)
 
-    plot_backend_var = tk.StringVar(value="matplotlib")
+    plot_backend_var = tk.StringVar(value=_last.get("plot_backend", "matplotlib"))
     tk.Label(frame, text="Backend for Plotting", anchor="w", width=22).grid(row=N+9, column=0, pady=4, sticky="w")
     tk.OptionMenu(frame, plot_backend_var, "matplotlib", "plotly").grid(row=N+9, column=1, pady=4, sticky="w")
     plot_backend_var.trace_add("write", on_entry_change)
