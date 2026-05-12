@@ -1,6 +1,5 @@
 # SingleSweep (Beta_20260512)
 
----
 `SingleSweep.exe` performs repeated single continous sweep and measures power, with configurable parameters. Measurement is analyzed and visualized. The raw data and peak analysis can be exported to CSV. 
 
 ## Usage
@@ -46,7 +45,7 @@ Information about the highest peak (depth, wavelength (nm), and FWHM (pm)) can b
 
 ---
 
-### Peak Analysis and Plotting (Limited)
+## Peak Analysis and Plotting (Limited)
 
 The current version has limited functionality for peak analysis and plotting.
 
