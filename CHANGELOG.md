@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Plotly support.
+
 ### Changed
 
 - Step size turns red only if the value is adjusted.
@@ -10,4 +14,4 @@
 
 ### Added
 
-- Beta released
+- First beta
