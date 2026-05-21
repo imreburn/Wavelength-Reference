@@ -54,24 +54,25 @@ def get_inputs(pm=None, laser=None):
         at_tmp = 25 if at_tmp < 25 else at_tmp
         step_tmp = (speed_tmp/1e3) * at_tmp
 
-        num_data_tmp = int((values[1] - values[0])/step_tmp*1e3)
+        num_data_tmp = int((values[1] - values[0])/step_tmp*1e3) + 1
 
         num_data.set(f"{num_data_tmp}")
         avg_time.set(f"{at_tmp}")
         
-        entries[3].delete(0, tk.END)
-        entries[3].insert(0, f"{step_tmp:.4f}")
-        entries[3].config(fg="red")
+        if step_tmp != float(entries[3].get()):
+            entries[3].delete(0, tk.END)
+            entries[3].insert(0, f"{step_tmp:.4f}")
+            entries[3].config(fg="red")
 
         result_label.config(text="Saved. Review values, then click Run.")
 
-        params["wav_start"]    = values[0] * 1e-9
-        params["wav_stop"]     = values[1] * 1e-9
-        params["sweep_speed"]  = values[2] * 1e-9
-        params["step_size"]    = step_tmp * 1e-12
+        params["wav_start"]    = values[0]
+        params["wav_stop"]     = values[1]
+        params["sweep_speed"]  = values[2]
+        params["step_size"]    = step_tmp
         params["tls_power"]    = values[4]
         params["num_data"]     = num_data_tmp
-        params["avg_time"]     = at_tmp * 1e-6
+        params["avg_time"]     = at_tmp
         params["plot_backend"] = plot_backend_var.get()
         params["save_csv"]     = save_csv_var.get()
         ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -204,7 +205,7 @@ def get_inputs(pm=None, laser=None):
     label2_entry.grid(row=N+8, column=1, pady=4)
     label2_entry.bind("<Key>", on_entry_change)
 
-    plot_backend_var = tk.StringVar(value=_last.get("plot_backend", "matplotlib"))
+    plot_backend_var = tk.StringVar(value=_last.get("plot_backend", "plotly"))
     tk.Label(frame, text="Backend for Plotting", anchor="w", width=22).grid(row=N+9, column=0, pady=4, sticky="w")
     tk.OptionMenu(frame, plot_backend_var, "matplotlib", "plotly").grid(row=N+9, column=1, pady=4, sticky="w")
     plot_backend_var.trace_add("write", on_entry_change)

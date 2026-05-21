@@ -22,8 +22,8 @@ def run(params, pm, laser, dryrun=False):
     # ----- Power Meter -----
     pm.write(":INIT1:CONT 0")
     pm.write(":SENS1:FUNC:STAT LOGG, STOP")
-    pm.write(f":SENSE1:CHAN1:POW:WAVE {wav_stop:e}")
-    pm.write(f":SENSE1:CHAN1:POW:ATIME {avg_time:e}")
+    pm.write(f":SENSE1:CHAN1:POW:WAVE {wav_stop} NM")
+    pm.write(f":SENSE1:CHAN1:POW:ATIME {avg_time} US")
     pm.write(":SENSE1:CHAN1:CORR 0.000000000e+00")
     pm.write(":SENSE1:CHAN1:POW:RANGE:AUTO  0")
     pm.write(":SENSE1:CHAN1:POW:RANGE  10.000000000")
@@ -31,13 +31,13 @@ def run(params, pm, laser, dryrun=False):
     pm.write(":TRIG1:CHAN1:OUTP DIS")
     pm.write(":TRIG1:CHAN1:INP  CME")
     pm.write(":TRIG:CONF PASS")
-    pm.write(f":SENSE1:CHAN1:FUNC:PAR:LOGG {num_data}, {avg_time:e}")
+    pm.write(f":SENSE1:CHAN1:FUNC:PAR:LOGG {num_data}, {avg_time} US")
 
     # ----- Laser -----
         
-    laser.write(f":SOURCE0:WAVE  {wav_stop:e}")
+    laser.write(f":SOURCE0:WAVE  {wav_stop} NM")
     laser.write(":SOURCE0:POWER:UNIT  0")
-    laser.write(f":SOURCE0:POWER {source_power:f} dBm")
+    laser.write(f":SOURCE0:POWER {source_power} DBM")
     laser.write(":SOURCE0:POW:STATE 1")
     laser.write(":TRIG:CONF LOOP")
     laser.write(":TRIG0:INP IGN")
@@ -45,16 +45,16 @@ def run(params, pm, laser, dryrun=False):
     laser.write(":SOURCE0:WAV:SWE:LLOG OFF")
     laser.write(":SOURCE0:WAV:SWE:MODE CONT")
     laser.write(":SOURCE0:WAV:SWE:REP ONEW")
-    laser.write(f":SOURCE0:WAV:SWE:SPE      {sweep_speed:e}")
-    laser.write(f":SOURCE0:WAV:SWE:STAR     {wav_start:e}")
-    laser.write(f":SOURCE0:WAV:SWE:STOP     {wav_stop:e}")
+    laser.write(f":SOURCE0:WAV:SWE:SPE      {sweep_speed} NM/S")
+    laser.write(f":SOURCE0:WAV:SWE:STAR     {wav_start} NM")
+    laser.write(f":SOURCE0:WAV:SWE:STOP     {wav_stop} NM")
 
     laser_check_param = (laser.query(":SOUR0:WAV:SWE:CHEC?")).split(',')
     if int(laser_check_param[0]) != 0:
-        print("[LASER] Failed Parameter Checks: ", laser_check_param[1])
+        print("[LASER] Failed parameter checks: ", laser_check_param[1])
         sys.exit("Exit program")
     else:
-        print("[LASER] Passed Parameter Checks")
+        print("[LASER] Passed parameter checks")
 
     if not dryrun:
         # PM: arm logging function before sweep starts
@@ -77,12 +77,17 @@ def run(params, pm, laser, dryrun=False):
         time.sleep(2)
         data_arr = pm.read_binary_values(container=np.ndarray)
         print("[PM] Number of logged data: ", len(data_arr))
+        pm.write(":SENS1:FUNC:STAT LOGG, STOP")
+
+        print("[LASER] Check if any error occurred: ", laser.query(":SYST:ERR?"))
+        print("[PM] Check if any error occurred: ", pm.query(":SYST:ERR?"))
+
         print("--- Test finished ---\n")
 
         arr_dbm  = 10 * np.log10(data_arr / 1e-3)   # convert: W -> dBm
         arr_dbm *= -1   # power loss? 
         # Generate x-axis
-        wav_range = np.linspace(wav_start, wav_stop, num=len(arr_dbm))
+        wav_range = np.linspace(wav_start, wav_stop, num=len(arr_dbm), endpoint=True)
 
         df = pd.DataFrame({"Wavelength": wav_range, "Power": arr_dbm})
 
@@ -93,7 +98,7 @@ def run(params, pm, laser, dryrun=False):
             df.to_csv(os.path.join("Test Results", "Raw Data", file_name), index=False)    
             print("Saved to a file: ", file_name, "\n")
         
-        pm.write(":SENS1:FUNC:STAT LOGG, STOP")
+        
         return df
 
 if __name__ == "__main__":

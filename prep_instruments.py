@@ -4,14 +4,22 @@ import time
 VISA_ADDRESS_POWER_METER    = 'USB0::0x0957::0x3718::DE53500131::0::INSTR'
 VISA_ADDRESS_TLS            = 'TCPIP0::100.65.2.45::inst0::INSTR'       
 
+def exceptionHandler(exception):
+
+    print('Error information:\n\tAbbreviation: %s\n\tError code: %s\n\tDescription: %s' % \
+          (exception.abbreviation, exception.error_code, exception.description))
+
 def get_inst():
     print("Connect to instruments...")
     rm = pyvisa.ResourceManager()
-    rm.list_resources()
-
-    pm    = rm.open_resource(VISA_ADDRESS_POWER_METER)
-    laser = rm.open_resource(VISA_ADDRESS_TLS)
     
+    try: 
+        pm    = rm.open_resource(VISA_ADDRESS_POWER_METER)
+        laser = rm.open_resource(VISA_ADDRESS_TLS)
+    except visa.VisaIOError as ex:
+        print('VISA Error')
+        exceptionHandler(ex)
+
     pm.read_termination    = '\n'
     laser.read_termination = '\n'   
 
