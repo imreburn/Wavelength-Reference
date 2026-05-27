@@ -1,4 +1,4 @@
-# SingleSweep (Beta_202600527)
+# SingleSweep (Beta_20260527)
 
 `SingleSweep.exe` performs repeated single continous sweep and measures power, with configurable parameters. Measurement is analyzed and visualized. The raw data and peak analysis can be exported to CSV. 
 
