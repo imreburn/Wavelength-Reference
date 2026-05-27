@@ -1,15 +1,17 @@
 import csv
-import os
 from datetime import datetime
 import tkinter as tk
+
+from structs import Params
 from prep_instruments import reset_inst
 
 FIELD_LABELS = ["Start Wavelength (nm)", "Stop Wavelength (nm)", "Sweep Speed (nm/s)", "Step Size (pm)", "TLS Power (dBm)"]
 DEFAULTS = ["0", "0", "0.5", "0.0125", "0.1"]
+SWEEP_SPEED_OPTIONS = ["0.5", "1.0", "2.0", "5.0", "10.0", "20.0", "40.0", "50.0", "80.0", "100.0", "150.0", "160.0", "200.0"]
 
 PRESET_CSV = "preset.csv"
 
-PADDING = 50 # addtional padding in pm
+PADDING = 0.050 # addtional padding in nm
 
 _last = {}  # persists raw field values within one execution
 
@@ -29,60 +31,107 @@ def load_presets():
         return {}
 
 
+WAV_MIN, WAV_MAX = 1450+PADDING, 1650-PADDING
+
+def validate_inputs(raw_strings):
+    """Return (values, None) on success or (None, error_msg) on failure."""
+    values = []
+    for s in raw_strings:
+        try:
+            values.append(float(s))
+        except ValueError:
+            return None, "all fields must be numbers."
+    wav_start, wav_stop, sweep_speed, step_size, power_dbm = values[0], values[1], values[2], values[3], values[4]
+    if not (WAV_MIN <= wav_start <= WAV_MAX) or not (WAV_MIN <= wav_stop <= WAV_MAX):
+        return None, f"Wavelengths must be between {WAV_MIN} and {WAV_MAX} nm."
+    if wav_start >= wav_stop:
+        return None, "Start wavelength must be less than Stop wavelength."
+    if step_size <= 0:
+        return None, "Step size must be greater than 0."
+    if f"{sweep_speed}" not in SWEEP_SPEED_OPTIONS:
+        return None, "Sweep speed must be selected from the dropdown list."
+    return values, None
+
+
+def validation_error(msg, result_label, num_data, avg_time, saved, run_btn):
+    result_label.config(text=f"Error: {msg}")
+    num_data.set("")
+    avg_time.set("")
+    saved["ok"] = False
+    run_btn.config(state="disabled")
+
+
 def get_inputs(pm=None, laser=None):
-    params = {}
+    params = Params()
     saved = {"ok": False}
     ran = {"ok": False}
 
     def on_save():
-        values = []
-        for entry in entries:
-            try:
-                values.append(float(entry.get()))
-            except ValueError:
-                result_label.config(text="Error: all fields must be numbers.")
-                num_data.set("")
-                avg_time.set("")
-                saved["ok"] = False
-                run_btn.config(state="disabled")
-                return
+        values, error = validate_inputs([e.get() for e in entries])
+        if error:
+            validation_error(error, result_label, num_data, avg_time, saved, run_btn)
+            return
 
-        speed_tmp = values[2]   # nm/s
-        step_tmp = values[3]    # pm
+        wav_start = values[0] - PADDING  # nm
+        wav_stop  = values[1] + PADDING  # nm
+        speed     = values[2]            # nm/s
+        step_new  = values[3]            # pm
 
-        at_tmp = int(step_tmp/speed_tmp*1e3)    # us
-        at_tmp = 25 if at_tmp < 25 else at_tmp
-        step_tmp = (speed_tmp/1e3) * at_tmp
+        avg_t        = int(step_new/speed*1e3)        # us
+        avg_t        = 25 if avg_t < 25 else avg_t
+        step_new     = round((speed/1e3) * avg_t, 4)
+        wav_range    = (wav_stop - wav_start) * 1000  # pm
+        pp           = int(wav_range // step_new)
+        qq           = wav_range % step_new
+        num_data_log = pp if qq == 0 else pp+1
 
-        num_data_tmp = int((values[1] - values[0])/step_tmp*1e3) + 1
-
-        num_data.set(f"{num_data_tmp}")
-        avg_time.set(f"{at_tmp}")
+        num_data.set(f"{num_data_log}")
+        avg_time.set(f"{avg_t}")
         
-        if step_tmp != float(entries[3].get()):
+        # If step size is adjusted, turn the field red
+        if step_new != float(entries[3].get()):
             entries[3].delete(0, tk.END)
-            entries[3].insert(0, f"{step_tmp:.4f}")
+            entries[3].insert(0, f"{step_new:.4f}")
             entries[3].config(fg="red")
 
         result_label.config(text="Saved. Review values, then click Run.")
 
-        params["wav_start"]    = values[0]
-        params["wav_stop"]     = values[1]
-        params["sweep_speed"]  = values[2]
-        params["step_size"]    = step_tmp
-        params["tls_power"]    = values[4]
-        params["num_data"]     = num_data_tmp
-        params["avg_time"]     = at_tmp
-        params["plot_backend"] = plot_backend_var.get()
-        params["save_csv"]     = save_csv_var.get()
         ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        params["file_name"] = f"{file_name_var.get()}_{ts}{".csv"}"
+        ds = datetime.now().strftime("%Y-%m-%d")
 
-        params["peak_csv"]       = save_csv_var2.get()
-        params["peak_file_name"] = file_name_var2.get()+".csv"
-        params["peak_label"]     = label2_var.get()
-        params["peak_timestamp"] = ts
+        params.wl_start   = values[0]
+        params.wl_stop    = values[1]
+        params.speed      = values[2]
+        params.step_pm    = step_new
+        params.tls_dbm    = values[4]
+        params.num_data   = num_data_log
+        params.at_us      = avg_t
+        params.padding    = PADDING
+        params.csv        = save_csv_var.get()
+        params.csv_fname  = f"{file_name_var.get()}_{ts}{".csv"}"
+        params.peak_csv   = save_csv_var2.get()
+        params.peak_fname = file_name_var2.get()+".csv"
+        params.peak_label = label2_var.get()
+        params.time       = ts
+        params.date       = ds
 
+        # params["wav_start"]      = values[0]                              # nm
+        # params["wav_stop"]       = values[1]                              # nm
+        # params["sweep_speed"]    = values[2]                              # nm/s
+        # params["step_size"]      = step_new                               # pm
+        # params["tls_power"]      = values[4]                              # dBm
+        # params["num_data"]       = num_data_log
+        # params["avg_time"]       = avg_t                                  # us
+        # params["padding"]        = PADDING                                # nm
+        # params["save_csv"]       = save_csv_var.get()
+        # params["file_name"]      = f"{file_name_var.get()}_{ts}{".csv"}"
+        # params["peak_csv"]       = save_csv_var2.get()
+        # params["peak_file_name"] = file_name_var2.get()+".csv"
+        # params["peak_label"]     = label2_var.get()
+        # params["timestamp"]      = ts
+        # params["datestamp"]      = ds
+        # params["plot_backend"]   = plot_backend_var.get()
+        
         saved["ok"] = True
         run_btn.config(state="normal")
 
@@ -99,8 +148,11 @@ def get_inputs(pm=None, laser=None):
         if name == "none" or name not in presets:
             return
         for entry, val in zip(entries, presets[name]):
-            entry.delete(0, tk.END)
-            entry.insert(0, val)
+            if isinstance(entry, tk.StringVar):
+                entry.set(val)
+            else:
+                entry.delete(0, tk.END)
+                entry.insert(0, val)
         on_entry_change()
 
     def on_save_csv_change(*_):
@@ -132,7 +184,7 @@ def get_inputs(pm=None, laser=None):
         _last["peak_csv"]   = save_csv_var2.get()
         _last["peak_file_name"] = file_name_var2.get()
         _last["peak_label"] = label2_var.get()
-        _last["plot_backend"]   = plot_backend_var.get()
+        # _last["plot_backend"]   = plot_backend_var.get()
         ran["ok"] = True
         result_label.config(text="Running...")
         root.after(200, root.destroy)
@@ -157,11 +209,17 @@ def get_inputs(pm=None, laser=None):
     entries = []
     for i, (label_text, default) in enumerate(zip(FIELD_LABELS, init_fields)):
         tk.Label(frame, text=label_text, anchor="w", width=22).grid(row=i+1, column=0, pady=4, sticky="w")
-        e = tk.Entry(frame, width=20)
-        e.insert(0, default)
-        e.grid(row=i+1, column=1, pady=4)
-        e.bind("<Key>", on_entry_change)
-        entries.append(e)
+        if i == 2:  # Sweep Speed — dropdown
+            sv = tk.StringVar(value=default if default in SWEEP_SPEED_OPTIONS else SWEEP_SPEED_OPTIONS[0])
+            tk.OptionMenu(frame, sv, *SWEEP_SPEED_OPTIONS).grid(row=i+1, column=1, pady=4, sticky="w")
+            sv.trace_add("write", on_entry_change)
+            entries.append(sv)
+        else:
+            e = tk.Entry(frame, width=20)
+            e.insert(0, default)
+            e.grid(row=i+1, column=1, pady=4)
+            e.bind("<Key>", on_entry_change)
+            entries.append(e)
 
     num_data = tk.StringVar()
     avg_time = tk.StringVar()
@@ -205,10 +263,10 @@ def get_inputs(pm=None, laser=None):
     label2_entry.grid(row=N+8, column=1, pady=4)
     label2_entry.bind("<Key>", on_entry_change)
 
-    plot_backend_var = tk.StringVar(value=_last.get("plot_backend", "plotly"))
-    tk.Label(frame, text="Backend for Plotting", anchor="w", width=22).grid(row=N+9, column=0, pady=4, sticky="w")
-    tk.OptionMenu(frame, plot_backend_var, "matplotlib", "plotly").grid(row=N+9, column=1, pady=4, sticky="w")
-    plot_backend_var.trace_add("write", on_entry_change)
+    # plot_backend_var = tk.StringVar(value=_last.get("plot_backend", "plotly"))
+    # tk.Label(frame, text="Backend for Plotting", anchor="w", width=22).grid(row=N+9, column=0, pady=4, sticky="w")
+    # tk.OptionMenu(frame, plot_backend_var, "matplotlib", "plotly").grid(row=N+9, column=1, pady=4, sticky="w")
+    # plot_backend_var.trace_add("write", on_entry_change)
 
     btn_frame = tk.Frame(frame)
     btn_frame.grid(row=N+10, column=0, columnspan=2, pady=10)
@@ -226,7 +284,7 @@ def get_inputs(pm=None, laser=None):
 
 if __name__ == "__main__":
     while True:
-        param = get_inputs()
-        if not param:
+        params = get_inputs()
+        if not params:
             break
-        print(param)
+        print(params)
