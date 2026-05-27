@@ -6,12 +6,20 @@
 
 - Validation checks for input values.
 - Two FWHMs (max, avg) can be shown on the plot.
+- Added Click Mode 2 and a marker at the clicked location.
+- Added a slider for fine adjustment of the marker position under Click Mode 2.
+- Added two markers with an offset in the y-axis.
+- Downsampling the plot. The graph remains detailed when zoomed in.
+- Peak information is shown as a table in the figure.
 
 ### Changed
 
 - A dropdown list for sweep speed field. TLS does not accept other values.
-- A padding (currently set as 10 pm) is added to start/stop wavelength. Data within this area will not be used for finding peaks and plotting.
-- Create a subfolder for each day when saving raw data (not peak information).
+- A padding (currently set as 50 pm, same as KeySight application) is applied to the start/stop wavelength. Data within this area will not be used for finding peaks and plotting.
+- Creates a subfolder for each day when saving raw data (not peak information).
+- Saving to CSV is handled in a separate function.
+- Replaced Pandas with NumPy (mostly).
+- Global variables changed to use a dataclass.
 
 ### Deprecated
 
@@ -34,7 +42,7 @@
 
 ### Fixed
 
-- Add +1 to the number of data to be logged
+- Added +1 to the data point count to ensure correct logging.
 
 ## [Beta_20260512] - 2026-05-12
 
