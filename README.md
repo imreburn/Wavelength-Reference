@@ -1,4 +1,4 @@
-# SingleSweep (Beta_20260512)
+# SingleSweep (Beta_202600527)
 
 `SingleSweep.exe` performs repeated single continous sweep and measures power, with configurable parameters. Measurement is analyzed and visualized. The raw data and peak analysis can be exported to CSV. 
 
@@ -32,7 +32,7 @@ Raw data includes wavelength and power values.
 
 - Select `y` for "Save raw data to CSV?"
 - Enter a file name (without the `.csv` extension). A timestamp will be automatically appended to the file name.
-- Data will be saved under `Test Results/Raw Data`.
+- Data will be saved under `Test Results/Raw Data/<date>`, where `<date>` subfolder is created (if not exists) for the date of experiment using `yyyy-mm-dd` format.
 
 **Save Peak Analysis**
 
@@ -45,16 +45,13 @@ Information about the highest peak (depth, wavelength (nm), and FWHM (pm)) can b
 
 ---
 
-## Peak Analysis and Plotting (Limited)
-
-The current version has limited functionality for peak analysis and plotting.
+## Peak Analysis and Plotting
 
 **Detecting Peak(s)**
 
-- Peak analysis (depth, FWHM) works for simple cases where the data contains well-defined peaks against a flat baseline.
-- The algorithm detects the peak and its corresponding left and right bases. Peak depth is currently calculated as the greater of the two differences: `max(peak − left_base, peak − right_base)`. As a result, the depth of the highest peak corresponds to the global Max−Min of the dataset.
+- Peak analysis (depth, FWHM) works for simple cases where the data contains well-defined peaks.
 
 **Plotting**
 
-- The default plotting backend is **matplotlib**.
-- Support for **Plotly** as an alternative backend is under development and is not functional in this beta version.
+- The default plotting backend is **Plotly** (matplotlib is dropped since the version 20260527).
+- `Plot(20260527)` is a standalone executable to plot a saved raw data.
