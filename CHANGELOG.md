@@ -1,5 +1,12 @@
 # Changelog
 
+## [20260601] - 2026-06-01 Quick Fix
+
+## Fixed
+
+- Fixed the issue that figure reuses the data from the first run.
+- Handled the case the an error is shown when no peak is found.
+
 ## [20260527] - 2026-05-27
 
 ### Added
