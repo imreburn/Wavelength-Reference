@@ -22,7 +22,7 @@ while True:
     if data is not None:
         peak_info = peak_detection(data)
         # Save max peak information to CSV
-        if params.peak_csv == "y":
+        if params.peak_csv == "y" and peak_info is not None:
             save_csv_peak(peak_info, params)
             
         plot_plotly(data, pk=peak_info)

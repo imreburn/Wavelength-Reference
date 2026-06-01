@@ -1,0 +1,12 @@
+--- Test finished ---
+
+Traceback (most recent call last):
+  File "c:\Users\mikea\Dropbox\Wavelength\Jin-Dev\main_single.py", line 23, in <module>
+    peak_info = peak_detection(data)
+  File "c:\Users\mikea\Dropbox\Wavelength\Jin-Dev\analyze_data.py", line 49, in peak_detection
+    max_peak_n = np.argmax(max_peak_heights)
+  File "C:\Users\mikea\Jin-Local\venv\Lib\site-packages\numpy\_core\fromnumeric.py", line 1314, in argmax
+    return _wrapfunc(a, 'argmax', axis=axis, out=out, **kwds)
+  File "C:\Users\mikea\Jin-Local\venv\Lib\site-packages\numpy\_core\fromnumeric.py", line 54, in _wrapfunc
+    return bound(*args, **kwds)
+ValueError: attempt to get argmax of an empty sequence

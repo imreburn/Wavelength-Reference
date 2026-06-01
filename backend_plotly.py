@@ -30,8 +30,6 @@ def plot_plotly(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
     d_x = round(wl[1] - wl[0], 7)
     
     peak_df = pd.DataFrame()
-    # peak_text_list = []
-
 
     # ------------------------------------------------------------------
     # Click-mode 2 fine-tune slider sensitivity
@@ -44,7 +42,7 @@ def plot_plotly(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
     SLIDER_STEP  = d_x    # nm 
 
     OFFSET_RANGE = 25 # half-range of searching in samples. 0.0125 pm * 2000 = 25.0 pm
-    MAX_DISPLAY  = 8000  # max points rendered at once for the spectrum
+    MAX_DISPLAY  = 20000  # max points rendered at once for the spectrum
 
     def lttb(x, y, n_out):
         """Largest-Triangle-Three-Buckets downsampling (pure numpy, no deps)."""
@@ -75,6 +73,11 @@ def plot_plotly(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
         line=dict(color='#378ADD', width=2),
         hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>',
     )
+    # initial_fig.add_scattergl(
+    #     x=wl, y=dbm, mode='lines', name='Spectrum',
+    #     line=dict(color='#378ADD', width=2),
+    #     hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>',
+    # )
     _border = dict(width=1, color='#333')
     # data[1] — mode-1 accumulated markers
     initial_fig.add_scattergl(
@@ -133,15 +136,6 @@ def plot_plotly(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
         
         peak_df = pd.DataFrame(peak_dict)
         peak_df.insert(0, "Peak", [i+1 for i in range(len(peak_df))])
-        # print(peak_df)
-        
-        # for n, (pw, mpd, apd, plw, pld, prw, prd, fm, fa) in enumerate(zip(pk.peaks.wl, pk.peaks.max_depths, pk.peaks.avg_depths, wl[pk.peaks.lt_idx], dbm[pk.peaks.lt_idx], wl[pk.peaks.rt_idx], dbm[pk.peaks.rt_idx], pk.max_fwhm.width, pk.avg_fwhm.width), start=1):
-        #     peak_n = f"Peak {n}\n"+f"λ: {pw:.7f}, depth: (max: {mpd:.6f}, avg: {apd:.6f})\n"
-        #     base_n = f"base: left=({plw:.7f}, {pld:.6f}), right=({prw:.7f}, {prd:.6f})\n"
-        #     fwhm_n = f"FWHM (pm): (max: {fm:.4f}, avg: {fa:.4f})\n\n"
-        #     peak_text_list.append("".join((peak_n, base_n, fwhm_n)))
-
-    # peak_text = "".join(peak_text_list)
 
     initial_fig.update_layout(
         xaxis_title='Wavelength (nm)',
@@ -462,18 +456,28 @@ def plot_plotly(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
 
     # ------------------------------------------------------------------
     # Launch — Dash in a background thread, webview in main thread
+    #
+    # Use make_server (instead of app.run) so we hold a server handle and
+    # can shut it down when the window closes. Otherwise the daemon thread
+    # keeps the previous server alive on `port`, and the next call to
+    # plot_plotly connects to that stale server (showing the old data).
     # ------------------------------------------------------------------
-    def _run_dash():
-        app.run(host='127.0.0.1', port=port,
-                debug=False, use_reloader=False)
+    from werkzeug.serving import make_server
 
-    threading.Thread(target=_run_dash, daemon=True).start()
+    server = make_server('127.0.0.1', port, app.server, threaded=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
     webview.create_window(
         title,
         f'http://127.0.0.1:{port}',
         width=width, height=height,
     )
-    webview.start()
+    try:
+        webview.start()
+    finally:
+        server.shutdown()
+        thread.join()
 
 
 # ---------------------------------------------------------------------------

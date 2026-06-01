@@ -17,6 +17,10 @@ def peak_detection(data):
     simple_prominence = (np.max(y) - np.min(y))*(3/4)
     peak_indices, peak_properties = find_peaks(y, prominence=simple_prominence, distance=8000)
 
+    if len(peak_indices) == 0:
+        print("No peak found")
+        return None
+
     # Prominence takes the shorter peak depth by definition
     min_peak_heights = peak_properties['prominences']
     left_bases_is    = peak_properties['left_bases']
