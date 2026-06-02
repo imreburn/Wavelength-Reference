@@ -1,11 +1,33 @@
 # Changelog
 
+## [20260602] - 2026-06-02
+
+### Added
+
+- 'I.L.' and 'Temperature' fields are added when saving peak data to a CSV file. They can be left empty.
+- When saving peak data to a CSV file, the user can choose an existing CSV file in the figure or create a new file. The filename/path can still be changed in the standard file saving dialog.
+
+### Changed
+
+- Moved two FWHM columns next to the corresponding depth column in the peak table in the figure.
+- Saving raw data and peak information to CSV files has been moved from the GUI input window to the plotting window.
+- It no longer automatically creates a subfolder for each day when saving raw data to CSV.
+- A custom peak can be created from user-clicked markers.
+- The user can select which peak to save, including the user-created peak. The peak with the maximum depth (max) is chosen by default.
+- Renamed Mode 1 and Mode 2 as Delta and Bandwidth, respectively.
+- The figure window is maximized automatically.
+- Plotly uses SVG instead of WebGL.
+- The 'Clear markers' button clears both Delta and Bandwidth markers.
+- The checkboxes under 'Show markers' can turn markers of peaks/bases and FWHM markers on and off.
+- The 'Timestamp' column in the peak data CSV has been renamed to 'Date' and includes a datestamp, instead of a timestamp.
+- When saving peak data to a CSV file, new data replaces the existing entry whose label is the same as the new data in the same file. A warning to replace an existing file is shown, and it is okay.
+
 ## [20260601] - 2026-06-01 Quick Fix
 
-## Fixed
+### Fixed
 
 - Fixed the issue that figure reuses the data from the first run.
-- Handled the case the an error is shown when no peak is found.
+- Handled the case that an error is shown when no peak is found.
 
 ## [20260527] - 2026-05-27
 
