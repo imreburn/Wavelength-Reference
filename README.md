@@ -1,4 +1,4 @@
-# SingleSweep (Beta_20260527)
+# SingleSweep (ver_20260602)
 
 `SingleSweep.exe` performs repeated single continous sweep and measures power, with configurable parameters. Measurement is analyzed and visualized. The raw data and peak analysis can be exported to CSV. 
 
@@ -30,18 +30,12 @@ Users can save raw data and/or peak analysis results to a CSV file.
 
 Raw data includes wavelength and power values.
 
-- Select `y` for "Save raw data to CSV?"
-- Enter a file name (without the `.csv` extension). A timestamp will be automatically appended to the file name.
-- Data will be saved under `Test Results/Raw Data/<date>`, where `<date>` subfolder is created (if not exists) for the date of experiment using `yyyy-mm-dd` format.
-
 **Save Peak Analysis**
 
-Information about the highest peak (depth, wavelength (nm), and FWHM (pm)) can be saved to a file.
+Following fields are saved in the CSV file.
 
-- Select `y` for "Save peak analysis to CSV?"
-- Enter a file name (without the `.csv` extension). If the file already exists, a new entry will be appended.
-- Enter a label if needed.
-- A timestamp will be automatically included as a field.
+- Date, Wavelength (nm), Label, I.L., Depth, Width (pm), Temperature
+- I.L. and Temperature can be left empty.
 
 ---
 
@@ -54,4 +48,4 @@ Information about the highest peak (depth, wavelength (nm), and FWHM (pm)) can b
 **Plotting**
 
 - The default plotting backend is **Plotly** (matplotlib is dropped since the version 20260527).
-- `Plot(20260527)` is a standalone executable to plot a saved raw data.
+- `PlotSingle` is a standalone executable to plot a saved raw data. It also can plot CSV files saved from KeySight software.
