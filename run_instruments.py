@@ -55,14 +55,14 @@ def run_single(pm, laser, params, dryrun=False):
         return None
     
     # TODO: check behavior of power meter. Check if ":SYST:ERR:COUN?" works
-    pm_check_error1 = (pm.query(":SYST:ERR?")).split(',')
-    if int(pm_check_error1[0]) != 0:
-        while True:
-            print("[PM] System error: ", *pm_check_error1)
-            pm_check_error1 = (pm.query(":SYST:ERR?")).split(',')
-            if int(pm_check_error1[0]) == 0:
-                break
-        return None
+    # pm_check_error1 = (pm.query(":SYST:ERR?")).split(',')
+    # if int(pm_check_error1[0]) != 0:
+    #     while True:
+    #         print("[PM] System error: ", *pm_check_error1)
+    #         pm_check_error1 = (pm.query(":SYST:ERR?")).split(',')
+    #         if int(pm_check_error1[0]) == 0:
+    #             break
+    #     return None
         
     if dryrun:
         return None

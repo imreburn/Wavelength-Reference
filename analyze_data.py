@@ -80,6 +80,39 @@ def peak_detection(data):
         ),
     )
 
+
+def find_bandwidth(wl, dbm, idx, y_offset, search_range):
+    height = float(dbm[idx]) - y_offset
+    i_min = max(0, idx - search_range)
+    i_max = min(len(wl), idx + search_range)
+    
+    # left side
+    i = idx
+    while i_min < i and height < float(dbm[i]):
+        i -= 1
+    left_ip = i
+    if dbm[i] < height:
+        if dbm[i + 1] != dbm[i]:
+            left_ip += (height - dbm[i]) / (dbm[i + 1] - dbm[i])
+            
+    # right side
+    i = idx
+    while i < i_max and height < float(dbm[i]):
+        i += 1
+    right_ip = i
+    if dbm[i] < height:
+        if dbm[i - 1] != dbm[i]:
+            right_ip -= (height - dbm[i]) / (dbm[i - 1] - dbm[i])
+    
+    width_ip = right_ip - left_ip
+    d_x      = round(wl[1] - wl[0], 7)
+    
+    left_nm  = wl[int(left_ip)] + (left_ip % 1.0) * d_x
+    right_nm = wl[int(right_ip)] + (right_ip % 1.0) * d_x
+    width_pm = width_ip * d_x * 1000
+    
+    return left_nm, right_nm, width_pm
+
 if __name__ == "__main__":
     data = np.loadtxt("test_2026-05-11_14-44_converted.csv", skiprows=1, delimiter=',')
     print(peak_detection(data))

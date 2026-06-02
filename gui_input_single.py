@@ -107,30 +107,13 @@ def get_inputs(pm=None, laser=None):
         params.num_data   = num_data_log
         params.at_us      = avg_t
         params.padding    = PADDING
-        params.csv        = save_csv_var.get()
-        params.csv_fname  = f"{file_name_var.get()}_{ts}{".csv"}"
-        params.peak_csv   = save_csv_var2.get()
-        params.peak_fname = file_name_var2.get()+".csv"
-        params.peak_label = label2_var.get()
+        # params.csv        = save_csv_var.get()
+        # params.csv_fname  = f"{file_name_var.get()}_{ts}{".csv"}"
+        # params.peak_csv   = save_csv_var2.get()
+        # params.peak_fname = file_name_var2.get()+".csv"
+        # params.peak_label = label2_var.get()
         params.time       = ts
         params.date       = ds
-
-        # params["wav_start"]      = values[0]                              # nm
-        # params["wav_stop"]       = values[1]                              # nm
-        # params["sweep_speed"]    = values[2]                              # nm/s
-        # params["step_size"]      = step_new                               # pm
-        # params["tls_power"]      = values[4]                              # dBm
-        # params["num_data"]       = num_data_log
-        # params["avg_time"]       = avg_t                                  # us
-        # params["padding"]        = PADDING                                # nm
-        # params["save_csv"]       = save_csv_var.get()
-        # params["file_name"]      = f"{file_name_var.get()}_{ts}{".csv"}"
-        # params["peak_csv"]       = save_csv_var2.get()
-        # params["peak_file_name"] = file_name_var2.get()+".csv"
-        # params["peak_label"]     = label2_var.get()
-        # params["timestamp"]      = ts
-        # params["datestamp"]      = ds
-        # params["plot_backend"]   = plot_backend_var.get()
         
         saved["ok"] = True
         run_btn.config(state="normal")
@@ -155,18 +138,18 @@ def get_inputs(pm=None, laser=None):
                 entry.insert(0, val)
         on_entry_change()
 
-    def on_save_csv_change(*_):
-        if save_csv_var.get() == "y":
-            file_name_entry.config(state="normal")
-        else:
-            file_name_entry.config(state="disabled")
-        on_entry_change()
+    # def on_save_csv_change(*_):
+    #     if save_csv_var.get() == "y":
+    #         file_name_entry.config(state="normal")
+    #     else:
+    #         file_name_entry.config(state="disabled")
+    #     on_entry_change()
 
-    def on_save_csv2_change(*_):
-        state = "normal" if save_csv_var2.get() == "y" else "disabled"
-        file_name_entry2.config(state=state)
-        label2_entry.config(state=state)
-        on_entry_change()
+    # def on_save_csv2_change(*_):
+    #     state = "normal" if save_csv_var2.get() == "y" else "disabled"
+    #     file_name_entry2.config(state=state)
+    #     label2_entry.config(state=state)
+    #     on_entry_change()
 
     def on_reset():
         result_label.config(text="Resetting instruments...")
@@ -179,11 +162,11 @@ def get_inputs(pm=None, laser=None):
             return
         _last["fields"] = [e.get() for e in entries]
         _last["preset"] = preset_var.get()
-        _last["save_csv"] = save_csv_var.get()
-        _last["file_name"] = file_name_var.get()
-        _last["peak_csv"]   = save_csv_var2.get()
-        _last["peak_file_name"] = file_name_var2.get()
-        _last["peak_label"] = label2_var.get()
+        # _last["save_csv"] = save_csv_var.get()
+        # _last["file_name"] = file_name_var.get()
+        # _last["peak_csv"]   = save_csv_var2.get()
+        # _last["peak_file_name"] = file_name_var2.get()
+        # _last["peak_label"] = label2_var.get()
         # _last["plot_backend"]   = plot_backend_var.get()
         ran["ok"] = True
         result_label.config(text="Running...")
@@ -230,38 +213,38 @@ def get_inputs(pm=None, laser=None):
     tk.Label(frame, text="Averaging Time (\u03BCs)", anchor="w", width=22).grid(row=N+2, column=0, sticky="w", pady=4)
     tk.Entry(frame, textvariable=avg_time, state="readonly", width=20).grid(row=N+2, column=1, pady=4)
 
-    tk.Frame(frame, height=1, bg="gray").grid(row=N+3, column=0, columnspan=2, sticky="ew", pady=8)
+    # tk.Frame(frame, height=1, bg="gray").grid(row=N+3, column=0, columnspan=2, sticky="ew", pady=8)
 
-    save_csv_var = tk.StringVar(value=_last.get("save_csv", "n"))
-    tk.Label(frame, text="Save raw data to CSV?", anchor="w", width=22).grid(row=N+4, column=0, pady=4, sticky="w")
-    tk.OptionMenu(frame, save_csv_var, "n", "y").grid(row=N+4, column=1, pady=4, sticky="w")
-    save_csv_var.trace_add("write", on_save_csv_change)
+    # save_csv_var = tk.StringVar(value=_last.get("save_csv", "n"))
+    # tk.Label(frame, text="Save raw data to CSV?", anchor="w", width=22).grid(row=N+4, column=0, pady=4, sticky="w")
+    # tk.OptionMenu(frame, save_csv_var, "n", "y").grid(row=N+4, column=1, pady=4, sticky="w")
+    # save_csv_var.trace_add("write", on_save_csv_change)
 
-    file_name_var = tk.StringVar(value=_last.get("file_name", ""))
-    tk.Label(frame, text=" - CSV File name", anchor="w", width=22).grid(row=N+5, column=0, pady=4, sticky="w")
-    file_name_entry = tk.Entry(frame, textvariable=file_name_var, width=20,
-                               state="normal" if save_csv_var.get() == "y" else "disabled")
-    file_name_entry.grid(row=N+5, column=1, pady=4)
-    file_name_entry.bind("<Key>", on_entry_change)
+    # file_name_var = tk.StringVar(value=_last.get("file_name", ""))
+    # tk.Label(frame, text=" - CSV File name", anchor="w", width=22).grid(row=N+5, column=0, pady=4, sticky="w")
+    # file_name_entry = tk.Entry(frame, textvariable=file_name_var, width=20,
+    #                            state="normal" if save_csv_var.get() == "y" else "disabled")
+    # file_name_entry.grid(row=N+5, column=1, pady=4)
+    # file_name_entry.bind("<Key>", on_entry_change)
 
-    save_csv_var2 = tk.StringVar(value=_last.get("peak_csv", "n"))
-    tk.Label(frame, text="Save peak analysis to CSV?", anchor="w", width=22).grid(row=N+6, column=0, pady=4, sticky="w")
-    tk.OptionMenu(frame, save_csv_var2, "n", "y").grid(row=N+6, column=1, pady=4, sticky="w")
-    save_csv_var2.trace_add("write", on_save_csv2_change)
+    # save_csv_var2 = tk.StringVar(value=_last.get("peak_csv", "n"))
+    # tk.Label(frame, text="Save peak analysis to CSV?", anchor="w", width=22).grid(row=N+6, column=0, pady=4, sticky="w")
+    # tk.OptionMenu(frame, save_csv_var2, "n", "y").grid(row=N+6, column=1, pady=4, sticky="w")
+    # save_csv_var2.trace_add("write", on_save_csv2_change)
 
-    file_name_var2 = tk.StringVar(value=_last.get("peak_file_name", ""))
-    tk.Label(frame, text=" - CSV File name", anchor="w", width=22).grid(row=N+7, column=0, pady=4, sticky="w")
-    file_name_entry2 = tk.Entry(frame, textvariable=file_name_var2, width=20,
-                                state="normal" if save_csv_var2.get() == "y" else "disabled")
-    file_name_entry2.grid(row=N+7, column=1, pady=4)
-    file_name_entry2.bind("<Key>", on_entry_change)
+    # file_name_var2 = tk.StringVar(value=_last.get("peak_file_name", ""))
+    # tk.Label(frame, text=" - CSV File name", anchor="w", width=22).grid(row=N+7, column=0, pady=4, sticky="w")
+    # file_name_entry2 = tk.Entry(frame, textvariable=file_name_var2, width=20,
+    #                             state="normal" if save_csv_var2.get() == "y" else "disabled")
+    # file_name_entry2.grid(row=N+7, column=1, pady=4)
+    # file_name_entry2.bind("<Key>", on_entry_change)
 
-    label2_var = tk.StringVar(value=_last.get("peak_label", "none"))
-    tk.Label(frame, text=" - Label", anchor="w", width=22).grid(row=N+8, column=0, pady=4, sticky="w")
-    label2_entry = tk.Entry(frame, textvariable=label2_var, width=20,
-                            state="normal" if save_csv_var2.get() == "y" else "disabled")
-    label2_entry.grid(row=N+8, column=1, pady=4)
-    label2_entry.bind("<Key>", on_entry_change)
+    # label2_var = tk.StringVar(value=_last.get("peak_label", "none"))
+    # tk.Label(frame, text=" - Label", anchor="w", width=22).grid(row=N+8, column=0, pady=4, sticky="w")
+    # label2_entry = tk.Entry(frame, textvariable=label2_var, width=20,
+    #                         state="normal" if save_csv_var2.get() == "y" else "disabled")
+    # label2_entry.grid(row=N+8, column=1, pady=4)
+    # label2_entry.bind("<Key>", on_entry_change)
 
     # plot_backend_var = tk.StringVar(value=_last.get("plot_backend", "plotly"))
     # tk.Label(frame, text="Backend for Plotting", anchor="w", width=22).grid(row=N+9, column=0, pady=4, sticky="w")

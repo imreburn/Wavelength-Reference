@@ -10,7 +10,7 @@ def exceptionHandler(exception):
           (exception.abbreviation, exception.error_code, exception.description))
 
 def get_inst():
-    print("Connect to instruments...")
+    print("Connecting to instruments...")
     rm = pyvisa.ResourceManager()
     
     try: 
@@ -40,7 +40,7 @@ def reset_inst(pm, laser):
 
 
 def init_inst(pm, laser):
-    print("Initialize instruments...")
+    print("Initializing instruments...")
     reset_inst(pm, laser)
 
     # Laser
@@ -53,7 +53,7 @@ def init_inst(pm, laser):
     # Power Meter
     pm.write(":STAT:QUES:ENAB 32767")
 
-    print("Initialization finished")
+    print("Instruments ready")
 
 
 def prep_inst():

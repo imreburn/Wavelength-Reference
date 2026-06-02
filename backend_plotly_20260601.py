@@ -9,9 +9,8 @@ import webview
 from webview import FileDialog
 
 from structs import PeakInfo
-from analyze_data import peak_detection, find_bandwidth
+from analyze_data import peak_detection
 from save_csv import save_csv_raw, save_csv_peak, save_csv_peak_row
-from helper_plotly import lttb
 
 def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
                   width=1400, height=1000, port=8050):
@@ -48,45 +47,63 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
     SLIDER_STEP  = d_x    # nm 
 
     OFFSET_RANGE = 25 # half-range of searching in samples. 0.0125 pm * 2000 = 25.0 pm
-    MAX_DISPLAY  = 4000  # max points rendered at once for the spectrum
+    MAX_DISPLAY  = 20000  # max points rendered at once for the spectrum
+
+    def lttb(x, y, n_out):
+        """Largest-Triangle-Three-Buckets downsampling (pure numpy, no deps)."""
+        n = len(x)
+        if n <= n_out:
+            return x, y
+        buckets = np.array_split(np.arange(1, n - 1), n_out - 2)
+        out = [0]
+        for i, bucket in enumerate(buckets):
+            next_b = buckets[i + 1] if i + 1 < len(buckets) else np.array([n - 1])
+            a = out[-1]
+            c_x = x[next_b].mean()
+            c_y = y[next_b].mean()
+            areas = np.abs((x[a] - c_x) * (y[bucket] - y[a]) -
+                           (x[a] - x[bucket]) * (c_y - y[a]))
+            out.append(bucket[np.argmax(areas)])
+        out.append(n - 1)
+        idx = np.array(out)
+        return x[idx], y[idx]
 
     # ------------------------------------------------------------------
     # Initial figure (built once, captures the data)
     # ------------------------------------------------------------------
     wl_init, dbm_init = lttb(wl, dbm, MAX_DISPLAY)
     initial_fig = go.Figure()
-    # data[0] — main spectrum. SVG scatter (not scattergl): WebGL partial
-    # Patch updates on this line trace occasionally fail to repaint, leaving
-    # a blank/stale curve after a zoom. At <=MAX_DISPLAY points SVG is fine.
-    initial_fig.add_scatter(
+    initial_fig.add_scattergl(
         x=wl_init, y=dbm_init, mode='lines', name='Spectrum',
         line=dict(color='#378ADD', width=2),
         hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>',
     )
+    # initial_fig.add_scattergl(
+    #     x=wl, y=dbm, mode='lines', name='Spectrum',
+    #     line=dict(color='#378ADD', width=2),
+    #     hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>',
+    # )
     _border = dict(width=1, color='#333')
-    # data[1..4] use SVG scatter to match data[0] and the peak traces below —
-    # keep the whole figure on one renderer (mixing scattergl draws WebGL
-    # traces on a separate layer above the SVG line).
     # data[1] — mode-1 accumulated markers
-    initial_fig.add_scatter(
+    initial_fig.add_scattergl(
         x=[], y=[], mode='markers+text', name='Delta',
         marker=dict(symbol='diamond', size=7, color='#D85A30', line=_border),
         text=[], textposition='top center',
     )
     # data[2] — mode-2 single marker (always replaced)
-    initial_fig.add_scatter(
+    initial_fig.add_scattergl(
         x=[], y=[], mode='markers', name='Bandwidth',
         marker=dict(symbol='x', size=11, color='#E8A020', line=_border),
         text=[], textposition='top left',
     )
     # data[3] — mode-2 left offset marker
-    initial_fig.add_scatter(
+    initial_fig.add_scattergl(
         x=[], y=[], mode='markers', name='Bandwidth:Left',
         marker=dict(symbol='triangle-right', size=10, color='#50C878', line=_border),
         text=[], textposition='top center',
     )
     # data[4] — mode-2 right offset marker
-    initial_fig.add_scatter(
+    initial_fig.add_scattergl(
         x=[], y=[], mode='markers', name='Bandwidth:Right',
         marker=dict(symbol='triangle-left', size=10, color='#50C878', line=_border),
         text=[], textposition='top center',
@@ -149,29 +166,23 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
 
     app = dash.Dash(__name__)
     right_sidebar = html.Div([
-        html.Details([
-            html.Summary("Show markers", style={'fontWeight': 'bold', 'cursor': 'pointer', 'marginBottom': '6px'}),
-            dcc.Checklist(
-                id='fwhm-all',
-                options=[{'label': 'all', 'value': 'all'}],
-                value=['all'],
-                style={'marginBottom': '2px'},
-                labelStyle={'display': 'block'},
-            ),
-            dcc.Checklist(
+        html.Div([
+            html.Label("Show FWHM markers", style={'fontWeight': 'bold', 'marginBottom': '6px', 'display': 'block'}),
+            dcc.Dropdown(
                 id='fwhm-dropdown',
                 options=[
-                    {'label': 'peaks', 'value': 'peaks'},
-                    {'label': 'FWHM_max',  'value': 'max'},
-                    {'label': 'FWHM_avg',  'value': 'avg'},
+                    {'label': 'off',  'value': 'off'},
+                    {'label': 'max',  'value': 'max'},
+                    {'label': 'avg',  'value': 'avg'},
+                    {'label': 'both', 'value': 'both'},
                 ],
-                value=['peaks', 'max', 'avg'],
-                style={'marginBottom': '4px', 'marginLeft': '16px'},
-                labelStyle={'display': 'block'},
+                value='both',
+                clearable=False,
+                style={'marginBottom': '4px'},
             ),
-        ], open=True) if pk is not None else None,
+        ]) if pk is not None else None,
         html.Div([
-            html.Label("Click Mode", style={'fontWeight': 'bold', 'marginBottom': '6px', 'display': 'block'}),
+            html.Label("Marker Mode", style={'fontWeight': 'bold', 'marginBottom': '6px', 'display': 'block'}),
             dcc.RadioItems(
                 id='click-mode',
                 options=[{'label': 'Delta', 'value': 1}, {'label': 'Bandwidth', 'value': 2}],
@@ -253,7 +264,7 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
                 for c, w in zip(col_ids, FIRST5_WIDTHS)]
 
     peak_col_widths   = _col_widths(['Peak', 'x', 'y', 'Depth (max)', 'FWHM (max)'])
-    custom_col_widths = _col_widths(['Peak', 'x', 'y', 'Depth', 'Bandwidth'])
+    custom_col_widths = _col_widths(['Peak', 'x', 'y', 'Depth', 'Width'])
 
     # ------------------------------------------------------------------
     # "Save peak info" modal — choose a detected peak (or the custom one)
@@ -268,20 +279,6 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
     else:
         peak_options = []
     peak_options += [{'label': 'custom', 'value': 'custom'}]
-
-    # Directory where peak CSVs live, and the default filename to fall back on.
-    PEAKS_DIR = os.path.join("Test Results", "Peaks")
-    DEFAULT_PEAK_FILENAME = '.csv'
-
-    def _peak_file_options():
-        """Dropdown options for existing CSVs in PEAKS_DIR, plus an empty item."""
-        os.makedirs(PEAKS_DIR, exist_ok=True)
-        files = sorted(f for f in os.listdir(PEAKS_DIR)
-                       if f.lower().endswith('.csv')
-                       and os.path.isfile(os.path.join(PEAKS_DIR, f)))
-        opts = [{'label': f'Create a new file', 'value': ''}]
-        opts += [{'label': f, 'value': f} for f in files]
-        return opts
 
     MODAL_OVERLAY = {
         'position': 'fixed', 'top': 0, 'left': 0, 'right': 0, 'bottom': 0,
@@ -306,16 +303,6 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
             dcc.Input(id='peak-label', type='text', value='', debounce=False,
                       style={'width': '100%', 'boxSizing': 'border-box',
                              'marginBottom': '8px'}),
-            html.Label('Temperature', style={'fontWeight': 'bold', 'display': 'block',
-                                             'marginBottom': '4px'}),
-            dcc.Input(id='peak-temperature', type='number', value=None, debounce=False,
-                      style={'width': '100%', 'boxSizing': 'border-box',
-                             'marginBottom': '8px'}),
-            html.Label('Choose a file', style={'fontWeight': 'bold', 'display': 'block',
-                                               'marginBottom': '4px'}),
-            dcc.Dropdown(id='peak-file-select', options=_peak_file_options(),
-                         value='', clearable=False,
-                         style={'marginBottom': '12px'}),
             html.Div(id='peak-modal-error',
                      style={'color': '#C0392B', 'fontSize': '12px',
                             'minHeight': '16px', 'marginBottom': '8px'}),
@@ -353,9 +340,9 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
         dash_table.DataTable(
             id='custom-table',
             columns=[{'name': c, 'id': c} for c in
-                     ['Peak', 'x', 'y', 'Depth', 'Bandwidth', 'base_x', 'base_y']],
+                     ['Peak', 'x', 'y', 'Depth', 'Width', 'base_x', 'base_y']],
             data=[{'Peak': 'custom', 'x': '', 'y': '', 'Depth': '',
-                   'Bandwidth': '', 'base_x': '', 'base_y': ''}],
+                   'Width': '', 'base_x': '', 'base_y': ''}],
             style_cell={'fontFamily': '"Times New Roman", Times, serif', 'padding': '4px 8px', 'textAlign': 'center'},
             style_cell_conditional=custom_col_widths,
             style_as_list_view=True,
@@ -404,12 +391,11 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
 
     @app.callback(
         Output('peak-modal', 'style'),
-        Output('peak-file-select', 'options'),
         Input('save-peak-btn', 'n_clicks'),
         prevent_initial_call=True,
     )
     def open_peak_modal(n_clicks):
-        return MODAL_SHOWN, _peak_file_options()
+        return MODAL_SHOWN
 
     @app.callback(
         Output('peak-modal', 'style', allow_duplicate=True),
@@ -419,13 +405,11 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
         Input('peak-save-confirm', 'n_clicks'),
         State('peak-select', 'value'),
         State('peak-label', 'value'),
-        State('peak-temperature', 'value'),
-        State('peak-file-select', 'value'),
         State('mode2-info-store', 'data'),
         State('markers-store', 'data'),
         prevent_initial_call=True,
     )
-    def close_or_save_peak(cancel, confirm, sel, label, temperature, chosen_file, m2, markers):
+    def close_or_save_peak(cancel, confirm, sel, label, m2, markers):
         triggered = callback_context.triggered[0]['prop_id']
         if 'peak-cancel' in triggered:
             return MODAL_HIDDEN, dash.no_update, ""
@@ -451,12 +435,12 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
         if window is None:
             return dash.no_update, dash.no_update, "Window not ready."
 
-        os.makedirs(PEAKS_DIR, exist_ok=True)
-        save_filename = chosen_file or DEFAULT_PEAK_FILENAME
+        initial_dir = os.path.join("Test Results", "Peaks")
+        os.makedirs(initial_dir, exist_ok=True)
         result = window.create_file_dialog(
             FileDialog.SAVE,
-            directory=os.path.abspath(PEAKS_DIR),
-            save_filename=save_filename,
+            directory=os.path.abspath(initial_dir),
+            save_filename='peak_analyses.csv',
             file_types=('CSV files (*.csv)', 'All files (*.*)'),
         )
         if not result:
@@ -464,12 +448,11 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
             return dash.no_update, dash.no_update, ""
         file_path = result[0] if isinstance(result, (list, tuple)) else result
 
-        save_csv_peak_row(label.strip(), wl_v, depth, fwhm, file_path=file_path, temperature=temperature)
+        save_csv_peak_row(label.strip(), wl_v, depth, fwhm, file_path=file_path)
         return MODAL_HIDDEN, "Peak data saved.", ""
 
     @app.callback(
         Output('markers-store', 'data'),
-        Output('mode2-anchor-store', 'data', allow_duplicate=True),
         Input('spectrum', 'clickData'),
         Input('clear-btn', 'n_clicks'),
         State('markers-store', 'data'),
@@ -479,11 +462,11 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
     def update_markers(clickData, n_clicks, markers, click_mode):
         triggered = callback_context.triggered[0]['prop_id']
         if 'clear-btn' in triggered:
-            return [], None
+            return []
         if clickData and click_mode == 1:
             pt = clickData['points'][0]
             markers.append({'x': pt['x'], 'y': pt['y']})
-        return markers, dash.no_update
+        return markers
 
     @app.callback(
         Output('mode2-anchor-store', 'data'),
@@ -502,7 +485,6 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
         Output('spectrum', 'figure'),
         Output('marker-info', 'children'),
         Input('markers-store', 'data'),
-        prevent_initial_call=True,
     )
     def redraw_markers(markers):
         patched = Patch()
@@ -528,6 +510,38 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
                       f"slope: {slope_str})")
             rows.append(html.Div(base + deltas))
         return patched, rows
+    
+    def find_width_offset(idx, y_offset, search_range):
+        height = float(dbm[idx]) - y_offset
+        i_min = max(0, idx - search_range)
+        i_max = min(len(wl), idx + search_range)
+        
+        # left side
+        i = idx
+        while i_min < i and height < float(dbm[i]):
+            i -= 1
+        left_ip = i
+        if dbm[i] < height:
+            if dbm[i + 1] != dbm[i]:
+                left_ip += (height - dbm[i]) / (dbm[i + 1] - dbm[i])
+                
+        # right side
+        i = idx
+        while i < i_max and height < float(dbm[i]):
+            i += 1
+        right_ip = i
+        if dbm[i] < height:
+            if dbm[i - 1] != dbm[i]:
+                right_ip -= (height - dbm[i]) / (dbm[i - 1] - dbm[i])
+        
+        width_ip = right_ip - left_ip
+        d_x      = round(wl[1] - wl[0], 7)
+        
+        left_nm  = wl[int(left_ip)] + (left_ip % 1.0) * d_x
+        right_nm = wl[int(right_ip)] + (right_ip % 1.0) * d_x
+        width_pm = width_ip * d_x * 1000
+        
+        return left_nm, right_nm, width_pm
     
     @app.callback(
         Output('mode2-slider', 'min'),
@@ -571,7 +585,7 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
         patched['data'][2]['text'] = ['M2']
         if y_offset:
             search_range = int(search_range_pm/(d_x*1000))
-            left_nm, right_nm, width_pm = find_bandwidth(wl, dbm, idx, y_offset, search_range)
+            left_nm, right_nm, width_pm = find_width_offset(idx, y_offset, search_range)
             patched['data'][3]['x'] = [float(left_nm)]
             patched['data'][3]['y'] = [max(dbm[idx - search_range], y - y_offset)]
             patched['data'][3]['text'] = ['L']
@@ -598,16 +612,15 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
         Output('custom-table', 'data'),
         Input('mode2-info-store', 'data'),
         Input('markers-store', 'data'),
-        prevent_initial_call=True,
     )
     def update_custom_table(m2, markers):
         row = {'Peak': 'custom', 'x': '', 'y': '', 'Depth': '',
-               'Bandwidth': '', 'base_x': '', 'base_y': ''}
+               'Width': '', 'base_x': '', 'base_y': ''}
         if m2 is not None:
             row['x'] = f"{m2['x']:.6f}"
             row['y'] = f"{m2['y']:.5f}"
             if m2.get('width_pm') is not None:
-                row['Bandwidth'] = f"{m2['width_pm']:.3f}"
+                row['Width'] = f"{m2['width_pm']:.3f}"
         if markers:
             base = markers[-1]
             row['base_x'] = f"{base['x']:.6f}"
@@ -642,38 +655,16 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
         return patched
 
     if pk is not None:
-        _ALL_MARKERS = ['peaks', 'max', 'avg']
-
-        @app.callback(
-            Output('fwhm-dropdown', 'value'),
-            Output('fwhm-all', 'value'),
-            Input('fwhm-dropdown', 'value'),
-            Input('fwhm-all', 'value'),
-            prevent_initial_call=True,
-        )
-        def sync_all_checkbox(items, all_val):
-            triggered = callback_context.triggered[0]['prop_id']
-            if 'fwhm-all' in triggered:
-                items = _ALL_MARKERS if all_val else []
-            else:
-                all_val = ['all'] if set(items or []) == set(_ALL_MARKERS) else []
-            return items, all_val
-
         @app.callback(
             Output('spectrum', 'figure', allow_duplicate=True),
             Input('fwhm-dropdown', 'value'),
             prevent_initial_call=True,
         )
         def update_fwhm_visibility(value):
-            value = value or []
-            show_peaks = 'peaks' in value
-            show_max = 'max' in value
-            show_avg = 'avg' in value
+            show_max = value in ('max', 'both')
+            show_avg = value in ('avg', 'both')
             patched = Patch()
             # Indices shifted +3 (data[2..4] are mode-2 traces)
-            patched['data'][5]['visible'] = show_peaks   # Peaks
-            patched['data'][6]['visible'] = show_peaks   # Bases:Left
-            patched['data'][7]['visible'] = show_peaks   # Bases:Right
             patched['data'][8]['visible'] = show_max
             patched['data'][9]['visible'] = show_max
             patched['data'][10]['visible'] = show_avg
@@ -719,4 +710,4 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
 if __name__ == "__main__":
     data = np.loadtxt("test_2026-05-11_14-44_converted.csv", skiprows=1, delimiter=',')
     peak_info = peak_detection(data)
-    display_plot(data, pk=peak_info)
+    plot_plotly(data, pk=peak_info)

@@ -5,7 +5,7 @@ from tkinter import filedialog
 import pandas as pd
 import numpy as np
 
-from backend_plotly import plot_plotly
+from backend_plotly import display_plot
 from analyze_data import peak_detection
 
 root = tk.Tk()
@@ -24,9 +24,10 @@ if not csv_path:
 if "keysight" in csv_path:
     df = pd.read_csv(csv_path, skiprows=19, header=None, names=["Wavelength", "Power"])
     df.set_index("Wavelength")
+    df["Wavelength"] = df["Wavelength"] * 1e9
 else:
     df = pd.read_csv(csv_path)
 
 data = df.to_numpy()
 peak_info = peak_detection(data)
-plot_plotly(data, pk=peak_info)
+display_plot(data, pk=peak_info)
