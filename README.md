@@ -28,7 +28,7 @@ Users can save raw data and/or peak analysis results to a CSV file.
 
 **Save Raw Data**
 
-Raw data includes wavelength and power values.
+Raw data includes wavelength (nm) and power (dBm) values.
 
 **Save Peak Analysis**
 
