@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+## Changed
+
+- Saving peak data: File saving prompt is skipped if reusing an existing file.
+- Saving peak data: A new entry replaces an existing one only if the label is the same AND the wavelength is close by. (0.5nm)
+
+
 ## [20260602] - 2026-06-02
 
 ### Added
