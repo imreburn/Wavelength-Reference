@@ -1,0 +1,34 @@
+name: Build SingleSweep
+
+on:
+  push:
+    tags:
+      - 'v*'                 # only build on version tags (e.g. v1.0.0)
+  workflow_dispatch:         # allow manual build anytime from GitHub UI
+    inputs:
+      version:
+        description: 'Version label for this build'
+        required: false
+        default: 'manual'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: 'pip'       # cache pip packages
+
+      - run: pip install -r requirements.txt pyinstaller
+
+      - name: Build SingleSweep
+        run: pyinstaller --onefile --name SingleSweep main_single.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SingleSweep-${{ github.ref_name }}
+          path: dist/SingleSweep/
