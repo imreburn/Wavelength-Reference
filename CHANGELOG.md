@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## Added
+
+- Simple logging is added to capture runtime errors.
+
 ## Changed
 
 - Saving peak data: File saving prompt is skipped if reusing an existing file.
