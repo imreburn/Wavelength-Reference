@@ -1,7 +1,10 @@
 import numpy as np
 from scipy.signal import find_peaks, peak_widths
+import logging
 
 from structs import PeakInfo, Peaks, PeakFwhm, MaxPeak
+
+log = logging.getLogger(__name__)
 
 # Analyze peak(s)
 def peak_detection(data):
@@ -17,8 +20,8 @@ def peak_detection(data):
     simple_prominence = (np.max(y) - np.min(y))*(3/4)
     peak_indices, peak_properties = find_peaks(y, prominence=simple_prominence, distance=8000)
 
+    log.info(f"Peak(s) found: {len(peak_indices)}")
     if len(peak_indices) == 0:
-        print("No peak found")
         return None
 
     # Prominence takes the shorter peak depth by definition

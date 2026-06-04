@@ -6,13 +6,13 @@ from backend_plotly import display_plot
 from structs import Params
 from logger import setup_logging
 
-log = setup_logging()
+log = setup_logging("SingleSweep")
 
 try:
     pm, laser = prep_inst()
 
     while True:
-        params = get_inputs(pm, laser)
+        params = get_inputs()
         if not params:
             break
 
@@ -22,7 +22,7 @@ try:
             peak_info = peak_detection(data)
             display_plot(data, pk=peak_info)
         else:
-            print("Data is not collected.")
+            log.warning("Data is not collected.")
 except Exception:
     log.exception("Unhandled error")
     raise

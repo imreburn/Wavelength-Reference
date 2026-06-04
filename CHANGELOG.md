@@ -4,13 +4,18 @@
 
 ## Added
 
-- Simple logging is added to capture runtime errors.
+- Logging is added to capture messages and errors.
+- Reference sweep is under development.
 
 ## Changed
 
 - Saving peak data: File saving prompt is skipped if reusing an existing file.
 - Saving peak data: A new entry replaces an existing one only if the label is the same AND the wavelength is close by. (0.5nm)
+- Saving peak data: The last chosen file is selected by default while the program is running
 
+## Removed
+
+- The reset button is removed from the GUI input window.
 
 ## [20260602] - 2026-06-02
 

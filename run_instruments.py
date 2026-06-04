@@ -2,13 +2,16 @@ import sys
 import pyvisa
 import time
 import numpy as np
-import pandas as pd
+# import pandas as pd
+import logging
 
 from prep_instruments import prep_inst
 from structs import Params
 
+log = logging.getLogger(__name__)
+
 def run_single(pm, laser, params, dryrun=False):
-    print("--- Start a test ---")
+    log.info("--- Start a test ---")
     
     tls_wl_start = params.wl_start - params.padding
     tsl_wl_stop  = params.wl_stop  + params.padding
@@ -45,13 +48,13 @@ def run_single(pm, laser, params, dryrun=False):
 
     laser_check_param = (laser.query(":SOUR0:WAV:SWE:CHEC?")).split(',')
     if int(laser_check_param[0]) != 0:
-        print("[LASER] Failed parameter checks: ", *laser_check_param)
+        log.error(f"[LASER] Failed parameter checks: {', '.join(laser_check_param)}")
     else:
-        print("[LASER] Passed parameter checks")
+        log.info("[LASER] Passed parameter checks")
 
     if (n := int(laser.query(":SYST:ERR:COUN?"))) > 0:
         for _ in range(n):
-            print("[LASER] System error: ", laser.query(":SYST:ERR?"))
+            log.error(f"[LASER] System error: {laser.query(':SYST:ERR?')}")
         return None
     
     # TODO: check behavior of power meter. Check if ":SYST:ERR:COUN?" works
@@ -72,27 +75,27 @@ def run_single(pm, laser, params, dryrun=False):
 
     # TLS: starts continuous sweep
     laser.write(":SOURCE0:WAV:SWE:STATE 1")
-    print("[LASER] Start a continuous sweep")
+    log.info("[LASER] Start a continuous sweep")
 
     # Hold execution until sweep finishes
     while int(laser.query(":SOURCE0:WAV:SWE:STATE?")) == 1:
-        print("[LASER] Sweeping...")
+        log.info("[LASER] Sweeping...")
         time.sleep(1)
 
-    print("[LASER] Sweep finished")
+    log.info("[LASER] Sweep finished")
 
     # PM: read logged date
-    print("[PM] Read logged data")
+    log.info("[PM] Read logged data")
     pm.write(":SENS1:FUNC:RES?")
     time.sleep(2)
     arr_w = pm.read_binary_values(container=np.ndarray)
-    print("[PM] Number of logged data: ", len(arr_w))
+    log.info(f"[PM] Number of logged data: {len(arr_w)}")
     pm.write(":SENS1:FUNC:STAT LOGG, STOP")
 
-    print("[LASER] Check if any error occurred: ", laser.query(":SYST:ERR?"))
-    print("[PM] Check if any error occurred: ", pm.query(":SYST:ERR?"))
+    log.info(f"[LASER] Check if any error occurred: {laser.query(':SYST:ERR?')}")
+    log.info(f"[PM] Check if any error occurred: {pm.query(':SYST:ERR?')}")
 
-    print("--- Test finished ---\n")
+    log.info("--- Test finished ---\n")
 
     arr_dbm  = 10 * np.log10(arr_w / 1e-3)  # convert: W -> dBm
     arr_dbm *= -1                           # power loss 

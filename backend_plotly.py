@@ -13,6 +13,10 @@ from analyze_data import peak_detection, find_bandwidth
 from save_csv import save_csv_raw, save_csv_peak, save_csv_peak_row
 from helper_plotly import lttb
 
+# Remembered across display_plot() calls (i.e. across loop iterations) so the
+# "Choose a file" dropdown can pre-select the file used last time.
+_last_peak_file = ''
+
 def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
                   width=1400, height=1000, port=8050):
     """
@@ -48,7 +52,7 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
     SLIDER_STEP  = d_x    # nm 
 
     OFFSET_RANGE = 25 # half-range of searching in samples. 0.0125 pm * 2000 = 25.0 pm
-    MAX_DISPLAY  = 4000  # max points rendered at once for the spectrum
+    MAX_DISPLAY  = 20000  # max points rendered at once for the spectrum
 
     # ------------------------------------------------------------------
     # Initial figure (built once, captures the data)
@@ -283,6 +287,11 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
         opts += [{'label': f, 'value': f} for f in files]
         return opts
 
+    def _remembered_file_value(opts):
+        """Last-used file if it still exists among the options, else ''."""
+        values = {o['value'] for o in opts}
+        return _last_peak_file if _last_peak_file in values and _last_peak_file else ''
+
     MODAL_OVERLAY = {
         'position': 'fixed', 'top': 0, 'left': 0, 'right': 0, 'bottom': 0,
         'backgroundColor': 'rgba(0,0,0,0.45)', 'zIndex': 1000,
@@ -314,7 +323,8 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
             html.Label('Choose a file', style={'fontWeight': 'bold', 'display': 'block',
                                                'marginBottom': '4px'}),
             dcc.Dropdown(id='peak-file-select', options=_peak_file_options(),
-                         value='', clearable=False,
+                         value=_remembered_file_value(_peak_file_options()),
+                         clearable=False,
                          style={'marginBottom': '12px'}),
             html.Div(id='peak-modal-error',
                      style={'color': '#C0392B', 'fontSize': '12px',
@@ -405,11 +415,13 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
     @app.callback(
         Output('peak-modal', 'style'),
         Output('peak-file-select', 'options'),
+        Output('peak-file-select', 'value'),
         Input('save-peak-btn', 'n_clicks'),
         prevent_initial_call=True,
     )
     def open_peak_modal(n_clicks):
-        return MODAL_SHOWN, _peak_file_options()
+        opts = _peak_file_options()
+        return MODAL_SHOWN, opts, _remembered_file_value(opts)
 
     @app.callback(
         Output('peak-modal', 'style', allow_duplicate=True),
@@ -468,6 +480,8 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
             file_path = result[0] if isinstance(result, (list, tuple)) else result
 
         save_csv_peak_row(label.strip(), wl_v, depth, fwhm, file_path=file_path, temperature=temperature)
+        global _last_peak_file
+        _last_peak_file = os.path.basename(file_path)
         return MODAL_HIDDEN, "Peak data saved.", ""
 
     @app.callback(
