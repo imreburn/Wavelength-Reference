@@ -21,8 +21,15 @@ jobs:
         with:
           python-version: '3.14'
           cache: 'pip'       # cache pip packages
+          cache-dependency-path: 'requirements.in'
 
-      - run: pip install -r requirements.txt pyinstaller
+      - name: Compile requirements for Windows
+        run: |
+          pip install pip-tools
+          pip-compile requirements.in --output-file requirements.txt
+      
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller
 
       - name: Build SingleSweep
         run: pyinstaller --onefile --name SingleSweep main_single.py
@@ -31,4 +38,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: SingleSweep-${{ github.ref_name }}
-          path: dist/SingleSweep/
+          path: dist/*.exe
