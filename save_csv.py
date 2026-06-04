@@ -80,10 +80,16 @@ def save_csv_peak_row(label, wl, depth, fwhm, file_path, temperature=None, loss=
     if parent:
         os.makedirs(parent, exist_ok=True)
 
+    WL_TOL_NM = 0.5  # same-label rows within this wavelength are treated as the same peak
+
     if os.path.exists(file_path):
         existing_df = pd.read_csv(file_path)
-        # Drop any existing rows sharing this label, then append the new one.
-        existing_df = existing_df[existing_df["Label"].astype(str) != str(label)]
+        # Replace an existing row only when it shares this label AND its wavelength
+        # is close (within WL_TOL_NM). Same-label rows at a clearly different
+        # wavelength are kept, so distinct peaks can coexist under one label.
+        same_label = existing_df["Label"].astype(str) == str(label)
+        close_wl = (existing_df["Wavelength (nm)"] - round(wl, 6)).abs() <= WL_TOL_NM
+        existing_df = existing_df[~(same_label & close_wl)]
         peak_df = pd.concat([existing_df, peak_df], ignore_index=True)
         peak_df.to_csv(file_path, index=False)
     else:

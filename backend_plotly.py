@@ -452,17 +452,20 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
             return dash.no_update, dash.no_update, "Window not ready."
 
         os.makedirs(PEAKS_DIR, exist_ok=True)
-        save_filename = chosen_file or DEFAULT_PEAK_FILENAME
-        result = window.create_file_dialog(
-            FileDialog.SAVE,
-            directory=os.path.abspath(PEAKS_DIR),
-            save_filename=save_filename,
-            file_types=('CSV files (*.csv)', 'All files (*.*)'),
-        )
-        if not result:
-            # User cancelled the file dialog — keep the modal open.
-            return dash.no_update, dash.no_update, ""
-        file_path = result[0] if isinstance(result, (list, tuple)) else result
+        if chosen_file:
+            # User picked an existing file — save directly, skip the dialog.
+            file_path = os.path.join(os.path.abspath(PEAKS_DIR), chosen_file)
+        else:
+            result = window.create_file_dialog(
+                FileDialog.SAVE,
+                directory=os.path.abspath(PEAKS_DIR),
+                save_filename=DEFAULT_PEAK_FILENAME,
+                file_types=('CSV files (*.csv)', 'All files (*.*)'),
+            )
+            if not result:
+                # User cancelled the file dialog — keep the modal open.
+                return dash.no_update, dash.no_update, ""
+            file_path = result[0] if isinstance(result, (list, tuple)) else result
 
         save_csv_peak_row(label.strip(), wl_v, depth, fwhm, file_path=file_path, temperature=temperature)
         return MODAL_HIDDEN, "Peak data saved.", ""
