@@ -1,0 +1,11 @@
+.DS_Store
+.vscode/
+__pycache__/
+Measurements/
+Archives/
+Scratchpad/
+build/
+dist/
+Test Results/
+tempCodeRunnerFile.py
+*.csv
