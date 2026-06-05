@@ -1,4 +1,4 @@
-name: Build SingleSweep
+name: Build Sweeps
 
 on:
   push:
@@ -13,24 +13,19 @@ on:
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    runs-on: windows-2025
     permissions:
       contents: write          # ← required for creating releases
       
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.14'
           cache: 'pip'       # cache pip packages
-          cache-dependency-path: 'requirements.in'
+          cache-dependency-path: 'requirements.txt'
 
-      - name: Compile requirements for Windows
-        run: |
-          pip install pip-tools
-          pip-compile requirements.in --output-file requirements.txt
-      
       - name: Install dependencies
         run: pip install -r requirements.txt pyinstaller
 
@@ -39,22 +34,53 @@ jobs:
           pyinstaller 
           --onefile
           --collect-all dash
+          --collect-all plotly
           --name SingleSweep
           main_single.py
-          
+      
+      - name: Build RefSweep
+        run: >
+          pyinstaller 
+          --onefile
+          --collect-all dash
+          --collect-all plotly
+          --name RefSweep
+          main_reference.py
+      
+      - name: Build PlotSweep
+        run: >
+          pyinstaller 
+          --onefile
+          --collect-all dash
+          --collect-all plotly
+          --name PlotSweep
+          plot_csv.py    
+
+      - name: Verify builds
+        shell: bash
+        run: |
+          for exe in dist/SingleSweep.exe dist/RefSweep.exe dist/PlotSweep.exe; do
+            if [ ! -f "$exe" ]; then
+              echo "ERROR: $exe not found"
+              exit 1
+            fi
+            echo "OK: $exe ($(du -h $exe | cut -f1))"
+          done
+
       - name: Get short SHA
         shell: bash
         run: echo "SHORT_SHA=${GITHUB_SHA::8}" >> $GITHUB_ENV
       
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          name: SingleSweep-${{ github.ref_name }}-${{ env.SHORT_SHA }}
+          name: Sweeps-${{ github.ref_name }}-${{ env.SHORT_SHA }}
           path: dist/*.exe
 
       - name: Create GitHub Release   # ← new step
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')   # only on tag pushes
         with:
-          files: dist/SingleSweep.exe
+          files: dist/*.exe
           generate_release_notes: true   # auto-generates notes from commits
+          draft: true
