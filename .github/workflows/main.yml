@@ -14,6 +14,9 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
+    permissions:
+      contents: write          # ← required for creating releases
+      
     steps:
       - uses: actions/checkout@v4
 
@@ -48,3 +51,10 @@ jobs:
         with:
           name: SingleSweep-${{ github.ref_name }}-${{ env.SHORT_SHA }}
           path: dist/*.exe
+
+      - name: Create GitHub Release   # ← new step
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')   # only on tag pushes
+        with:
+          files: dist/SingleSweep.exe
+          generate_release_notes: true   # auto-generates notes from commits
