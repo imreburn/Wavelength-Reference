@@ -54,7 +54,7 @@ jobs:
           --collect-all dash
           --collect-all plotly
           --name PlotSweep
-          plot_csv.py    
+          plot_csv.py
 
       - name: Verify builds
         shell: bash
@@ -74,7 +74,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
-          name: Sweeps-${{ github.ref_name }}-${{ env.SHORT_SHA }}
+          name: Sweeps-${{ github.event.inputs.version || github.ref_name }}-${{ env.SHORT_SHA }}
           path: dist/*.exe
 
       - name: Create GitHub Release   # ← new step
