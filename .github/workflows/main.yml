@@ -60,7 +60,7 @@ jobs:
           path: dist/Sweeps
 
       - name: Create GitHub Release   # ← new step
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')   # only on tag pushes
         with:
           files: dist/*.zip

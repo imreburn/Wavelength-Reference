@@ -64,7 +64,22 @@ def run_sweep(pm, laser, params, dryrun=False):
         log.error(f"[LASER] Failed parameter checks: {', '.join(laser_check_param)}")
     else:
         log.info("[LASER] Passed parameter checks")
-        
+
+    # Check system errors
+    if (n := int(laser.query(":SYST:ERR:COUN?"))) > 0:
+        for _ in range(n):
+            log.error(f"[LASER] System error: {laser.query(':SYST:ERR?')}")
+        sys.exit(1)
+    
+    pm_check_error1 = (pm.query(":SYST:ERR?")).split(',')
+    if int(pm_check_error1[0]) != 0:
+        while True:
+            log.error("[PM] System error: ", *pm_check_error1)
+            pm_check_error1 = (pm.query(":SYST:ERR?")).split(',')
+            if int(pm_check_error1[0]) == 0:
+                break
+        sys.exit(1)
+
     if dryrun:
         return None
     
@@ -82,30 +97,16 @@ def run_sweep(pm, laser, params, dryrun=False):
 
     log.info("[LASER] Sweep finished")
 
-    # PM: read logged date
-    log.info("[PM] Read logged data")
+    # PM: read logged data
+    log.info("[PM] Read logged measurements")
     pm.write(":SENS1:FUNC:RES?")
     time.sleep(2)
     arr_w = pm.read_binary_values(container=np.ndarray)
-    log.info(f"[PM] Number of logged data: {len(arr_w)}")
-    pm.write(":SENS1:FUNC:STAT LOGG, STOP")
-
-    # Check system errors
-    if (n := int(laser.query(":SYST:ERR:COUN?"))) > 0:
-        for _ in range(n):
-            log.error(f"[LASER] System error: {laser.query(':SYST:ERR?')}")
-        sys.exit(1)
     
-    pm_check_error1 = (pm.query(":SYST:ERR?")).split(',')
-    if int(pm_check_error1[0]) != 0:
-        while True:
-            log.error("[PM] System error: ", *pm_check_error1)
-            pm_check_error1 = (pm.query(":SYST:ERR?")).split(',')
-            if int(pm_check_error1[0]) == 0:
-                break
-        sys.exit(1)
-
-    log.info("--- End of running instruments ---\n")
+    log.info(f"[PM] Log count: {len(arr_w)}")
+    
+    pm.write(":SENS1:FUNC:STAT LOGG, STOP")
+    laser.write(":SOURCE0:POW:STATE 1")
 
     upper_limit = power_limit[str(params.pm_range)]
     arr_w[arr_w > upper_limit] = np.nan
@@ -116,7 +117,7 @@ def run_sweep(pm, laser, params, dryrun=False):
         log.warning("There are some overflown measurements.")
         
     arr_dbm  = 10 * np.log10(arr_w.astype(np.float64) / 1e-3)  # convert: W -> dBm
-    arr_dbm *= -1                           # power loss 
+    arr_dbm *= -1                                              # power loss 
     
     # Generate x-axis
     wav_stop_tmp = tls_wl_start + (params.step_pm * 1e-3) * (params.num_data - 1)

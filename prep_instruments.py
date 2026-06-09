@@ -13,13 +13,12 @@ def exceptionHandler(exception):
           (exception.abbreviation, exception.error_code, exception.description))
 
 def get_inst():
-    log.info("Connecting to instruments...")
     rm = pyvisa.ResourceManager()
     
     try: 
         pm    = rm.open_resource(VISA_ADDRESS_POWER_METER)
         laser = rm.open_resource(VISA_ADDRESS_TLS)
-    except visa.VisaIOError as ex:
+    except pyvisa.VisaIOError as ex:
         log.error('VISA Error')
         exceptionHandler(ex)
 
@@ -28,8 +27,8 @@ def get_inst():
 
     log.info(pm.query("*IDN?"))
     log.info(laser.query("*IDN?"))
-
-    log.info("Connected\n")
+    log.info("Connected to instruments")
+    
     return pm, laser
 
 
@@ -62,7 +61,6 @@ def init_inst(pm, laser):
 def prep_inst():
     pm, laser = get_inst()
     init_inst(pm, laser)
-
     return pm, laser
 
 if __name__ == "__main__":
