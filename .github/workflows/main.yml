@@ -29,37 +29,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt pyinstaller
 
-      - name: Build WavelengthSweep
-        run: >
-          pyinstaller 
-          --onedir
-          --collect-all dash
-          --collect-all plotly
-          --name WavelengthSweep
-          main_sweep.py
-      
-      - name: Build RefSweep
-        run: >
-          pyinstaller 
-          --onedir
-          --collect-all dash
-          --collect-all plotly
-          --name RefSweep
-          main_reference.py
-      
-      - name: Build PlotSweep
-        run: >
-          pyinstaller 
-          --onedir
-          --collect-all dash
-          --collect-all plotly
-          --name PlotSweep
-          plot_csv.py
+      - name: Build Sweeps   # single spec → one dist/Sweeps/ with a shared _internal
+        run: pyinstaller Sweeps.spec
 
       - name: Verify builds
         shell: bash
         run: |
-          for exe in dist/WavelengthSweep/WavelengthSweep.exe dist/RefSweep/RefSweep.exe dist/PlotSweep/PlotSweep.exe; do
+          for exe in dist/Sweeps/WavelengthSweep.exe dist/Sweeps/RefSweep.exe dist/Sweeps/PlotSweep.exe; do
             if [ ! -f "$exe" ]; then
               echo "ERROR: $exe not found"
               exit 1
@@ -71,17 +47,17 @@ jobs:
         shell: bash
         run: echo "SHORT_SHA=${GITHUB_SHA::8}" >> $GITHUB_ENV
 
-      - name: Zip builds   # ← onedir produces folders; bundle all three into one zip
+      - name: Zip builds   # bundle the single shared folder into one zip
         shell: bash
         run: |
           cd dist
-          7z a "Sweeps-${SHORT_SHA}.zip" WavelengthSweep RefSweep PlotSweep
+          7z a "Sweeps-${SHORT_SHA}.zip" Sweeps
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
           name: Sweeps-${{ github.event.inputs.version || github.ref_name }}-${{ env.SHORT_SHA }}
-          path: dist/*.zip          
+          path: dist/Sweeps
 
       - name: Create GitHub Release   # ← new step
         uses: softprops/action-gh-release@v2

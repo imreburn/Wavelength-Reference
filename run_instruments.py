@@ -64,21 +64,6 @@ def run_sweep(pm, laser, params, dryrun=False):
         log.error(f"[LASER] Failed parameter checks: {', '.join(laser_check_param)}")
     else:
         log.info("[LASER] Passed parameter checks")
-
-    if (n := int(laser.query(":SYST:ERR:COUN?"))) > 0:
-        for _ in range(n):
-            log.error(f"[LASER] System error: {laser.query(':SYST:ERR?')}")
-            sys.exit(1)
-    
-    # TODO: check behavior of power meter. Check if ":SYST:ERR:COUN?" works
-    # pm_check_error1 = (pm.query(":SYST:ERR?")).split(',')
-    # if int(pm_check_error1[0]) != 0:
-    #     while True:
-    #         print("[PM] System error: ", *pm_check_error1)
-    #         pm_check_error1 = (pm.query(":SYST:ERR?")).split(',')
-    #         if int(pm_check_error1[0]) == 0:
-    #             break
-    #     return None
         
     if dryrun:
         return None
@@ -105,8 +90,20 @@ def run_sweep(pm, laser, params, dryrun=False):
     log.info(f"[PM] Number of logged data: {len(arr_w)}")
     pm.write(":SENS1:FUNC:STAT LOGG, STOP")
 
-    log.info(f"[LASER] Check if any error occurred: {laser.query(':SYST:ERR?')}")
-    log.info(f"[PM] Check if any error occurred: {pm.query(':SYST:ERR?')}")
+    # Check system errors
+    if (n := int(laser.query(":SYST:ERR:COUN?"))) > 0:
+        for _ in range(n):
+            log.error(f"[LASER] System error: {laser.query(':SYST:ERR?')}")
+            sys.exit(1)
+    
+    pm_check_error1 = (pm.query(":SYST:ERR?")).split(',')
+    if int(pm_check_error1[0]) != 0:
+        while True:
+            log.error("[PM] System error: ", *pm_check_error1)
+            pm_check_error1 = (pm.query(":SYST:ERR?")).split(',')
+            if int(pm_check_error1[0]) == 0:
+                break
+        sys.exit(1)
 
     log.info("--- End of running instruments ---\n")
 
