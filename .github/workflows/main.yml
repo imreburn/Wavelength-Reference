@@ -32,7 +32,7 @@ jobs:
       - name: Build WavelengthSweep
         run: >
           pyinstaller 
-          --onefile
+          --onedir
           --collect-all dash
           --collect-all plotly
           --name WavelengthSweep
@@ -41,7 +41,7 @@ jobs:
       - name: Build RefSweep
         run: >
           pyinstaller 
-          --onefile
+          --onedir
           --collect-all dash
           --collect-all plotly
           --name RefSweep
@@ -50,7 +50,7 @@ jobs:
       - name: Build PlotSweep
         run: >
           pyinstaller 
-          --onefile
+          --onedir
           --collect-all dash
           --collect-all plotly
           --name PlotSweep
