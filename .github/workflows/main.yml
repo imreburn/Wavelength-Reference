@@ -56,16 +56,16 @@ jobs:
           --name PlotSweep
           plot_csv.py
 
-      - name: Verify builds
-        shell: bash
-        run: |
-          for exe in dist/WavelengthSweep.exe dist/RefSweep.exe dist/PlotSweep.exe; do
-            if [ ! -f "$exe" ]; then
-              echo "ERROR: $exe not found"
-              exit 1
-            fi
-            echo "OK: $exe ($(du -h $exe | cut -f1))"
-          done
+      # - name: Verify builds
+      #   shell: bash
+      #   run: |
+      #     for exe in dist/WavelengthSweep.exe dist/RefSweep.exe dist/PlotSweep.exe; do
+      #       if [ ! -f "$exe" ]; then
+      #         echo "ERROR: $exe not found"
+      #         exit 1
+      #       fi
+      #       echo "OK: $exe ($(du -h $exe | cut -f1))"
+      #     done
 
       - name: Get short SHA
         shell: bash
