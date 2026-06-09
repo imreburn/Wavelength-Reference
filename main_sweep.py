@@ -6,8 +6,6 @@ from backend_plotly import display_plot
 from structs import Params
 from logger import setup_logging
 
-# from backend_plotly_tmp import display_plot_tmp
-from backend_matplotlib import plot_matplotlib
 from save_csv import save_csv_raw
 
 log = setup_logging("WavelengthSweep")
