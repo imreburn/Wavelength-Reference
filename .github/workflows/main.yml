@@ -56,31 +56,37 @@ jobs:
           --name PlotSweep
           plot_csv.py
 
-      # - name: Verify builds
-      #   shell: bash
-      #   run: |
-      #     for exe in dist/WavelengthSweep.exe dist/RefSweep.exe dist/PlotSweep.exe; do
-      #       if [ ! -f "$exe" ]; then
-      #         echo "ERROR: $exe not found"
-      #         exit 1
-      #       fi
-      #       echo "OK: $exe ($(du -h $exe | cut -f1))"
-      #     done
+      - name: Verify builds
+        shell: bash
+        run: |
+          for exe in dist/WavelengthSweep/WavelengthSweep.exe dist/RefSweep/RefSweep.exe dist/PlotSweep/PlotSweep.exe; do
+            if [ ! -f "$exe" ]; then
+              echo "ERROR: $exe not found"
+              exit 1
+            fi
+            echo "OK: $exe ($(du -h $exe | cut -f1))"
+          done
 
       - name: Get short SHA
         shell: bash
         run: echo "SHORT_SHA=${GITHUB_SHA::8}" >> $GITHUB_ENV
-      
+
+      - name: Zip builds   # ← onedir produces folders; bundle all three into one zip
+        shell: bash
+        run: |
+          cd dist
+          7z a "Sweeps-${SHORT_SHA}.zip" WavelengthSweep RefSweep PlotSweep
+
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
           name: Sweeps-${{ github.event.inputs.version || github.ref_name }}-${{ env.SHORT_SHA }}
-          path: dist/*.exe
+          path: dist/*.zip          
 
       - name: Create GitHub Release   # ← new step
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')   # only on tag pushes
         with:
-          files: dist/*.exe
+          files: dist/*.zip
           generate_release_notes: true   # auto-generates notes from commits
           draft: true
