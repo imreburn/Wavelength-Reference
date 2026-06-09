@@ -13,7 +13,7 @@ on:
 
 jobs:
   build-windows:
-    runs-on: windows-2025
+    runs-on: windows-2025-vs2026
     permissions:
       contents: write          # ← required for creating releases
       
@@ -59,7 +59,7 @@ jobs:
       - name: Verify builds
         shell: bash
         run: |
-          for exe in dist/SingleSweep.exe dist/RefSweep.exe dist/PlotSweep.exe; do
+          for exe in dist/WavelengthSweep.exe dist/RefSweep.exe dist/PlotSweep.exe; do
             if [ ! -f "$exe" ]; then
               echo "ERROR: $exe not found"
               exit 1
