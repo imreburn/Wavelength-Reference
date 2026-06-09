@@ -3,13 +3,15 @@ import tkinter as tk
 from tkinter import filedialog
 from datetime import datetime
 import pandas as pd
+import json
+from dataclasses import asdict
+import logging
 
 from structs import Params, PeakInfo
 
-def save_csv_raw(data, file_path=None):
+log = logging.getLogger(__name__)
 
-    df = pd.DataFrame(data, columns=["Wavelength", "Power"])
-
+def save_csv_raw(data, params:Params=None, file_path=None):
     if file_path is None:
         initial_dir = os.path.join("Test Results", "Raw Data")
         os.makedirs(initial_dir, exist_ok=True)
@@ -25,37 +27,16 @@ def save_csv_raw(data, file_path=None):
         root.destroy()
 
     if not file_path:
-        print("Raw data save cancelled.\n")
+        log.warning("Raw data save cancelled.\n")
         return
-
-    df.to_csv(file_path, index=False)
-    print("Raw data saved to a file: ", file_path, "\n")
-
-
-# def save_csv_raw(data, params: Params):
     
-#     df = pd.DataFrame(data, columns=["Wavelength", "Power"])
-#     os.makedirs(os.path.join("Test Results", "Raw Data", params.date), exist_ok=True)
-#     file_path = os.path.join("Test Results", "Raw Data", params.date, params.csv_fname)
-#     df.to_csv(file_path, index=False)    
-#     print("Raw data saved to a file: ", file_path, "\n")
-
+    df = pd.DataFrame({"Wavelength":data[0], "Power":data[1]})
     
-def save_csv_peak(peak_info: PeakInfo, params: Params):
-    # Construct pandas DataFrame
-    peak_dict = {
-        "Label"      : [params.peak_label],
-        "Timestamp"  : [params.time],
-        "Wavelength" : [peak_info.csv.wl],
-        "Depth (max)": [peak_info.csv.depth],
-        "FWHM (max)" : [peak_info.csv.fwhm]
-    }
-    
-    peak_df = pd.DataFrame(data=peak_dict)
-    os.makedirs(os.path.join("Test Results", "Peaks"), exist_ok=True)
-    csv_path = os.path.join("Test Results", "Peaks", params.peak_fname)
-    peak_df.to_csv(csv_path, index=False, mode='a', header=not os.path.exists(csv_path))
-    print("Peak information saved to a file: ", csv_path, "\n")
+    with open(file_path, "w") as f:
+        f.write("# " + json.dumps(asdict(params) if params is not None else {}) + "\n")
+        df.to_csv(f, index=False)
+        
+    log.info(f"Raw data saved to a file: {file_path}")
 
 
 def save_csv_peak_row(label, wl, depth, fwhm, file_path, temperature=None, loss=None):
@@ -94,5 +75,5 @@ def save_csv_peak_row(label, wl, depth, fwhm, file_path, temperature=None, loss=
         peak_df.to_csv(file_path, index=False)
     else:
         peak_df.to_csv(file_path, index=False)
-    print("Peak information saved to a file: ", file_path, "\n")
-    return file_path
+    
+    log.info(f"Peak information saved: {file_path}")

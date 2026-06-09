@@ -4,14 +4,19 @@
 
 ## Added
 
+- Support reference sweep via `RefSweep`.
+- Support dynamic range scans.
 - Logging is added to capture messages and errors.
-- Reference sweep is under development.
+- Reference data is plotted after taking reference data.
+- Initial Powermeter Range, Dynamic Scans, Decrement (dB) fields are added. These fields are also added in `preset.csv`
+- Raw CSV will include the testing parameters.
 
 ## Changed
 
 - Saving peak data: File saving prompt is skipped if reusing an existing file.
 - Saving peak data: A new entry replaces an existing one only if the label is the same AND the wavelength is close by. (0.5nm)
-- Saving peak data: The last chosen file is selected by default while the program is running
+- Saving peak data: The last chosen file is selected by default while the program is running.
+- Saving peak data: The last used label, temperature is remembered while the program is running.
 
 ## Removed
 

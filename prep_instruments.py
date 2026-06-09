@@ -13,7 +13,7 @@ def exceptionHandler(exception):
           (exception.abbreviation, exception.error_code, exception.description))
 
 def get_inst():
-    print("Connecting to instruments...")
+    log.info("Connecting to instruments...")
     rm = pyvisa.ResourceManager()
     
     try: 

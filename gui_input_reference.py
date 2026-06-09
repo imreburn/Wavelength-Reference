@@ -1,17 +1,20 @@
 from datetime import datetime
 import tkinter as tk
+import logging
 
 from structs import Params
 from gui_input_common import (
     FIELD_LABELS, DEFAULTS, SWEEP_SPEED_OPTIONS, PADDING,
-    load_presets, validate_inputs, validation_error,
+    EXTRA_LABELS, EXTRA_DEFAULTS, PM_RANGE_LABEL, DYN_SCAN_LABEL, DECREMENT_LABEL,
+    load_presets, make_extra_widgets, validate_inputs, validation_error,
 )
 
+log = logging.getLogger(__name__)
+
 _last = {}  # persists raw field values within one execution
-saved_reference = False  # True once a reference sweep has been run; persists across get_inputs() calls
 
-
-def get_inputs():
+def get_inputs(ref_saved=False):
+    """`ref_saved`: True if a reference sweep already exists (caller-tracked)."""
     params = Params()
     saved = {"ok": False}
     ran = {"ok": False}
@@ -19,32 +22,10 @@ def get_inputs():
 
     def compute_and_fill(sweep_type):
         """Validate the entries, fill `params`, update the readout. Returns True on success."""
-        values, error = validate_inputs([e.get() for e in entries])
+        values, error = validate_inputs([e.get() for e in entries], num_data, avg_time)
         if error:
             validation_error(error, result_label, num_data, avg_time, saved, run_btn)
             return False
-
-        wav_start = values[0] - PADDING  # nm
-        wav_stop  = values[1] + PADDING  # nm
-        speed     = values[2]            # nm/s
-        step_new  = values[3]            # pm
-
-        avg_t        = int(step_new/speed*1e3)        # us
-        avg_t        = 25 if avg_t < 25 else avg_t
-        step_new     = round((speed/1e3) * avg_t, 4)
-        wav_range    = (wav_stop - wav_start) * 1000  # pm
-        pp           = int(wav_range // step_new)
-        qq           = wav_range % step_new
-        num_data_log = pp if qq == 0 else pp+1
-
-        num_data.set(f"{num_data_log}")
-        avg_time.set(f"{avg_t}")
-
-        # If step size is adjusted, turn the field red
-        if step_new != float(entries[3].get()):
-            entries[3].delete(0, tk.END)
-            entries[3].insert(0, f"{step_new:.4f}")
-            entries[3].config(fg="red")
 
         ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         ds = datetime.now().strftime("%Y-%m-%d")
@@ -52,26 +33,36 @@ def get_inputs():
         params.wl_start   = values[0]
         params.wl_stop    = values[1]
         params.speed      = values[2]
-        params.step_pm    = step_new
+        params.step_pm    = values[3]
         params.tls_dbm    = values[4]
-        params.num_data   = num_data_log
-        params.at_us      = avg_t
+        params.at_us      = values[5]
+        params.num_data   = values[6]
+        
+        params.pm_range   = int(extra_vars[PM_RANGE_LABEL].get())
+        params.dyn_scans  = int(extra_vars[DYN_SCAN_LABEL].get())
+        params.decrement  = int(extra_vars[DECREMENT_LABEL].get())
+
         params.padding    = PADDING
         params.time       = ts
         params.date       = ds
-        params.sweep      = sweep_type
+        params.sweep_type = sweep_type
+        
+        # If step size is adjusted, turn the field red
+        if params.step_pm != float(entries[3].get()):
+            entries[3].delete(0, tk.END)
+            entries[3].insert(0, f"{params.step_pm:.4f}")
+            entries[3].config(fg="red")
+            
         return True
 
     def on_save():
-        if not compute_and_fill("reference"):
+        if not compute_and_fill("new_reference"):
             return
         result_label.config(text="Saved. Review values, then click Run.")
         saved["ok"] = True
         run_btn.config(state="normal")
 
     def on_new_reference():
-        global saved_reference
-        saved_reference = False        # discard the old reference — "New reference resets all"
         state["new_ref"] = True
         saved["ok"] = False
         set_fields_state("normal")
@@ -93,29 +84,34 @@ def get_inputs():
         name = preset_var.get()
         if name == "none" or name not in presets:
             return
-        for entry, val in zip(entries, presets[name]):
+        vals = presets[name]
+        for entry, label in zip(entries, FIELD_LABELS):
             if isinstance(entry, tk.StringVar):
-                entry.set(val)
+                entry.set(vals[label])
             else:
                 entry.delete(0, tk.END)
-                entry.insert(0, val)
+                entry.insert(0, vals[label])
+        # Dynamic-range scanning is disabled for reference sweeps; only the
+        # powermeter range is taken from the preset.
+        extra_vars[PM_RANGE_LABEL].set(vals[PM_RANGE_LABEL])
         on_entry_change()
 
     def on_run():
-        global saved_reference
         if state["new_ref"]:
             # Running a freshly defined reference — requires a successful Save first.
             if not saved["ok"]:
                 return
-            saved_reference = True       # params already filled as "reference" by on_save
+            # params already filled as "reference" by on_save
         else:
             # Running a cell measurement against the existing, locked reference.
-            if not compute_and_fill("cell"):
+            if not compute_and_fill("reference"):
                 return
         _last["fields"] = [e.get() for e in entries]
         _last["preset"] = preset_var.get()
-        
+        _last["extras"] = {label: extra_vars[label].get() for label in EXTRA_LABELS}
+
         ran["ok"] = True
+        log.info("params: %s", params)
         result_label.config(text="Running...")
         root.after(200, root.destroy)
 
@@ -162,6 +158,12 @@ def get_inputs():
             entries.append(e)
             field_widgets.append(e)
 
+    # Dynamic Range Scans and Decrement stay disabled for reference sweeps; only the
+    # powermeter range is editable and locks/unlocks with the other parameter fields.
+    init_extras = _last.get("extras", EXTRA_DEFAULTS)
+    extra_vars, extra_menus = make_extra_widgets(frame, N+1, init_extras, on_entry_change, enable_dynamic=False)
+    field_widgets.append(extra_menus[PM_RANGE_LABEL])
+
     def set_fields_state(s):
         for w in field_widgets:
             w.config(state=s)
@@ -169,11 +171,11 @@ def get_inputs():
     num_data = tk.StringVar()
     avg_time = tk.StringVar()
 
-    tk.Label(frame, text="Number of data to be logged", anchor="w", width=25).grid(row=N+1, column=0, sticky="w", pady=4)
-    tk.Entry(frame, textvariable=num_data, state="readonly", width=20).grid(row=N+1, column=1, pady=4)
+    tk.Label(frame, text="Log count/sweep", anchor="w", width=25).grid(row=N+4, column=0, sticky="w", pady=4)
+    tk.Entry(frame, textvariable=num_data, state="readonly", width=20).grid(row=N+4, column=1, pady=4)
 
-    tk.Label(frame, text="Averaging Time (\u03BCs)", anchor="w", width=22).grid(row=N+2, column=0, sticky="w", pady=4)
-    tk.Entry(frame, textvariable=avg_time, state="readonly", width=20).grid(row=N+2, column=1, pady=4)
+    tk.Label(frame, text="Averaging Time (\u03BCs)", anchor="w", width=22).grid(row=N+5, column=0, sticky="w", pady=4)
+    tk.Entry(frame, textvariable=avg_time, state="readonly", width=20).grid(row=N+5, column=1, pady=4)
 
     btn_frame = tk.Frame(frame)
     btn_frame.grid(row=N+10, column=0, columnspan=2, pady=10)
@@ -182,13 +184,13 @@ def get_inputs():
     run_btn = tk.Button(btn_frame, text="Run", command=on_run, width=10, state="disabled")
     run_btn.pack(side="left", padx=5)
 
-    result_label = tk.Label(frame, text="")
+    result_label = tk.Label(frame, text="", wraplength=320, justify="left")
     result_label.grid(row=N+11, column=0, columnspan=2)
 
     # Initial state. Parameter fields and Save start locked; only New reference is usable.
     set_fields_state("disabled")
     save_btn.config(state="disabled")
-    if saved_reference:
+    if ref_saved:
         # A reference already exists — allow measuring against it without re-entering parameters.
         run_btn.config(state="normal")
         result_label.config(text="Reference set. Click Run to measure, or New reference to start over.")
@@ -201,8 +203,11 @@ def get_inputs():
 
 
 if __name__ == "__main__":
+    ref_saved = False
     while True:
-        params = get_inputs()
+        params = get_inputs(ref_saved)
         if not params:
             break
+        if params.sweep_type == "new_reference":
+            ref_saved = True
         print(params)

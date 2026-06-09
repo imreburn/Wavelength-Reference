@@ -1,7 +1,6 @@
 from prep_instruments import prep_inst
 from gui_input_reference import get_inputs
-from run_instruments import run_single
-from analyze_data import peak_detection
+from run_instruments import run_sweep
 from backend_plotly import display_plot
 from structs import Params
 from logger import setup_logging
@@ -11,30 +10,22 @@ log = setup_logging("RefSweep")
 try:
     pm, laser = prep_inst()
 
-    ref_data = None  # most recent reference sweep; cell sweeps are compared against it
+    ref_data = None  
 
     while True:
-        params = get_inputs()
+        params = get_inputs(ref_saved=ref_data is not None)
         if not params:
             break
 
-        data = run_single(pm, laser, params, dryrun=False)
-        
-        if data is None:
-            log.warning("Data is not collected.")
-            continue
-
-        if params.sweep == "reference":
+        data = run_sweep(pm, laser, params, dryrun=False)
+    
+        if params.sweep_type == "new_reference":
             ref_data = data
-            log.info("Reference sweep stored.")
-        else:  # "cell" — measure against the stored reference
-            if ref_data is None:
-                log.warning("Cell sweep with no reference set; skipping comparison.")
-                continue
-            
-            data[:, 1] = data[:, 1] - ref_data[:, 1]
-            peak_info = peak_detection(data)
-            display_plot(data, pk=peak_info)
+            display_plot(ref_data)
+        
+        else:  # "reference" — measure against the stored reference  
+            comp_data = (data[0], data[1] - ref_data[1])
+            display_plot(comp_data, params=params, overlays=[ref_data])
 
 except Exception:
     log.exception("Unhandled error")

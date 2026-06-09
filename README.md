@@ -1,12 +1,12 @@
-# SingleSweep (ver_20260602)
+# WavelengthSweep
 
-`SingleSweep.exe` performs repeated single continous sweep and measures power, with configurable parameters. Measurement is analyzed and visualized. The raw data and peak analysis can be exported to CSV. 
+`WavelengthSweep.exe` performs repeated single continous sweep and measures power, with configurable parameters. Measurement is analyzed and visualized. The raw data and peak analysis can be exported to CSV. 
 
 ## Usage
 
 ### Overall
 
-1. Run `SingleSweep.exe`.
+1. Run `WavelengthSweep.exe`.
 2. A configuration window will appear. Enter the desired settings (start wavelength, stop wavelength, etc.) manually, or load a preset. The last-used configuration is retained for the duration of the session.
 3. Click **Save**. The program will calculate the number of data points to be logged and the averaging time. The given step size may be slightly reduced to ensure the averaging time is an integer value.
 4. Click **Run**. The configuration window will close and the measurement will begin. A graph window will appear with the results.
@@ -16,7 +16,7 @@
 
 ### How to Use Presets
 
-- The program attempts to read `preset.csv` on startup. This file must be located in the same directory as `SingleSweep.exe`.
+- The program attempts to read `preset.csv` on startup. This file must be located in the same directory as `WavelengthSweep.exe`.
 - To add a preset, open the file in a text editor and add a new line with a name and the corresponding values, separated by commas with no spaces.
 - **Preset parameters:** Name, Start Wavelength (nm), Stop Wavelength (nm), Sweep Speed (nm/s), Step Size (pm), TLS Power (dBm)
 

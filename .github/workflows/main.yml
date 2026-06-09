@@ -29,14 +29,14 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt pyinstaller
 
-      - name: Build SingleSweep
+      - name: Build WavelengthSweep
         run: >
           pyinstaller 
           --onefile
           --collect-all dash
           --collect-all plotly
-          --name SingleSweep
-          main_single.py
+          --name WavelengthSweep
+          main_sweep.py
       
       - name: Build RefSweep
         run: >

@@ -8,20 +8,31 @@ from dash import dcc, html, dash_table, Input, Output, State, Patch, callback_co
 import webview
 from webview import FileDialog
 
-from structs import PeakInfo
+from structs import PeakInfo, Params
 from analyze_data import peak_detection, find_bandwidth
-from save_csv import save_csv_raw, save_csv_peak, save_csv_peak_row
+from save_csv import save_csv_raw, save_csv_peak_row
 from helper_plotly import lttb
 
 # Remembered across display_plot() calls (i.e. across loop iterations) so the
 # "Choose a file" dropdown can pre-select the file used last time.
-_last_peak_file = ''
+_last_peak_file   = ''
+_last_peak_label  = ''
+_last_temperature = None
 
-def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
+def display_plot(data, params: Params = None, *, overlays=None,
+                  title="Absorption Spectrum",
                   width=1400, height=1000, port=8050):
     """
     Parameters
     ----------
+    data : sequence
+        Primary spectrum: ``data[0]`` is the wavelength array (nm) and
+        ``data[1]`` the power array (dBm). All peak/marker analysis runs
+        on this spectrum.
+    overlays : list, optional
+        Additional spectra to draw on top, each an ``(wl, dbm)`` or
+        ``(wl, dbm, label)`` tuple. These are display-only — peak
+        detection, FWHM and the bandwidth tools ignore them.
     width, height : int, optional
         Initial dimensions of the desktop window in pixels.
     port : int, optional
@@ -35,8 +46,8 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
     the user closes the window. It must be called from the main thread
     (a pywebview requirement).
     """
-    wl  = data[:, 0]
-    dbm = data[:, 1]
+    wl  = data[0]
+    dbm = data[1]
     d_x = round(wl[1] - wl[0], 7)
     
     peak_df = pd.DataFrame()
@@ -95,6 +106,8 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
         marker=dict(symbol='triangle-left', size=10, color='#50C878', line=_border),
         text=[], textposition='top center',
     )
+    
+    pk = peak_detection(data)
     if pk is not None:
 
         # data[3..9] — peak annotation traces (shifted +1 due to mode-2 trace)
@@ -129,13 +142,48 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
         peak_df = pd.DataFrame(peak_dict)
         peak_df.insert(0, "Peak", [i+1 for i in range(len(peak_df))])
 
+    # ------------------------------------------------------------------
+    # Overlay spectra (display-only). Appended AFTER every other trace so
+    # the hard-coded indices used by the marker/peak callbacks (data[0..11])
+    # stay put. overlay_start is the index of the first overlay trace and is
+    # reused by resample_on_zoom to refresh them on zoom.
+    # ------------------------------------------------------------------
+    overlays = list(overlays or [])
+    overlay_start = len(initial_fig.data)
+    _overlay_colors = ['#9B59B6', '#16A085', '#E67E22', '#34495E', '#C0392B']
+    for i, ov in enumerate(overlays):
+        ov_wl, ov_dbm = ov[0], ov[1]
+        ov_name = ov[2] if len(ov) > 2 else f'Spectrum {i + 2}'
+        ov_wl_d, ov_dbm_d = lttb(ov_wl, ov_dbm, MAX_DISPLAY)
+        initial_fig.add_scatter(
+            x=ov_wl_d, y=ov_dbm_d, mode='lines', name=ov_name,
+            line=dict(color=_overlay_colors[i % len(_overlay_colors)], width=2),
+            hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>',
+            visible='legendonly',
+        )
+
+    # ------------------------------------------------------------------
+    # Reference sweep: mark the global minimum (deepest dip) with its
+    # (x, y) value. Static trace appended last — no callback references it.
+    # ------------------------------------------------------------------
+    gmin_idx = int(np.argmin(dbm))
+    gmin_x, gmin_y = float(wl[gmin_idx]), float(dbm[gmin_idx])
+    if params is not None and params.sweep_type == "reference":
+        initial_fig.add_scatter(
+            x=[gmin_x], y=[gmin_y], mode='markers+text', name='I.L.',
+            marker=dict(symbol='star', size=12, color='#C0392B', line=_border),
+            # text=[f'({gmin_x:.6f}, {gmin_y:.5f})'], textposition='top center',
+            hovertemplate='%{x:.7f}<br>%{y:.5f}<extra>I.L.</extra>',
+        )
+
     initial_fig.update_layout(
         xaxis_title='Wavelength (nm)',
         yaxis_title='Power (dBm)',
         hovermode='closest',
         showlegend=True,
         height=600,
-        width=1200,
+        width=1250,
+        margin=dict(t=30, b=5),
         uirevision='constant',
     )
 
@@ -214,7 +262,7 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
                 dcc.Input(
                     id='mode2-offset-input',
                     type='number', step='any',
-                    value=1,
+                    value=3,
                     debounce=True,
                     style={'width': '100%', 'boxSizing': 'border-box'},
                 ),
@@ -312,12 +360,12 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
                          style={'marginBottom': '12px'}),
             html.Label('Label', style={'fontWeight': 'bold', 'display': 'block',
                                        'marginBottom': '4px'}),
-            dcc.Input(id='peak-label', type='text', value='', debounce=False,
+            dcc.Input(id='peak-label', type='text', value=_last_peak_label, debounce=False,
                       style={'width': '100%', 'boxSizing': 'border-box',
                              'marginBottom': '8px'}),
             html.Label('Temperature', style={'fontWeight': 'bold', 'display': 'block',
                                              'marginBottom': '4px'}),
-            dcc.Input(id='peak-temperature', type='number', value=None, debounce=False,
+            dcc.Input(id='peak-temperature', type='number', value=_last_temperature, debounce=False,
                       style={'width': '100%', 'boxSizing': 'border-box',
                              'marginBottom': '8px'}),
             html.Label('Choose a file', style={'fontWeight': 'bold', 'display': 'block',
@@ -340,7 +388,13 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
                   'boxShadow': '0 4px 20px rgba(0,0,0,0.25)'}),
     )
 
+    sweep_text = (f'Sweep type: {params.sweep_type}'
+                  if params is not None and params.sweep_type else None)
+
     app.layout = html.Div([
+        html.Div(sweep_text,
+                 style={'fontWeight': 'bold', 'fontFamily': 'system-ui, sans-serif',
+                        'margin': '8px 0 4px 4px'}) if sweep_text else None,
         html.Div([
             dcc.Graph(id='spectrum', figure=initial_fig, config={'scrollZoom':True}),
             right_sidebar,
@@ -372,6 +426,7 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
             style_header={'fontWeight': 'bold', 'backgroundColor': '#f0f0f0'},
             style_table={'marginBottom': '10px', 'width': 'fit-content'},
         ),
+        html.P(f"Insertion Loss: {gmin_y:.5f}") if params is not None and params.sweep_type == "reference" else None,
         html.Button('Clear markers', id='clear-btn', n_clicks=0),
         html.Div(id='marker-info',
                  style={'marginTop': '10px', 'fontFamily': 'monospace',
@@ -409,7 +464,7 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
             return ""
         # SAVE_DIALOG returns a str on some versions, a tuple/list on others.
         file_path = result[0] if isinstance(result, (list, tuple)) else result
-        save_csv_raw(data, file_path=file_path)
+        save_csv_raw(data, params, file_path=file_path)
         return "Raw data saved."
 
     @app.callback(
@@ -478,10 +533,16 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
                 # User cancelled the file dialog — keep the modal open.
                 return dash.no_update, dash.no_update, ""
             file_path = result[0] if isinstance(result, (list, tuple)) else result
-
-        save_csv_peak_row(label.strip(), wl_v, depth, fwhm, file_path=file_path, temperature=temperature)
-        global _last_peak_file
-        _last_peak_file = os.path.basename(file_path)
+            
+        if params is not None and params.sweep_type == "reference":
+            save_csv_peak_row(label.strip(), wl_v, depth, fwhm, loss=round(gmin_y,5), file_path=file_path, temperature=temperature)
+        else:    
+            save_csv_peak_row(label.strip(), wl_v, depth, fwhm, file_path=file_path, temperature=temperature)
+        
+        global _last_peak_file, _last_peak_label, _last_temperature
+        _last_peak_file   = os.path.basename(file_path)
+        _last_peak_label  = label
+        _last_temperature = temperature
         return MODAL_HIDDEN, "Peak data saved.", ""
 
     @app.callback(
@@ -641,21 +702,28 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
     def resample_on_zoom(relayout):
         if not relayout:
             return dash.no_update
+        # (trace index, wl array, dbm array) for the primary spectrum plus
+        # every overlay. data[0] is the primary; overlays live at
+        # overlay_start.. (see the overlay-building block above).
+        curves = [(0, wl, dbm)]
+        curves += [(overlay_start + i, ov[0], ov[1])
+                   for i, ov in enumerate(overlays)]
         patched = Patch()
         if relayout.get('xaxis.autorange') or relayout.get('autosize'):
-            wl_d, dbm_d = lttb(wl, dbm, MAX_DISPLAY)
-            patched['data'][0]['x'] = wl_d
-            patched['data'][0]['y'] = dbm_d
+            for idx, w_arr, d_arr in curves:
+                w_d, d_d = lttb(w_arr, d_arr, MAX_DISPLAY)
+                patched['data'][idx]['x'] = w_d
+                patched['data'][idx]['y'] = d_d
             return patched
         if 'xaxis.range[0]' not in relayout:
             return dash.no_update
         x0, x1 = relayout['xaxis.range[0]'], relayout['xaxis.range[1]']
-        i0 = max(0, int(np.searchsorted(wl, x0)) - 1)
-        i1 = min(len(wl), int(np.searchsorted(wl, x1)) + 1)
-        wl_v, dbm_v = wl[i0:i1], dbm[i0:i1]
-        wl_d, dbm_d = lttb(wl_v, dbm_v, MAX_DISPLAY)
-        patched['data'][0]['x'] = wl_d
-        patched['data'][0]['y'] = dbm_d
+        for idx, w_arr, d_arr in curves:
+            i0 = max(0, int(np.searchsorted(w_arr, x0)) - 1)
+            i1 = min(len(w_arr), int(np.searchsorted(w_arr, x1)) + 1)
+            w_d, d_d = lttb(w_arr[i0:i1], d_arr[i0:i1], MAX_DISPLAY)
+            patched['data'][idx]['x'] = w_d
+            patched['data'][idx]['y'] = d_d
         return patched
 
     if pk is not None:
@@ -735,5 +803,7 @@ def display_plot(data, pk : PeakInfo = None, *, title="Absorption Spectrum",
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     data = np.loadtxt("test_2026-05-11_14-44_converted.csv", skiprows=1, delimiter=',')
-    peak_info = peak_detection(data)
-    display_plot(data, pk=peak_info)
+    params = Params()
+    params.sweep_type = "single"
+    while True:
+        display_plot((data[:, 0], data[:, 1]), params=params)

@@ -1,0 +1,4 @@
+Name,Start Wavelength (nm),Stop Wavelength (nm),Sweep Speed (nm/s),Step Size (pm),TLS Power (dBm),Initial Powermeter Range (dBm),Dynamic Range Scans,Decrement (dB)
+HC_13N,1536,1537,0.5,0.0125,0.1,10,1,10
+error,1300,1700,8,0.00123,0.1,0,,60
+C2H2_740T,1529,1531,0.5,0.1,0.1,10,3,10

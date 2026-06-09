@@ -1,14 +1,17 @@
 from datetime import datetime
 import tkinter as tk
+import logging
 
 from structs import Params
 from gui_input_common import (
     FIELD_LABELS, DEFAULTS, SWEEP_SPEED_OPTIONS, PADDING,
-    load_presets, validate_inputs, validation_error,
+    EXTRA_LABELS, EXTRA_DEFAULTS, PM_RANGE_LABEL, DYN_SCAN_LABEL, DECREMENT_LABEL,
+    load_presets, make_extra_widgets, validate_inputs, validate_dynamic_range, validation_error,
 )
 
-_last = {}  # persists raw field values within one execution
+log = logging.getLogger(__name__)
 
+_last = {}  # persists raw field values within one execution
 
 def get_inputs():
     params = Params()
@@ -16,34 +19,19 @@ def get_inputs():
     ran = {"ok": False}
 
     def on_save():
-        values, error = validate_inputs([e.get() for e in entries])
+        values, error = validate_inputs([e.get() for e in entries], num_data, avg_time)
         if error:
             validation_error(error, result_label, num_data, avg_time, saved, run_btn)
             return
 
-        wav_start = values[0] - PADDING  # nm
-        wav_stop  = values[1] + PADDING  # nm
-        speed     = values[2]            # nm/s
-        step_new  = values[3]            # pm
-
-        avg_t        = int(step_new/speed*1e3)        # us
-        avg_t        = 25 if avg_t < 25 else avg_t
-        step_new     = round((speed/1e3) * avg_t, 4)
-        wav_range    = (wav_stop - wav_start) * 1000  # pm
-        pp           = int(wav_range // step_new)
-        qq           = wav_range % step_new
-        num_data_log = pp if qq == 0 else pp+1
-
-        num_data.set(f"{num_data_log}")
-        avg_time.set(f"{avg_t}")
-        
-        # If step size is adjusted, turn the field red
-        if step_new != float(entries[3].get()):
-            entries[3].delete(0, tk.END)
-            entries[3].insert(0, f"{step_new:.4f}")
-            entries[3].config(fg="red")
-
-        result_label.config(text="Saved. Review values, then click Run.")
+        error = validate_dynamic_range(
+            int(extra_vars[PM_RANGE_LABEL].get()),
+            int(extra_vars[DYN_SCAN_LABEL].get()),
+            int(extra_vars[DECREMENT_LABEL].get()),
+        )
+        if error:
+            validation_error(error, result_label, num_data, avg_time, saved, run_btn)
+            return
 
         ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         ds = datetime.now().strftime("%Y-%m-%d")
@@ -51,13 +39,30 @@ def get_inputs():
         params.wl_start   = values[0]
         params.wl_stop    = values[1]
         params.speed      = values[2]
-        params.step_pm    = step_new
+        params.step_pm    = values[3]
         params.tls_dbm    = values[4]
-        params.num_data   = num_data_log
-        params.at_us      = avg_t
+        params.at_us      = values[5]
+        params.num_data   = values[6]
+        
+        params.pm_range   = int(extra_vars[PM_RANGE_LABEL].get())
+        params.dyn_scans  = int(extra_vars[DYN_SCAN_LABEL].get())
+        params.decrement  = int(extra_vars[DECREMENT_LABEL].get())
+
         params.padding    = PADDING
         params.time       = ts
         params.date       = ds
+        params.sweep_type = "dynamic" if params.dyn_scans > 1 else "single"
+        
+        # num_data.set(f"{params.num_data}")
+        # avg_time.set(f"{params.at_us}")
+        
+        # If step size is adjusted, turn the field red
+        if params.step_pm != float(entries[3].get()):
+            entries[3].delete(0, tk.END)
+            entries[3].insert(0, f"{params.step_pm:.4f}")
+            entries[3].config(fg="red")
+
+        result_label.config(text="Saved. Review values, then click Run.")
         
         saved["ok"] = True
         run_btn.config(state="normal")
@@ -74,12 +79,15 @@ def get_inputs():
         name = preset_var.get()
         if name == "none" or name not in presets:
             return
-        for entry, val in zip(entries, presets[name]):
+        vals = presets[name]
+        for entry, label in zip(entries, FIELD_LABELS):
             if isinstance(entry, tk.StringVar):
-                entry.set(val)
+                entry.set(vals[label])
             else:
                 entry.delete(0, tk.END)
-                entry.insert(0, val)
+                entry.insert(0, vals[label])
+        for label in EXTRA_LABELS:
+            extra_vars[label].set(vals[label])
         on_entry_change()
 
     def on_run():
@@ -87,8 +95,10 @@ def get_inputs():
             return
         _last["fields"] = [e.get() for e in entries]
         _last["preset"] = preset_var.get()
+        _last["extras"] = {label: extra_vars[label].get() for label in EXTRA_LABELS}
 
         ran["ok"] = True
+        log.info("params: %s", params)
         result_label.config(text="Running...")
         root.after(200, root.destroy)
 
@@ -124,14 +134,17 @@ def get_inputs():
             e.bind("<Key>", on_entry_change)
             entries.append(e)
 
+    init_extras = _last.get("extras", EXTRA_DEFAULTS)
+    extra_vars, _ = make_extra_widgets(frame, N+1, init_extras, on_entry_change)
+
     num_data = tk.StringVar()
     avg_time = tk.StringVar()
 
-    tk.Label(frame, text="Number of data to be logged", anchor="w", width=25).grid(row=N+1, column=0, sticky="w", pady=4)
-    tk.Entry(frame, textvariable=num_data, state="readonly", width=20).grid(row=N+1, column=1, pady=4)
+    tk.Label(frame, text="Log count/sweep", anchor="w", width=25).grid(row=N+4, column=0, sticky="w", pady=4)
+    tk.Entry(frame, textvariable=num_data, state="readonly", width=20).grid(row=N+4, column=1, pady=4)
 
-    tk.Label(frame, text="Averaging Time (\u03BCs)", anchor="w", width=22).grid(row=N+2, column=0, sticky="w", pady=4)
-    tk.Entry(frame, textvariable=avg_time, state="readonly", width=20).grid(row=N+2, column=1, pady=4)
+    tk.Label(frame, text="Averaging Time (\u03BCs)", anchor="w", width=22).grid(row=N+5, column=0, sticky="w", pady=4)
+    tk.Entry(frame, textvariable=avg_time, state="readonly", width=20).grid(row=N+5, column=1, pady=4)
 
     btn_frame = tk.Frame(frame)
     btn_frame.grid(row=N+10, column=0, columnspan=2, pady=10)
@@ -139,7 +152,7 @@ def get_inputs():
     run_btn = tk.Button(btn_frame, text="Run", command=on_run, width=10, state="disabled")
     run_btn.pack(side="left", padx=5)
 
-    result_label = tk.Label(frame, text="")
+    result_label = tk.Label(frame, text="", wraplength=320, justify="left")
     result_label.grid(row=N+11, column=0, columnspan=2)
 
     root.mainloop()

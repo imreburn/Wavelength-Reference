@@ -1,3 +1,11 @@
+"""
+analyze_data.py - Helper functions for data processing
+
+Functions:
+    combine_scans(scans)    Combine multiple scans for dynamic range scans
+    peak_detection(data)    Find peaks and their bases and FWHMs
+    find_bandwidth(wl, dbm, idx, y_offset, search_range)    Find a full width an offset by bandwidth amplitude (y-offset) above given x-position
+"""
 import numpy as np
 from scipy.signal import find_peaks, peak_widths
 import logging
@@ -6,18 +14,39 @@ from structs import PeakInfo, Peaks, PeakFwhm, MaxPeak
 
 log = logging.getLogger(__name__)
 
-# Analyze peak(s)
+def combine_scans(scans):
+    num_scans = len(scans)
+    # Start with the first scan (with the highest range setting)
+    wav_range = scans[0][1][0].copy()
+    combined  = scans[0][1][1].copy()
+    
+    for i in range(1, num_scans):
+        p_range, data = scans[i]
+        p_range *= -1
+        power = data[1]
+        # log.info(f"Compare x-axis: {np.array_equal(wav_range, data[0])}")
+        if i < num_scans - 1:
+            next_p_range = scans[i+1][0] * -1
+            combined = np.where((power >= p_range) & (power < next_p_range), power, combined)
+        else:
+            combined = np.where((power >= p_range), power, combined)
+    return (wav_range, combined)
+
+
 def peak_detection(data):
-    x = data[:, 0]
-    y = data[:, 1]
+    x = data[0]
+    y = data[1]
+    # scipy's peak_widths requires float64 buffers; PM data is read as float32
+    # y = np.asarray(data[1], dtype=np.float64)
 
     # increment on x-axis, assume the increment is constant between samples
     d_x = round(x[1] - x[0], 7) # nm
     
     # Find peaks
-    # tunable parameters: prominence, distance
+    # tunable parameters: prominence, distance, etc.
     # Assume a peak should be deeper than 3/4 of global max-min
     simple_prominence = (np.max(y) - np.min(y))*(3/4)
+    
     peak_indices, peak_properties = find_peaks(y, prominence=simple_prominence, distance=8000)
 
     log.info(f"Peak(s) found: {len(peak_indices)}")
@@ -37,6 +66,7 @@ def peak_detection(data):
 
     # Find FWHM in two ways
     # left_ips, right_ips are fractional indices (interpolated positions)
+    
     # Max
     max_widths, max_fwhm_dbm, max_l_ips, max_r_ips = peak_widths(y, peak_indices, rel_height=0.5, prominence_data=(max_peak_heights, left_bases_is, right_bases_is))
     
@@ -52,7 +82,9 @@ def peak_detection(data):
     avg_fwhm_right_nm = [x[int(ip)] + (ip % 1.0) * d_x for ip in avg_r_ips]
     avg_fwhm_pm       = [(w * d_x) * 1000 for w in avg_widths]
     
+    # Peak locations in nm
     peak_nm    = np.array(x[peak_indices])
+    # Get the index of the highest peak
     max_peak_n = np.argmax(max_peak_heights)
 
     return PeakInfo(
@@ -110,7 +142,7 @@ def find_bandwidth(wl, dbm, idx, y_offset, search_range):
     width_ip = right_ip - left_ip
     d_x      = round(wl[1] - wl[0], 7)
     
-    left_nm  = wl[int(left_ip)] + (left_ip % 1.0) * d_x
+    left_nm  = wl[int(left_ip)]  + (left_ip  % 1.0) * d_x
     right_nm = wl[int(right_ip)] + (right_ip % 1.0) * d_x
     width_pm = width_ip * d_x * 1000
     
