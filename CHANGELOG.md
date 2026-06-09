@@ -8,8 +8,8 @@
 - Support dynamic range scans.
 - Logging is added to capture messages and errors.
 - Reference data is plotted after taking reference data.
-- Initial Powermeter Range, Dynamic Scans, Decrement (dB) fields are added. These fields are also added in `preset.csv`
-- Raw CSV will include the testing parameters.
+- Initial Power meter Range (dBm), Dynamic Scans, Decrement (dB) fields are added. These fields are also added in `preset.csv`
+- Raw Data CSV files include the testing parameters at the first line.
 
 ## Changed
 

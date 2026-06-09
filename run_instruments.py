@@ -94,7 +94,7 @@ def run_sweep(pm, laser, params, dryrun=False):
     if (n := int(laser.query(":SYST:ERR:COUN?"))) > 0:
         for _ in range(n):
             log.error(f"[LASER] System error: {laser.query(':SYST:ERR?')}")
-            sys.exit(1)
+        sys.exit(1)
     
     pm_check_error1 = (pm.query(":SYST:ERR?")).split(',')
     if int(pm_check_error1[0]) != 0:
