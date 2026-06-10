@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [v1.0.0] - 2026-06-10
 
 ## Added
 
@@ -17,6 +17,8 @@
 - Saving peak data: A new entry replaces an existing one only if the label is the same AND the wavelength is close by. (0.5nm)
 - Saving peak data: The last chosen file is selected by default while the program is running.
 - Saving peak data: The last used label, temperature is remembered while the program is running.
+- The user doesn't need to push 'Save' button again if the user wants to run a test with the same setting used in the last run. First launch of the program still requires 'Save'.
+- (x, y) of peak bases is shown on the plot. It is removed from the peak table.
 
 ## Removed
 

@@ -155,6 +155,11 @@ def get_inputs():
     result_label = tk.Label(frame, text="", wraplength=320, justify="left")
     result_label.grid(row=N+11, column=0, columnspan=2)
 
+    # Reopening with values from a previous run: auto-save so Run is ready
+    # without pressing Save again.
+    if "fields" in _last:
+        on_save()
+
     root.mainloop()
     return params if ran["ok"] else None
 

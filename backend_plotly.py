@@ -113,9 +113,9 @@ def display_plot(data, params: Params = None, *, overlays=None,
         # data[3..9] — peak annotation traces (shifted +1 due to mode-2 trace)
         initial_fig.add_scatter(x=pk.peaks.wl, y=dbm[pk.peaks.idx], mode='markers+text', name='Peaks', marker=dict(size=8, color='#E63946', symbol='circle', line=_border))
         
-        initial_fig.add_scatter(x=wl[pk.peaks.lt_idx], y=dbm[pk.peaks.lt_idx], mode='markers', name='Bases:Left', marker=dict(size=8, color='#2A9D8F', symbol='triangle-up', line=_border))
-        
-        initial_fig.add_scatter(x=wl[pk.peaks.rt_idx], y=dbm[pk.peaks.rt_idx], mode='markers', name='Bases:Right', marker=dict(size=8, color='#2A9D8F', symbol='triangle-down', line=_border))
+        initial_fig.add_scatter(x=wl[pk.peaks.lt_idx], y=dbm[pk.peaks.lt_idx], mode='markers+text', name='Bases:Left', marker=dict(size=8, color='#2A9D8F', symbol='triangle-up', line=_border), text=[f"L:({x:.3f}, {y:.3f})" for x, y in zip(wl[pk.peaks.lt_idx], dbm[pk.peaks.lt_idx])], textposition='top right')
+
+        initial_fig.add_scatter(x=wl[pk.peaks.rt_idx], y=dbm[pk.peaks.rt_idx], mode='markers+text', name='Bases:Right', marker=dict(size=8, color='#2A9D8F', symbol='triangle-down', line=_border), text=[f"R:({x:.3f}, {y:.3f})" for x, y in zip(wl[pk.peaks.rt_idx], dbm[pk.peaks.rt_idx])], textposition='top left')
         
         initial_fig.add_scatter(x=pk.max_fwhm.lt, y=pk.max_fwhm.dbm, mode='markers', name="FWHM_max:Left", visible=True, marker=dict(size=8, color='#F4A261', symbol='square', line=_border))
         
@@ -133,10 +133,10 @@ def display_plot(data, params: Params = None, *, overlays=None,
             "FWHM_max"    : [round(w, 3) for w in pk.max_fwhm.width],
             "Depth_avg"   : np.round(pk.peaks.avg_depths, decimals=5),
             "FWHM_avg"    : [round(w, 3) for w in pk.avg_fwhm.width],
-            "Left_base_x" : np.round(wl[pk.peaks.lt_idx], decimals=6),
-            "Left_base_y" : np.round(dbm[pk.peaks.lt_idx], decimals=5),
-            "Right_base_x": np.round(wl[pk.peaks.rt_idx], decimals=6),
-            "Right_base_y": np.round(dbm[pk.peaks.rt_idx], decimals=5)
+            # "Left_base_x" : np.round(wl[pk.peaks.lt_idx], decimals=6),
+            # "Left_base_y" : np.round(dbm[pk.peaks.lt_idx], decimals=5),
+            # "Right_base_x": np.round(wl[pk.peaks.rt_idx], decimals=6),
+            # "Right_base_y": np.round(dbm[pk.peaks.rt_idx], decimals=5)
                      }
         
         peak_df = pd.DataFrame(peak_dict)
@@ -262,7 +262,7 @@ def display_plot(data, params: Params = None, *, overlays=None,
                 dcc.Input(
                     id='mode2-offset-input',
                     type='number', step='any',
-                    value=3,
+                    value=1,
                     debounce=True,
                     style={'width': '100%', 'boxSizing': 'border-box'},
                 ),
