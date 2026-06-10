@@ -70,7 +70,7 @@ def make_extra_widgets(frame, start_row, init, on_change, enable_dynamic=True):
     ]
     vars_, menus = {}, {}
     for j, (label, options) in enumerate(specs):
-        tk.Label(frame, text=label, anchor="w", width=22).grid(row=start_row + j, column=0, pady=4, sticky="w")
+        tk.Label(frame, text=label, anchor="w", width=25).grid(row=start_row + j, column=0, pady=4, sticky="w")
         v = tk.StringVar(value=init.get(label, EXTRA_DEFAULTS[label]))
         m = tk.OptionMenu(frame, v, *options)
         m.grid(row=start_row + j, column=1, pady=4, sticky="w")
@@ -109,8 +109,8 @@ def validate_inputs(raw_strings, num_data, avg_time):
         return None, f"Wavelengths must be between {WAV_MIN+PADDING} and {WAV_MAX-PADDING} nm."
     if wav_start >= wav_stop:
         return None, "Start wavelength must be less than Stop wavelength."
-    if step_size <= 0:
-        return None, "Step size must be greater than 0."
+    if step_size < 0:
+        return None, "Step size must not be less than 0."
     if f"{sweep_speed}" not in SWEEP_SPEED_OPTIONS:
         return None, "Sweep speed must be selected from the dropdown list."
     if power_dbm > 10:

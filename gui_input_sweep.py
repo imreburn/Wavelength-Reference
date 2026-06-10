@@ -63,15 +63,23 @@ def get_inputs():
             entries[3].config(fg="red")
 
         result_label.config(text="Saved. Review values, then click Run.")
-        
+
         saved["ok"] = True
+        save_btn.config(state="disabled")
         run_btn.config(state="normal")
 
-    def on_entry_change(*_):
+    def on_entry_change(*args):
+        # Enter doesn't modify the field — let it trigger Run instead of
+        # invalidating the saved state. (Called from bind with an event, from
+        # trace_add with 3 args, and directly with none.)
+        event = args[0] if args else None
+        if getattr(event, "keysym", "") in ("Return", "KP_Enter"):
+            return
         entries[3].config(fg="black")
         # Invalidate save whenever any field is edited
         if saved["ok"]:
             saved["ok"] = False
+            save_btn.config(state="normal")
             run_btn.config(state="disabled")
             result_label.config(text="Inputs changed — please Save again.")
 
@@ -148,9 +156,14 @@ def get_inputs():
 
     btn_frame = tk.Frame(frame)
     btn_frame.grid(row=N+10, column=0, columnspan=2, pady=10)
-    tk.Button(btn_frame, text="Save", command=on_save, width=10).pack(side="left", padx=5)
+    save_btn = tk.Button(btn_frame, text="Save", command=on_save, width=10)
+    save_btn.pack(side="left", padx=5)
     run_btn = tk.Button(btn_frame, text="Run", command=on_run, width=10, state="disabled")
     run_btn.pack(side="left", padx=5)
+
+    # Enter triggers Run when it's enabled (on_run is a no-op until saved).
+    root.bind("<Return>", lambda _e: on_run())
+    root.bind("<KP_Enter>", lambda _e: on_run())
 
     result_label = tk.Label(frame, text="", wraplength=320, justify="left")
     result_label.grid(row=N+11, column=0, columnspan=2)

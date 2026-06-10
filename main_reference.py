@@ -25,7 +25,7 @@ try:
         
         else:  # "reference" — measure against the stored reference  
             comp_data = (data[0], data[1] - ref_data[1])
-            display_plot(comp_data, params=params, overlays=[ref_data])
+            display_plot(comp_data, params=params, overlays=[ref_data, data])
 
 except Exception:
     log.exception("Unhandled error")

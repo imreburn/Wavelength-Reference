@@ -1,8 +1,24 @@
 # Changelog
 
+## [v1.0.1] - 2026-06-10
+
+### Added
+
+- "Enter" key will start a run when 'Run' button is enabled.
+- RefSweep: overlays include the absorbtion data before subtracted to the reference.
+
+### Changed
+
+- '0' Step size will be adjusted automatically, instead of a warning message.
+- TLS will stay at the stop wavelength after the sweep.
+
+### Fixed
+
+- Fixed an issue that field names are not fully shown in the GUI window.
+
 ## [v1.0.0] - 2026-06-10
 
-## Added
+### Added
 
 - Support reference sweep via `RefSweep`.
 - Support dynamic range scans.
@@ -11,7 +27,7 @@
 - Initial Power meter Range (dBm), Dynamic Scans, Decrement (dB) fields are added. These fields are also added in `preset.csv`
 - Raw Data CSV files include the testing parameters at the first line.
 
-## Changed
+### Changed
 
 - Saving peak data: File saving prompt is skipped if reusing an existing file.
 - Saving peak data: A new entry replaces an existing one only if the label is the same AND the wavelength is close by. (0.5nm)
@@ -20,7 +36,7 @@
 - The user doesn't need to push 'Save' button again if the user wants to run a test with the same setting used in the last run. First launch of the program still requires 'Save'.
 - (x, y) of peak bases is shown on the plot. It is removed from the peak table.
 
-## Removed
+### Removed
 
 - The reset button is removed from the GUI input window.
 

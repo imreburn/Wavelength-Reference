@@ -46,6 +46,11 @@ def run_sweep(pm, laser, params, dryrun=False):
     # ----- Laser -----
         
     laser.write(f":SOURCE0:WAVE  {tls_wl_start:.3f} NM")
+    
+    time.sleep(0.1)
+    if (w := (float(laser.query(":SOURCE0:WAVE?"))*1e9)) != tls_wl_start:
+        log.warning(f"[LASER] The current wavelength: {w}. Laser is still being adjusted.")
+        
     laser.write(":SOURCE0:POWER:UNIT  0")
     laser.write(f":SOURCE0:POWER {params.tls_dbm} DBM")
     laser.write(":SOURCE0:POW:STATE 1")
@@ -106,11 +111,12 @@ def run_sweep(pm, laser, params, dryrun=False):
     log.info(f"[PM] Log count: {len(arr_w)}")
     
     pm.write(":SENS1:FUNC:STAT LOGG, STOP")
-    laser.write(":SOURCE0:POW:STATE 1")
+    
+    # TLS will stay at the stop wavelength after a sweep
+    laser.write(f":SOURCE0:WAVE  {params.wl_stop:.3f} NM")
 
     upper_limit = power_limit[str(params.pm_range)]
-    arr_w[arr_w > upper_limit] = np.nan
-    
+    arr_w[arr_w > upper_limit] = np.nan    
     if np.all(np.isnan(arr_w)):
         log.error("All measurements are overflown.")
     elif np.any(np.isnan(arr_w)):
