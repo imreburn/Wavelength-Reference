@@ -173,6 +173,13 @@ def get_inputs():
     if "fields" in _last:
         on_save()
 
+    # Grab keyboard focus so Enter works without clicking the window first
+    # (on reopen, focus tends to stay on the console).
+    root.lift()
+    root.attributes("-topmost", True)
+    root.after(0, lambda: root.attributes("-topmost", False))
+    root.after(0, root.focus_force)
+
     root.mainloop()
     return params if ran["ok"] else None
 

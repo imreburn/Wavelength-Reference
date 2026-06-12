@@ -1,11 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+## Added
+
+- GUI window grabs keyboard focus.
+
 ## [v1.0.1] - 2026-06-10
 
 ### Added
 
 - "Enter" key will start a run when 'Run' button is enabled.
-- RefSweep: overlays include the absorbtion data before subtracted to the reference.
+- RefSweep: overlays include the absorption data before subtracted to the reference.
 
 ### Changed
 

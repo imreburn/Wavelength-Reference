@@ -10,6 +10,7 @@ from save_csv import save_csv_raw
 
 log = setup_logging("WavelengthSweep")
 
+
 try:
     pm, laser = prep_inst()
 

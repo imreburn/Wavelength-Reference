@@ -43,20 +43,27 @@ jobs:
             echo "OK: $exe ($(du -h $exe | cut -f1))"
           done
 
-      - name: Get short SHA
-        shell: bash
-        run: echo "SHORT_SHA=${GITHUB_SHA::8}" >> $GITHUB_ENV
-
-      - name: Zip builds   # bundle the single shared folder into one zip
+      - name: Get build name
         shell: bash
         run: |
-          cd dist
-          7z a "Sweeps-${SHORT_SHA}.zip" Sweeps
+          echo "SHORT_SHA=${GITHUB_SHA::8}" >> $GITHUB_ENV
+          # On tag pushes use the tag (e.g. v1.0.0); otherwise fall back to short SHA.
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "BUILD_NAME=${GITHUB_REF_NAME}" >> $GITHUB_ENV
+          else
+            echo "BUILD_NAME=${GITHUB_SHA::8}" >> $GITHUB_ENV
+          fi
+
+      - name: Zip builds   # bundle the contents of the shared folder into one zip
+        shell: bash
+        run: |
+          cd dist/Sweeps
+          7z a "../Sweeps-${BUILD_NAME}.zip" .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
-          name: Sweeps-${{ github.event.inputs.version || github.ref_name }}-${{ env.SHORT_SHA }}
+          name: Sweeps-${{ env.BUILD_NAME }}-${{ env.SHORT_SHA }}
           path: dist/Sweeps
 
       - name: Create GitHub Release   # ← new step
