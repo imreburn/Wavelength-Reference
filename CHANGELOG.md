@@ -6,6 +6,12 @@
 
 - A preset can be saved via "Manage Preset...". It may replace an existing preset or create a new one. The user also can delete a preset.
 
+## [v1.0.2] - 2026-06-12
+
+### Added
+
+- GUI window grabs keyboard focus.
+
 ## [v1.0.1] - 2026-06-10
 
 ### Added
