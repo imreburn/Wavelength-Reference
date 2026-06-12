@@ -109,7 +109,7 @@ def make_extra_widgets(frame, start_row, init, on_change, enable_dynamic=True):
     ]
     vars_, menus = {}, {}
     for j, (label, options) in enumerate(specs):
-        tk.Label(frame, text=label, anchor="w", width=25).grid(row=start_row + j, column=0, pady=4, sticky="w")
+        tk.Label(frame, text=label, anchor="e").grid(row=start_row + j, column=0, pady=4, padx=(0, 8), sticky="e")
         v = tk.StringVar(value=init.get(label, EXTRA_DEFAULTS[label]))
         m = tk.OptionMenu(frame, v, *options)
         m.grid(row=start_row + j, column=1, pady=4, sticky="w")

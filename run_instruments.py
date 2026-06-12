@@ -21,7 +21,6 @@ power_limit = {"10": 10e-3,
              "-70": 199.99e-12}
 
 def run_sweep(pm, laser, params, dryrun=False):
-    log.info(f"Type: {params.sweep_type}")
     log.info("--- Running instruments ---")
     
     tls_wl_start = params.wl_start - params.padding
@@ -126,13 +125,13 @@ def run_sweep(pm, laser, params, dryrun=False):
     arr_dbm *= -1                                              # power loss 
     
     # Generate x-axis
-    wav_stop_tmp = tls_wl_start + (params.step_pm * 1e-3) * (params.num_data - 1)
-    wav_range    = np.linspace(tls_wl_start, wav_stop_tmp, params.num_data).round(7)
+    # wav_stop_tmp = tls_wl_start + (params.step_pm * 1e-3) * (params.num_data - 1)
+    # wav_range    = np.linspace(tls_wl_start, wav_stop_tmp, params.num_data).round(7)
 
-    i_lo = np.searchsorted(wav_range, params.wl_start - params.step_pm * 1e-3, side='left')
-    i_hi = np.searchsorted(wav_range, params.wl_stop  + params.step_pm * 1e-3, side='right')
+    # i_lo = np.searchsorted(wav_range, params.wl_start - params.step_pm * 1e-3, side='left')
+    # i_hi = np.searchsorted(wav_range, params.wl_stop  + params.step_pm * 1e-3, side='right')
     
-    return (wav_range[i_lo:i_hi], arr_dbm[i_lo:i_hi])
+    return arr_dbm
 
 if __name__ == "__main__":
     pm, laser = prep_inst()

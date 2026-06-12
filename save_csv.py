@@ -32,7 +32,7 @@ def save_csv_raw(data, params:Params=None, file_path=None):
     
     df = pd.DataFrame({"Wavelength":data[0], "Power":data[1]})
     
-    with open(file_path, "w") as f:
+    with open(file_path, "w", newline="") as f:
         f.write("# " + json.dumps(asdict(params) if params is not None else {}) + "\n")
         df.to_csv(f, index=False)
         

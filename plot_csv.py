@@ -35,4 +35,4 @@ else:
         df = pd.read_csv(f)
         
 data_np  = df.to_numpy()
-display_plot((data_np[:, 0], data_np[:, 1]), params=params)
+display_plot(data_np[:, 1], params=params)

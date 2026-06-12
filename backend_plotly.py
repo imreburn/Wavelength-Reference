@@ -8,6 +8,8 @@ from dash import dcc, html, dash_table, Input, Output, State, Patch, callback_co
 import webview
 from webview import FileDialog
 
+import json
+
 from structs import PeakInfo, Params
 from analyze_data import peak_detection, find_bandwidth
 from save_csv import save_csv_raw, save_csv_peak_row
@@ -19,7 +21,7 @@ _last_peak_file   = ''
 _last_peak_label  = ''
 _last_temperature = None
 
-def display_plot(data, params: Params = None, *, overlays=None,
+def display_plot(data, params: Params = None, *, ref=None, overlays=None,
                   title="Absorption Spectrum",
                   width=1400, height=1000, port=8050):
     """
@@ -46,8 +48,20 @@ def display_plot(data, params: Params = None, *, overlays=None,
     the user closes the window. It must be called from the main thread
     (a pywebview requirement).
     """
-    wl  = data[0]
-    dbm = data[1]
+    wav_stop_tmp = params.wl_start - params.padding + (params.step_pm * 1e-3) * (params.num_data - 1)
+    wav_range    = np.linspace(params.wl_start - params.padding, wav_stop_tmp, params.num_data).round(7)
+
+    i_lo = np.searchsorted(wav_range, params.wl_start - params.step_pm * 1e-3, side='left')
+    i_hi = np.searchsorted(wav_range, params.wl_stop  + params.step_pm * 1e-3, side='right')
+    
+    wl  = wav_range[i_lo:i_hi]
+    dbm = data[i_lo:i_hi]
+        
+    if ref is not None:
+        ref = ref[i_lo:i_hi]
+    overlays = list(overlays or [])
+    if len(overlays) > 1:
+        overlays = [ov[i_lo:i_hi] for ov in overlays]
     d_x = round(wl[1] - wl[0], 7)
     
     peak_df = pd.DataFrame()
@@ -107,7 +121,7 @@ def display_plot(data, params: Params = None, *, overlays=None,
         text=[], textposition='top center',
     )
     
-    pk = peak_detection(data)
+    pk = peak_detection(wl, dbm)
     if pk is not None:
 
         # data[3..9] — peak annotation traces (shifted +1 due to mode-2 trace)
@@ -133,48 +147,53 @@ def display_plot(data, params: Params = None, *, overlays=None,
             "FWHM_max"    : [round(w, 3) for w in pk.max_fwhm.width],
             "Depth_avg"   : np.round(pk.peaks.avg_depths, decimals=5),
             "FWHM_avg"    : [round(w, 3) for w in pk.avg_fwhm.width],
-            # "Left_base_x" : np.round(wl[pk.peaks.lt_idx], decimals=6),
-            # "Left_base_y" : np.round(dbm[pk.peaks.lt_idx], decimals=5),
-            # "Right_base_x": np.round(wl[pk.peaks.rt_idx], decimals=6),
-            # "Right_base_y": np.round(dbm[pk.peaks.rt_idx], decimals=5)
                      }
         
         peak_df = pd.DataFrame(peak_dict)
         peak_df.insert(0, "Peak", [i+1 for i in range(len(peak_df))])
 
     # ------------------------------------------------------------------
+    # Reference sweep: mark the global minimum (deepest dip) with its
+    # (x, y) value. Static trace appended last — no callback references it.
+    # ------------------------------------------------------------------
+    ref_start = len(initial_fig.data)
+    if params.reference and ref is not None:
+        diff = dbm - ref
+        gmin_idx = int(np.nanargmin(diff))
+        gmin_x, gmin_y = float(wl[gmin_idx]), float(dbm[gmin_idx])
+        initial_fig.add_scatter(
+            x=[gmin_x], y=[gmin_y], mode='markers+text', name='I.L.',
+            marker=dict(symbol='star', size=12, color='#C0392B', line=_border),
+            hovertemplate='%{x:.7f}<br>%{y:.5f}<extra>I.L.</extra>',
+        )
+        ref_start = len(initial_fig.data)
+        wl_d, ref_dbm_d = lttb(wl, ref, MAX_DISPLAY)
+        initial_fig.add_scatter(
+            x=wl_d, y=ref_dbm_d, mode='lines', name='Reference',
+            line=dict(color='#9B59B6', width=2),
+            hovertemplate='%{x:.5f}<br>%{y:.3f}<extra></extra>',
+        )
+        
+
+    # ------------------------------------------------------------------
     # Overlay spectra (display-only). Appended AFTER every other trace so
     # the hard-coded indices used by the marker/peak callbacks (data[0..11])
     # stay put. overlay_start is the index of the first overlay trace and is
     # reused by resample_on_zoom to refresh them on zoom.
-    # ------------------------------------------------------------------
-    overlays = list(overlays or [])
+    # ------------------------------------------------------------------    
     overlay_start = len(initial_fig.data)
-    _overlay_colors = ['#9B59B6', '#16A085', '#E67E22', '#34495E', '#C0392B']
-    for i, ov in enumerate(overlays):
-        ov_wl, ov_dbm = ov[0], ov[1]
-        ov_name = ov[2] if len(ov) > 2 else f'Spectrum {i + 2}'
-        ov_wl_d, ov_dbm_d = lttb(ov_wl, ov_dbm, MAX_DISPLAY)
-        initial_fig.add_scatter(
-            x=ov_wl_d, y=ov_dbm_d, mode='lines', name=ov_name,
-            line=dict(color=_overlay_colors[i % len(_overlay_colors)], width=2),
-            hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>',
-            visible='legendonly',
-        )
+    _overlay_colors = ['#16A085', '#E67E22', '#34495E', '#C0392B']
+    if len(overlays) > 1:
+        for i, ov in enumerate(overlays):
+            ov_name = f'Spectrum {i + 2}'
+            ov_wl_d, ov_dbm_d = lttb(wl, ov, MAX_DISPLAY)
+            initial_fig.add_scatter(
+                x=ov_wl_d, y=ov_dbm_d, mode='lines', name=ov_name,
+                line=dict(color=_overlay_colors[i % len(_overlay_colors)], width=2),
+                hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>',
+                visible='legendonly',
+            )
 
-    # ------------------------------------------------------------------
-    # Reference sweep: mark the global minimum (deepest dip) with its
-    # (x, y) value. Static trace appended last — no callback references it.
-    # ------------------------------------------------------------------
-    gmin_idx = int(np.argmin(dbm))
-    gmin_x, gmin_y = float(wl[gmin_idx]), float(dbm[gmin_idx])
-    if params is not None and params.sweep_type == "reference":
-        initial_fig.add_scatter(
-            x=[gmin_x], y=[gmin_y], mode='markers+text', name='I.L.',
-            marker=dict(symbol='star', size=12, color='#C0392B', line=_border),
-            # text=[f'({gmin_x:.6f}, {gmin_y:.5f})'], textposition='top center',
-            hovertemplate='%{x:.7f}<br>%{y:.5f}<extra>I.L.</extra>',
-        )
 
     initial_fig.update_layout(
         xaxis_title='Wavelength (nm)',
@@ -388,13 +407,7 @@ def display_plot(data, params: Params = None, *, overlays=None,
                   'boxShadow': '0 4px 20px rgba(0,0,0,0.25)'}),
     )
 
-    sweep_text = (f'Sweep type: {params.sweep_type}'
-                  if params is not None and params.sweep_type else None)
-
     app.layout = html.Div([
-        html.Div(sweep_text,
-                 style={'fontWeight': 'bold', 'fontFamily': 'system-ui, sans-serif',
-                        'margin': '8px 0 4px 4px'}) if sweep_text else None,
         html.Div([
             dcc.Graph(id='spectrum', figure=initial_fig, config={'scrollZoom':True}),
             right_sidebar,
@@ -426,7 +439,7 @@ def display_plot(data, params: Params = None, *, overlays=None,
             style_header={'fontWeight': 'bold', 'backgroundColor': '#f0f0f0'},
             style_table={'marginBottom': '10px', 'width': 'fit-content'},
         ),
-        html.P(f"Insertion Loss: {gmin_y:.5f}") if params is not None and params.sweep_type == "reference" else None,
+        html.P(f"Insertion Loss: {diff[gmin_idx]:.5f}") if params.reference and ref is not None else None,
         html.Button('Clear markers', id='clear-btn', n_clicks=0),
         html.Div(id='marker-info',
                  style={'marginTop': '10px', 'fontFamily': 'monospace',
@@ -464,7 +477,7 @@ def display_plot(data, params: Params = None, *, overlays=None,
             return ""
         # SAVE_DIALOG returns a str on some versions, a tuple/list on others.
         file_path = result[0] if isinstance(result, (list, tuple)) else result
-        save_csv_raw(data, params, file_path=file_path)
+        save_csv_raw((wav_range, data), params, file_path=file_path)
         return "Raw data saved."
 
     @app.callback(
@@ -534,10 +547,8 @@ def display_plot(data, params: Params = None, *, overlays=None,
                 return dash.no_update, dash.no_update, ""
             file_path = result[0] if isinstance(result, (list, tuple)) else result
             
-        if params is not None and params.sweep_type == "reference":
-            save_csv_peak_row(label.strip(), wl_v, depth, fwhm, loss=round(gmin_y,5), file_path=file_path, temperature=temperature)
-        else:    
-            save_csv_peak_row(label.strip(), wl_v, depth, fwhm, file_path=file_path, temperature=temperature)
+        loss=round(gmin_y,5) if params.reference and ref is not None else None
+        save_csv_peak_row(label.strip(), wl_v, depth, fwhm, loss=loss, file_path=file_path, temperature=temperature)
         
         global _last_peak_file, _last_peak_label, _last_temperature
         _last_peak_file   = os.path.basename(file_path)
@@ -706,8 +717,10 @@ def display_plot(data, params: Params = None, *, overlays=None,
         # every overlay. data[0] is the primary; overlays live at
         # overlay_start.. (see the overlay-building block above).
         curves = [(0, wl, dbm)]
-        curves += [(overlay_start + i, ov[0], ov[1])
-                   for i, ov in enumerate(overlays)]
+        curves += [(ref_start, wl, ref)]
+        if len(overlays) > 1:
+            curves += [(overlay_start + i, wl, ov[0])
+                    for i, ov in enumerate(overlays)]
         patched = Patch()
         if relayout.get('xaxis.autorange') or relayout.get('autosize'):
             for idx, w_arr, d_arr in curves:
@@ -802,8 +815,14 @@ def display_plot(data, params: Params = None, *, overlays=None,
 # Demo: run this file directly to test
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    data = np.loadtxt("test_2026-05-11_14-44_converted.csv", skiprows=1, delimiter=',')
-    params = Params()
-    params.sweep_type = "single"
+    csv_path = "raw_data_single.csv"
+    
+    with open(csv_path) as f:
+        params_dict = json.loads(f.readline().lstrip("# "))
+        params = Params(**params_dict) if params_dict else None
+        df = pd.read_csv(f)
+        
+    data_np  = df.to_numpy()
+    
     while True:
-        display_plot((data[:, 0], data[:, 1]), params=params)
+        display_plot(data_np[:, 1], params=params)

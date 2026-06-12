@@ -5,6 +5,12 @@
 ### Added
 
 - A preset can be saved via "Manage Preset...". It may replace an existing preset or create a new one. The user also can delete a preset.
+- "Change" button is added. Pushing it invalidates existing configuration and reference if previously set.
+
+### Changed
+
+- Now **WavelengthSweep** includes **RefSweep**. Users can set the last measurement as the reference.
+- When a reference is set, the subsequent measurements are plotted as raw data.
 
 ## [v1.0.2] - 2026-06-12
 

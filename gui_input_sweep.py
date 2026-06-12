@@ -13,10 +13,16 @@ from gui_input_common import (
 log = logging.getLogger(__name__)
 
 _last = {}  # persists raw field values within one execution
+
+# Fixed on-screen position for the window at first launch (top-left x, y).
+WINDOW_POS = (50, 50)
+
 # Persists across get_inputs() calls (the window is recreated each loop):
 #   has_run   — at least one Run has happened this session
 #   reference — current reference status (True/False)
-_state = {"has_run": False, "reference": False}
+#   pos       — last window position (x, y); None until first close, then
+#               tracks wherever the user moved it
+_state = {"has_run": False, "reference": False, "pos": None}
 
 
 def section_header(frame, text, row):
@@ -92,13 +98,18 @@ def get_inputs():
         params.time       = ts
         params.date       = ds
 
-        # If step size is adjusted, turn the field red
+        # If step size is adjusted, change the field color
+        step_adjusted = ""
         if params.step_pm != float(entries[3].get()):
             entries[3].delete(0, tk.END)
             entries[3].insert(0, f"{params.step_pm:.4f}")
-            entries[3].config(fg="red")
+            entries[3].config(disabledforeground="#cc7a00")
+            step_adjusted = "Step size is adjusted."
+        else:
+            # Clear any red left over from a previous adjustment.
+            entries[3].config(fg="black", disabledforeground=default_disabledfg)
 
-        result_label.config(text="Parameters saved. Review values, then click Run or press Enter.", fg="blue")
+        result_label.config(text="Parameters saved. Review values, then click Run or press Enter. " + step_adjusted, fg="blue")
 
         saved["ok"] = True
         set_locked(True)
@@ -153,6 +164,7 @@ def get_inputs():
 
         ran["ok"] = True
         _state["has_run"] = True
+        _state["pos"] = (root.winfo_x(), root.winfo_y())
         log.info("params: %s", params)
         result_label.config(text="Running...", fg="black")
         root.after(200, root.destroy)
@@ -278,6 +290,18 @@ def get_inputs():
     root.title("Test Configuration")
     root.resizable(False, False)
 
+    # Place the window at its fixed start position, or wherever the user last
+    # left it. "+x+y" sets position only, leaving the auto-computed size alone.
+    start_x, start_y = _state["pos"] or WINDOW_POS
+    root.geometry(f"+{start_x}+{start_y}")
+
+    def on_close():
+        # Remember where the user left the window before closing.
+        _state["pos"] = (root.winfo_x(), root.winfo_y())
+        root.destroy()
+
+    root.protocol("WM_DELETE_WINDOW", on_close)
+
     frame = tk.Frame(root, padx=20, pady=15)
     frame.pack()
 
@@ -301,7 +325,7 @@ def get_inputs():
     presets = load_presets()
     preset_options = ["none"] + list(presets.keys())
     preset_var = tk.StringVar(value=_last.get("preset", "none"))
-    tk.Label(frame, text="Load Preset", anchor="w", width=22).grid(row=FIELDS_START, column=0, pady=4, sticky="w")
+    tk.Label(frame, text="Load Preset", anchor="e").grid(row=FIELDS_START, column=0, pady=4, padx=(0, 8), sticky="e")
     preset_menu = tk.OptionMenu(frame, preset_var, *preset_options)
     preset_menu.grid(row=FIELDS_START, column=1, pady=4, sticky="w")
     preset_var.trace_add("write", on_preset_change)
@@ -310,7 +334,7 @@ def get_inputs():
     entries = []
     entry_widgets = []
     for i, (label_text, default) in enumerate(zip(FIELD_LABELS, init_fields)):
-        tk.Label(frame, text=label_text, anchor="w", width=22).grid(row=FIELDS_START+i+1, column=0, pady=4, sticky="w")
+        tk.Label(frame, text=label_text, anchor="e").grid(row=FIELDS_START+i+1, column=0, pady=4, padx=(0, 8), sticky="e")
         if i == 2:  # Sweep Speed — dropdown
             sv = tk.StringVar(value=default if default in SWEEP_SPEED_OPTIONS else SWEEP_SPEED_OPTIONS[0])
             menu = tk.OptionMenu(frame, sv, *SWEEP_SPEED_OPTIONS)
@@ -326,16 +350,19 @@ def get_inputs():
             entries.append(e)
             entry_widgets.append(e)
 
+    # Platform's native disabled text color, restored when the step field isn't adjusted.
+    default_disabledfg = entries[3].cget("disabledforeground")
+
     init_extras = _last.get("extras", EXTRA_DEFAULTS)
     extra_vars, extra_menus = make_extra_widgets(frame, EXTRAS_START, init_extras, on_entry_change)
 
     num_data = tk.StringVar()
     avg_time = tk.StringVar()
 
-    tk.Label(frame, text="Log Count / Sweep", anchor="w", width=25).grid(row=LOGCOUNT_ROW, column=0, sticky="w", pady=4)
+    tk.Label(frame, text="Log Count / Sweep", anchor="e").grid(row=LOGCOUNT_ROW, column=0, sticky="e", pady=4, padx=(0, 8))
     tk.Label(frame, textvariable=num_data, anchor="w").grid(row=LOGCOUNT_ROW, column=1, sticky="w", pady=4)
 
-    tk.Label(frame, text="Averaging Time (μs)", anchor="w", width=22).grid(row=AVGTIME_ROW, column=0, sticky="w", pady=4)
+    tk.Label(frame, text="Averaging Time (μs)", anchor="e").grid(row=AVGTIME_ROW, column=0, sticky="e", pady=4, padx=(0, 8))
     tk.Label(frame, textvariable=avg_time, anchor="w").grid(row=AVGTIME_ROW, column=1, sticky="w", pady=4)
 
     save_frame = tk.Frame(frame)

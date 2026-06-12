@@ -15,27 +15,31 @@ from structs import PeakInfo, Peaks, PeakFwhm, MaxPeak
 log = logging.getLogger(__name__)
 
 def combine_scans(scans):
-    num_scans = len(scans)
+    """Combines multiple scans. If scans has one scan, it just return the scan as a combined data.
+
+    Args:
+        scans (list(tuple(pm_range:int, scan:np.ndarray))): List of multiple scans.
+
+    Returns:
+        np.ndarray: 1-d combined data
+    """
     # Start with the first scan (with the highest range setting)
-    wav_range = scans[0][1][0].copy()
-    combined  = scans[0][1][1].copy()
+    combined  = scans[0][1].copy()
     
-    for i in range(1, num_scans):
-        p_range, data = scans[i]
+    for i in range(1, len(scans)):
+        p_range, power = scans[i]
         p_range *= -1
-        power = data[1]
-        # log.info(f"Compare x-axis: {np.array_equal(wav_range, data[0])}")
-        if i < num_scans - 1:
+
+        if i < (len(scans) - 1):
             next_p_range = scans[i+1][0] * -1
             combined = np.where((power >= p_range) & (power < next_p_range), power, combined)
         else:
             combined = np.where((power >= p_range), power, combined)
-    return (wav_range, combined)
+            
+    return combined
 
 
-def peak_detection(data):
-    x = data[0]
-    y = data[1]
+def peak_detection(x, y):
     # scipy's peak_widths requires float64 buffers; PM data is read as float32
     # y = np.asarray(data[1], dtype=np.float64)
 
@@ -150,4 +154,4 @@ def find_bandwidth(wl, dbm, idx, y_offset, search_range):
 
 if __name__ == "__main__":
     data = np.loadtxt("test_2026-05-11_14-44_converted.csv", skiprows=1, delimiter=',')
-    print(peak_detection(data))
+    print(peak_detection(data[:,0], data[:, 1]))

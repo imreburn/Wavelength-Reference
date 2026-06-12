@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Tuple
 
 @dataclass
 class Params:
@@ -17,8 +18,14 @@ class Params:
     decrement  : int   = field(default=None)  
     
     reference  : bool   = field(default=None)
+    channel    : Tuple[int, ...] = field(default=None)
     
     analyze    : bool  = field(default=False)
-    channels   : [int] = field(default=None)
     time       : str   = field(default=None)
     date       : str   = field(default=None)
+    
+    def __post_init__(self):
+        # JSON has no tuple type, so a saved-then-reloaded Params returns
+        # channel as a list. Coerce to tuple so every path is consistent.
+        if self.channel is not None:
+            self.channel = tuple(self.channel)
