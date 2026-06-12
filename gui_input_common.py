@@ -6,7 +6,7 @@ DEFAULTS = ["0", "0", "0.5", "0.0125", "0.1"]
 SWEEP_SPEED_OPTIONS = ["0.5", "1.0", "2.0", "5.0", "10.0", "20.0", "40.0", "50.0", "80.0", "100.0", "150.0", "160.0", "200.0"]
 
 # Extra dropdown-only fields (powermeter range + dynamic-range scanning).
-PM_RANGE_LABEL  = "Initial Power meter Range (dBm)"
+PM_RANGE_LABEL  = "Initial Power Meter Range (dBm)"
 DYN_SCAN_LABEL  = "Dynamic Range Scans"
 DECREMENT_LABEL = "Decrement (dB)"
 
@@ -31,8 +31,9 @@ def load_presets():
     """Return {material: {label: value, ...}} from preset.csv, or {} on any failure.
 
     FIELD_LABELS columns are required; EXTRA_LABELS columns are optional and fall
-    back to EXTRA_DEFAULTS when the column is missing, blank, or holds a value that
-    is not one of the field's allowed dropdown options.
+    back to EXTRA_DEFAULTS only when the column is missing or blank. A non-empty
+    value is passed through verbatim (even if it is not a valid dropdown option) so
+    the GUI can surface it and reject it on Save, matching the field dropdowns.
     """
     try:
         with open(PRESET_CSV, newline="") as f:
@@ -45,11 +46,49 @@ def load_presets():
                 vals = {label: row[label].strip() for label in FIELD_LABELS}
                 for label in EXTRA_LABELS:
                     cell = (row.get(label) or "").strip()
-                    vals[label] = cell if cell in EXTRA_OPTIONS[label] else EXTRA_DEFAULTS[label]
+                    vals[label] = cell if cell else EXTRA_DEFAULTS[label]
                 presets[name] = vals
         return presets
     except Exception:
         return {}
+
+
+def save_preset(name, vals):
+    """Insert or replace `name` in PRESET_CSV with the given label->value dict.
+
+    Existing presets are preserved and a matching name is overwritten in place;
+    a new name is appended. Returns None on success or an error message string.
+    """
+    fieldnames = ["Name"] + FIELD_LABELS + EXTRA_LABELS
+    presets = load_presets()
+    presets[name] = {label: vals.get(label, "") for label in FIELD_LABELS + EXTRA_LABELS}
+    try:
+        with open(PRESET_CSV, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            for nm, row in presets.items():
+                writer.writerow({"Name": nm, **row})
+        return None
+    except Exception as e:
+        return f"Could not write {PRESET_CSV}: {e}"
+
+
+def delete_preset(name):
+    """Remove `name` from PRESET_CSV. Returns None on success or an error message string."""
+    presets = load_presets()
+    if name not in presets:
+        return f"Preset '{name}' not found."
+    del presets[name]
+    fieldnames = ["Name"] + FIELD_LABELS + EXTRA_LABELS
+    try:
+        with open(PRESET_CSV, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            for nm, row in presets.items():
+                writer.writerow({"Name": nm, **row})
+        return None
+    except Exception as e:
+        return f"Could not write {PRESET_CSV}: {e}"
 
 
 def make_extra_widgets(frame, start_row, init, on_change, enable_dynamic=True):
@@ -125,7 +164,7 @@ def validate_inputs(raw_strings, num_data, avg_time):
     num_data_log  = pp if qq == 0 else pp+1
     
     num_data.set(f"{num_data_log:,d}")
-    avg_time.set(f"{avg_t}")
+    avg_time.set(f"{avg_t:,d}")
     
     if num_data_log > 1000000:
         return None, "Log count exceeds the maximum (max: 1M)"
@@ -136,6 +175,21 @@ def validate_inputs(raw_strings, num_data, avg_time):
     values    += [avg_t, num_data_log]
     
     return values, None
+
+
+def validate_extras(extra_strs):
+    """Return None if every extra dropdown holds a valid option, else an error message.
+
+    `extra_strs`: dict label -> raw string. Decrement is only checked when Dynamic
+    Range Scans is 2 or 3 (otherwise the field is unused/disabled). Run before any
+    int() conversion so a bad preset value is reported instead of crashing.
+    """
+    for label in (PM_RANGE_LABEL, DYN_SCAN_LABEL):
+        if extra_strs[label] not in EXTRA_OPTIONS[label]:
+            return f"{label} must be selected from the dropdown list."
+    if extra_strs[DYN_SCAN_LABEL] in ("2", "3") and extra_strs[DECREMENT_LABEL] not in DECREMENT_OPTIONS:
+        return f"{DECREMENT_LABEL} must be selected from the dropdown list."
+    return None
 
 
 def validate_dynamic_range(pm_range, dyn_scans, decrement):
@@ -152,8 +206,6 @@ def validate_dynamic_range(pm_range, dyn_scans, decrement):
 
 
 def validation_error(msg, result_label, num_data, avg_time, saved, run_btn):
-    result_label.config(text=f"Error: {msg}")
-    # num_data.set("")
-    # avg_time.set("")
+    result_label.config(text=f"Error: {msg}", fg="red")
     saved["ok"] = False
     run_btn.config(state="disabled")
