@@ -23,10 +23,9 @@ def get_inst():
         exceptionHandler(ex)
 
     pm.read_termination    = '\n'
-    laser.read_termination = '\n'   
-
-    log.info(pm.query("*IDN?"))
-    log.info(laser.query("*IDN?"))
+    laser.read_termination = '\n'
+    pm.write_termination    = '\n'
+    laser.write_termination = '\n'
     log.info("Connected to instruments")
     
     return pm, laser
@@ -53,9 +52,31 @@ def init_inst(pm, laser):
     laser.write(":STAT:QUES:ENAB 32767")    
     
     # Power Meter
+    pm.clear()
     pm.write(":STAT:QUES:ENAB 32767")
 
+    log.info(pm.query("*IDN?"))
+    log.info(laser.query("*IDN?"))
+
     log.info("Instruments ready")
+
+    
+def read_pm(pm):
+    try:
+        # for i in range(1, 5):
+        #     pm.write(f":SENSE{i}:POWER:RANGE:AUTO ON")
+        
+        res = pm.query_binary_values(":READ:POW:ALL?")
+        
+        pm_ranges = [0, 0, 0, 0]
+        # for i in range(1, 5):
+        #     pm_ranges.append(pm.query(f":SENSE{i}:POWER:RANGE?"))
+    
+    except pyvisa.VisaIOError as ex:
+        log.error('VISA Error')
+        exceptionHandler(ex)
+    
+    return [(r, pw) for r, pw in zip(pm_ranges, res)]
 
 
 def prep_inst():

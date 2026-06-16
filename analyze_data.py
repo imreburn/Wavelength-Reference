@@ -10,32 +10,29 @@ import numpy as np
 from scipy.signal import find_peaks, peak_widths
 import logging
 
-from structs import PeakInfo, Peaks, PeakFwhm, MaxPeak
+from structs import PeakInfo, Peaks, PeakFwhm, MaxPeak, Params
 
 log = logging.getLogger(__name__)
 
-def combine_scans(scans):
+def combine_scans(scans, params: Params):
     """Combines multiple scans. If scans has one scan, it just return the scan as a combined data.
-
-    Args:
-        scans (list(tuple(pm_range:int, scan:np.ndarray))): List of multiple scans.
-
-    Returns:
-        np.ndarray: 1-d combined data
     """
     # Start with the first scan (with the highest range setting)
-    combined  = scans[0][1].copy()
+    combined = scans[0].copy()
     
     for i in range(1, len(scans)):
-        p_range, power = scans[i]
-        p_range *= -1
+        p_range       = params.pm_range - i * params.decrement
+        p_range_next  = p_range - params.decrement
+        p_range      *= -1
+        p_range_next *= -1
+        
+        for ch_idx, ch_new in enumerate(scans[i]):
+            ch_com = combined[ch_idx]
+            if i == len(scans) - 1:
+                combined[ch_idx] = np.where((ch_new >= p_range), ch_new, ch_com)
+            else:
+                combined[ch_idx] = np.where((ch_new >= p_range) & (ch_new < p_range_next), ch_new, ch_com)
 
-        if i < (len(scans) - 1):
-            next_p_range = scans[i+1][0] * -1
-            combined = np.where((power >= p_range) & (power < next_p_range), power, combined)
-        else:
-            combined = np.where((power >= p_range), power, combined)
-            
     return combined
 
 
@@ -50,8 +47,8 @@ def peak_detection(x, y):
     # tunable parameters: prominence, distance, etc.
     # Assume a peak should be deeper than 3/4 of global max-min
     simple_prominence = (np.max(y) - np.min(y))*(3/4)
-    
-    peak_indices, peak_properties = find_peaks(y, prominence=simple_prominence, distance=8000)
+    simple_distance = int(len(y)/4)
+    peak_indices, peak_properties = find_peaks(y, prominence=simple_prominence, distance=simple_distance)
 
     log.info(f"Peak(s) found: {len(peak_indices)}")
     if len(peak_indices) == 0:

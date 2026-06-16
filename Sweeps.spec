@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# Builds all three apps into a single dist/Sweeps/ folder that shares ONE
+# Builds both apps into a single dist/Sweeps/ folder that shares ONE
 # _internal directory. Each .exe embeds its own Python bytecode, while the
 # heavy shared runtime (Python DLL, dash, plotly, pythonnet, numpy, scipy, ...)
 # is collected once by the single COLLECT below.
@@ -33,11 +33,9 @@ def make_analysis(script):
 
 
 a_sweep = make_analysis("main_sweep.py")
-a_ref = make_analysis("main_reference.py")
 a_plot = make_analysis("plot_csv.py")
 
 pyz_sweep = PYZ(a_sweep.pure)
-pyz_ref = PYZ(a_ref.pure)
 pyz_plot = PYZ(a_plot.pure)
 
 exe_sweep = EXE(
@@ -46,19 +44,6 @@ exe_sweep = EXE(
     [],
     exclude_binaries=True,
     name="WavelengthSweep",
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=False,
-    console=True,
-)
-
-exe_ref = EXE(
-    pyz_ref,
-    a_ref.scripts,
-    [],
-    exclude_binaries=True,
-    name="RefSweep",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -79,15 +64,12 @@ exe_plot = EXE(
     console=True,
 )
 
-# A single COLLECT bundles all three exes and the union of their binaries/datas
+# A single COLLECT bundles both exes and the union of their binaries/datas
 # into one folder with one shared _internal directory.
 coll = COLLECT(
     exe_sweep,
     a_sweep.binaries,
     a_sweep.datas,
-    exe_ref,
-    a_ref.binaries,
-    a_ref.datas,
     exe_plot,
     a_plot.binaries,
     a_plot.datas,

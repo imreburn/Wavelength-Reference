@@ -12,8 +12,8 @@ import json
 
 from structs import PeakInfo, Params
 from analyze_data import peak_detection, find_bandwidth
-from save_csv import save_csv_raw, save_csv_peak_row
-from helper_plotly import lttb
+from save_csv import save_csv_raw, save_csv_peak_row, COL_X, COL_CH, COL_REF
+from helper_plotly import lttb, lttb_multi
 
 # Remembered across display_plot() calls (i.e. across loop iterations) so the
 # "Choose a file" dropdown can pre-select the file used last time.
@@ -27,14 +27,22 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     """
     Parameters
     ----------
-    data : sequence
-        Primary spectrum: ``data[0]`` is the wavelength array (nm) and
-        ``data[1]`` the power array (dBm). All peak/marker analysis runs
-        on this spectrum.
-    overlays : list, optional
-        Additional spectra to draw on top, each an ``(wl, dbm)`` or
-        ``(wl, dbm, label)`` tuple. These are display-only — peak
-        detection, FWHM and the bandwidth tools ignore them.
+    data : list of arrays
+        One power array (dBm) per channel, ordered to match
+        ``params.channel``. The wavelength axis is reconstructed from
+        ``params`` (it is shared by every channel). All peak/marker
+        analysis and insertion loss run on the FIRST channel only
+        (``data[0]`` / ``params.channel[0]``); the rest are drawn for
+        display. Lines are labelled ``Ch.<n>``.
+    ref : list of arrays, optional
+        Reference sweep, one array per channel (same order as ``data``).
+        Drawn as dashed ``Ch.<n>(Ref)`` lines; insertion loss uses
+        channel 0 only.
+    overlays : list of lists, optional
+        The individual dynamic-range scans — a list of scans, each a list
+        of per-channel arrays. Drawn (display-only, legend-only) as dotted
+        ``Ch.<n>(Scan <i>)`` lines; only shown when there is more than one
+        scan.
     width, height : int, optional
         Initial dimensions of the desktop window in pixels.
     port : int, optional
@@ -55,13 +63,21 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     i_hi = np.searchsorted(wav_range, params.wl_stop  + params.step_pm * 1e-3, side='right')
     
     wl  = wav_range[i_lo:i_hi]
-    dbm = data[i_lo:i_hi]
-        
-    if ref is not None:
-        ref = ref[i_lo:i_hi]
+
+    # data / ref / overlays now arrive per channel, ordered like params.channel:
+    #   data     : list of channel arrays
+    #   ref      : list of channel arrays (or None)
+    #   overlays : list of scans, each a list of channel arrays
+    # The full-resolution `data`/`ref` lists are kept for the raw-data save; the
+    # sliced copies below (aligned with `wl`) drive plotting and analysis.
+    channels = tuple(params.channel) if params.channel else tuple(range(1, len(data) + 1))
+    data_s = [np.asarray(d)[i_lo:i_hi] for d in data]
+    dbm    = data_s[0]                        # channel-1 array drives all analysis
+    ref_s  = [np.asarray(r)[i_lo:i_hi] for r in ref] if ref is not None else None
     overlays = list(overlays or [])
-    if len(overlays) > 1:
-        overlays = [ov[i_lo:i_hi] for ov in overlays]
+    # Overlays are the individual dynamic-range scans; only meaningful with >1.
+    overlays_s = ([[np.asarray(c)[i_lo:i_hi] for c in scan] for scan in overlays]
+                  if len(overlays) > 1 else [])
     d_x = round(wl[1] - wl[0], 7)
     
     peak_df = pd.DataFrame()
@@ -77,21 +93,41 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     SLIDER_STEP  = d_x    # nm 
 
     OFFSET_RANGE = 25 # half-range of searching in samples. 0.0125 pm * 2000 = 25.0 pm
-    MAX_DISPLAY  = 20000  # max points rendered at once for the spectrum
+    MAX_DISPLAY  = 10000  # max points rendered at once for the spectrum
 
     # ------------------------------------------------------------------
     # Initial figure (built once, captures the data)
     # ------------------------------------------------------------------
+    # Every line is solid; each line (main, reference or scan) gets its own
+    # color, assigned in draw order from this palette.
+    LINE_COLORS = [
+        '#378ADD', '#D85A30', '#2A9D8F', '#9B59B6', '#E8A020', '#50C878',
+        '#E63946', '#457B9D', '#F4A261', '#264653', '#8E44AD', '#16A085',
+    ]
+    _color_state = {'i': 0}
+    def _next_color():
+        c = LINE_COLORS[_color_state['i'] % len(LINE_COLORS)]
+        _color_state['i'] += 1
+        return c
+
     wl_init, dbm_init = lttb(wl, dbm, MAX_DISPLAY)
     initial_fig = go.Figure()
-    # data[0] — main spectrum. SVG scatter (not scattergl): WebGL partial
-    # Patch updates on this line trace occasionally fail to repaint, leaving
-    # a blank/stale curve after a zoom. At <=MAX_DISPLAY points SVG is fine.
+    # data[0] — channel-1 spectrum (the analyzed channel). SVG scatter (not
+    # scattergl): WebGL partial Patch updates on this line trace occasionally
+    # fail to repaint, leaving a blank/stale curve after a zoom. At
+    # <=MAX_DISPLAY points SVG is fine.
     initial_fig.add_scatter(
-        x=wl_init, y=dbm_init, mode='lines', name='Spectrum',
-        line=dict(color='#378ADD', width=2),
+        x=wl_init, y=dbm_init, mode='lines', name=f'{COL_CH}{channels[0]}',
+        line=dict(color=_next_color(), width=2),
         hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>',
     )
+    # Trace-index bookkeeping for the resampler: (trace index, wl-aligned y).
+    # data[0] is channel 1; the remaining channels, references and scans are
+    # appended AFTER all the fixed-index marker & peak traces below, so those
+    # indices (data[1..11]) stay put for the callbacks.
+    main_traces    = [(0, dbm)]
+    ref_traces     = []
+    overlay_traces = []
     _border = dict(width=1, color='#333')
     # data[1..4] use SVG scatter to match data[0] and the peak traces below —
     # keep the whole figure on one renderer (mixing scattergl draws WebGL
@@ -151,48 +187,64 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
         
         peak_df = pd.DataFrame(peak_dict)
         peak_df.insert(0, "Peak", [i+1 for i in range(len(peak_df))])
+        peak_df.insert(0, "Channel", [channels[0] for _ in range(len(peak_df))])
 
     # ------------------------------------------------------------------
-    # Reference sweep: mark the global minimum (deepest dip) with its
-    # (x, y) value. Static trace appended last — no callback references it.
+    # Remaining channels (channel 1 is data[0] above). Appended AFTER the
+    # fixed-index marker/peak traces so data[1..11] stay put. Solid line,
+    # one color per channel.
     # ------------------------------------------------------------------
-    ref_start = len(initial_fig.data)
-    if params.reference and ref is not None:
-        diff = dbm - ref
+    for k, (ch, d_arr) in enumerate(zip(channels, data_s)):
+        if k == 0:
+            continue
+        wl_d, d_d = lttb(wl, d_arr, MAX_DISPLAY)
+        initial_fig.add_scatter(
+            x=wl_d, y=d_d, mode='lines', name=f'{COL_CH}{ch}',
+            line=dict(color=_next_color(), width=2),
+            hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>',
+        )
+        main_traces.append((len(initial_fig.data) - 1, d_arr))
+
+    # ------------------------------------------------------------------
+    # Reference sweep. Insertion loss (deepest dip vs reference) is computed
+    # on channel 1 only; a dashed reference line is drawn for every channel.
+    # ------------------------------------------------------------------
+    il_idx = None  # trace index of the I.L. marker (None when no reference)
+    if params.reference and ref_s:
+        diff = dbm - ref_s[0]
         gmin_idx = int(np.nanargmin(diff))
         gmin_x, gmin_y = float(wl[gmin_idx]), float(dbm[gmin_idx])
         initial_fig.add_scatter(
             x=[gmin_x], y=[gmin_y], mode='markers+text', name='I.L.',
-            marker=dict(symbol='star', size=12, color='#C0392B', line=_border),
+            marker=dict(symbol='star', size=9, color='#C0392B', line=_border),
+            text=[f"<b>IL: {diff[gmin_idx]:.5f}</b>"], textposition='bottom center',
+            textfont=dict(size=14, color='#C0392B'),
             hovertemplate='%{x:.7f}<br>%{y:.5f}<extra>I.L.</extra>',
         )
-        ref_start = len(initial_fig.data)
-        wl_d, ref_dbm_d = lttb(wl, ref, MAX_DISPLAY)
-        initial_fig.add_scatter(
-            x=wl_d, y=ref_dbm_d, mode='lines', name='Reference',
-            line=dict(color='#9B59B6', width=2),
-            hovertemplate='%{x:.5f}<br>%{y:.3f}<extra></extra>',
-        )
-        
+        il_idx = len(initial_fig.data) - 1
+        for k, (ch, r_arr) in enumerate(zip(channels, ref_s)):
+            wl_d, r_d = lttb(wl, r_arr, MAX_DISPLAY)
+            initial_fig.add_scatter(
+                x=wl_d, y=r_d, mode='lines', name=f'{COL_REF}{ch}',
+                line=dict(color=_next_color(), width=2),
+                hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>',
+            )
+            ref_traces.append((len(initial_fig.data) - 1, r_arr))
 
     # ------------------------------------------------------------------
-    # Overlay spectra (display-only). Appended AFTER every other trace so
-    # the hard-coded indices used by the marker/peak callbacks (data[0..11])
-    # stay put. overlay_start is the index of the first overlay trace and is
-    # reused by resample_on_zoom to refresh them on zoom.
-    # ------------------------------------------------------------------    
-    overlay_start = len(initial_fig.data)
-    _overlay_colors = ['#16A085', '#E67E22', '#34495E', '#C0392B']
-    if len(overlays) > 1:
-        for i, ov in enumerate(overlays):
-            ov_name = f'Spectrum {i + 2}'
-            ov_wl_d, ov_dbm_d = lttb(wl, ov, MAX_DISPLAY)
+    # Overlay scans (display-only, legend-only by default). One dotted line
+    # per (scan, channel). Appended last so the fixed indices above stay put.
+    # ------------------------------------------------------------------
+    for s, scan in enumerate(overlays_s):
+        for k, (ch, c_arr) in enumerate(zip(channels, scan)):
+            wl_d, o_d = lttb(wl, c_arr, MAX_DISPLAY)
             initial_fig.add_scatter(
-                x=ov_wl_d, y=ov_dbm_d, mode='lines', name=ov_name,
-                line=dict(color=_overlay_colors[i % len(_overlay_colors)], width=2),
+                x=wl_d, y=o_d, mode='lines', name=f'{COL_CH}{ch}(Scan {s + 1})',
+                line=dict(color=_next_color(), width=2),
                 hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>',
                 visible='legendonly',
             )
+            overlay_traces.append((len(initial_fig.data) - 1, c_arr))
 
 
     initial_fig.update_layout(
@@ -202,7 +254,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
         showlegend=True,
         height=600,
         width=1250,
-        margin=dict(t=30, b=5),
+        margin=dict(t=30, b=50),
         uirevision='constant',
     )
 
@@ -220,6 +272,16 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
 
     app = dash.Dash(__name__)
     right_sidebar = html.Div([
+        html.Div([
+            html.Label("Max points/plot", style={'fontWeight': 'bold', 'marginBottom': '4px',
+                                                 'display': 'block'}),
+            dcc.Input(
+                id='max-display-input',
+                type='number', min=1000, step=1000, value=MAX_DISPLAY,
+                debounce=True,
+                style={'width': '160px', 'boxSizing': 'border-box'},
+            ),
+        ]),
         html.Details([
             html.Summary("Show markers", style={'fontWeight': 'bold', 'cursor': 'pointer', 'marginBottom': '6px'}),
             dcc.Checklist(
@@ -235,8 +297,8 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
                     {'label': 'peaks', 'value': 'peaks'},
                     {'label': 'FWHM_max',  'value': 'max'},
                     {'label': 'FWHM_avg',  'value': 'avg'},
-                ],
-                value=['peaks', 'max', 'avg'],
+                ] + ([{'label': 'I.L.', 'value': 'il'}] if il_idx is not None else []),
+                value=['peaks', 'max', 'avg'] + (['il'] if il_idx is not None else []),
                 style={'marginBottom': '4px', 'marginLeft': '16px'},
                 labelStyle={'display': 'block'},
             ),
@@ -251,6 +313,9 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
                 labelStyle={'display': 'inline-block', 'marginRight': '16px'},
                 style={'display': 'inline-block'},
             ),
+            html.Button('Clear markers', id='clear-btn', n_clicks=0,
+                        style={'width': '150px', 'fontSize': '15px',
+                               'padding': '5px 12px', 'marginTop': '5px'}),
             html.Div([
                 html.Label("Fine tune", style={'fontSize': '11px', 'color': '#888',
                                                'marginBottom': '4px', 'display': 'block'}),
@@ -301,13 +366,13 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
         ]),
         html.Div([
             html.Button('Save raw data...', id='save-raw-btn', n_clicks=0,
-                        style={'width': '100%', 'fontSize': '16px',
-                               'padding': '10px 12px'}),
+                        style={'width': '160px', 'fontSize': '16px',
+                               'padding': '8px 10px'}),
             html.Div(id='save-raw-info',
                      style={'fontSize': '12px', 'color': '#888', 'marginTop': '4px'}),
             html.Button('Save peak info...', id='save-peak-btn', n_clicks=0,
-                        style={'width': '100%', 'fontSize': '16px',
-                               'padding': '10px 12px', 'marginTop': '8px'}),
+                        style={'width': '160px', 'fontSize': '16px',
+                               'padding': '8px 10px', 'marginTop': '8px'}),
             html.Div(id='save-peak-info',
                      style={'fontSize': '12px', 'color': '#888', 'marginTop': '4px'}),
         ]),
@@ -409,41 +474,41 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
 
     app.layout = html.Div([
         html.Div([
-            dcc.Graph(id='spectrum', figure=initial_fig, config={'scrollZoom':True}),
+            html.Div([
+                dcc.Graph(id='spectrum', figure=initial_fig, config={'scrollZoom':True}),
+                dash_table.DataTable(
+                    data=peak_df.to_dict('records'),
+                    columns=[{'name': c, 'id': c} for c in peak_df.columns],
+                    style_cell={'fontFamily': '"Times New Roman", Times, serif', 'padding': '4px 8px', 'textAlign': 'center'},
+                    style_cell_conditional=peak_col_widths,
+                    style_as_list_view=True,
+                    style_header={'fontWeight': 'bold', 'backgroundColor': '#f0f0f0'},
+                    style_table={'marginBottom': '10px', 'width': 'fit-content'},
+                    style_data_conditional=[{
+                        'if': {'filter_query': '{{Depth_max}} >= {}'.format(peak_df['Depth_max'].max())},
+                        'backgroundColor': '#FFF3B0',
+                        'fontWeight': 'bold',
+                    }] if pk is not None else [],
+                ) if pk is not None else None,
+                # html.P(peak_text, style={'whiteSpace': 'pre-wrap'}) if pk is not None else None,
+                dash_table.DataTable(
+                    id='custom-table',
+                    columns=[{'name': c, 'id': c} for c in
+                             ['Peak', 'x', 'y', 'Depth', 'Bandwidth', 'base_x', 'base_y']],
+                    data=[{'Peak': 'custom', 'x': '', 'y': '', 'Depth': '',
+                           'Bandwidth': '', 'base_x': '', 'base_y': ''}],
+                    style_cell={'fontFamily': '"Times New Roman", Times, serif', 'padding': '4px 8px', 'textAlign': 'center'},
+                    style_cell_conditional=custom_col_widths,
+                    style_as_list_view=True,
+                    style_header={'fontWeight': 'bold', 'backgroundColor': '#f0f0f0'},
+                    style_table={'marginBottom': '10px', 'width': 'fit-content'},
+                ),
+                html.Div(id='marker-info',
+                         style={'marginTop': '10px', 'fontFamily': 'monospace',
+                                'whiteSpace': 'pre'}),
+            ]),
             right_sidebar,
         ], style={'display': 'flex', 'alignItems': 'flex-start'}),
-        dash_table.DataTable(
-            data=peak_df.to_dict('records'),
-            columns=[{'name': c, 'id': c} for c in peak_df.columns],
-            style_cell={'fontFamily': '"Times New Roman", Times, serif', 'padding': '4px 8px', 'textAlign': 'center'},
-            style_cell_conditional=peak_col_widths,
-            style_as_list_view=True,
-            style_header={'fontWeight': 'bold', 'backgroundColor': '#f0f0f0'},
-            style_table={'marginBottom': '10px', 'width': 'fit-content'},
-            style_data_conditional=[{
-                'if': {'filter_query': '{{Depth_max}} >= {}'.format(peak_df['Depth_max'].max())},
-                'backgroundColor': '#FFF3B0',
-                'fontWeight': 'bold',
-            }] if pk is not None else [],
-        ) if pk is not None else None,
-        # html.P(peak_text, style={'whiteSpace': 'pre-wrap'}) if pk is not None else None,
-        dash_table.DataTable(
-            id='custom-table',
-            columns=[{'name': c, 'id': c} for c in
-                     ['Peak', 'x', 'y', 'Depth', 'Bandwidth', 'base_x', 'base_y']],
-            data=[{'Peak': 'custom', 'x': '', 'y': '', 'Depth': '',
-                   'Bandwidth': '', 'base_x': '', 'base_y': ''}],
-            style_cell={'fontFamily': '"Times New Roman", Times, serif', 'padding': '4px 8px', 'textAlign': 'center'},
-            style_cell_conditional=custom_col_widths,
-            style_as_list_view=True,
-            style_header={'fontWeight': 'bold', 'backgroundColor': '#f0f0f0'},
-            style_table={'marginBottom': '10px', 'width': 'fit-content'},
-        ),
-        html.P(f"Insertion Loss: {diff[gmin_idx]:.5f}") if params.reference and ref is not None else None,
-        html.Button('Clear markers', id='clear-btn', n_clicks=0),
-        html.Div(id='marker-info',
-                 style={'marginTop': '10px', 'fontFamily': 'monospace',
-                        'whiteSpace': 'pre'}),
         dcc.Store(id='markers-store', data=[]),
         dcc.Store(id='mode2-anchor-store', data=None),
         dcc.Store(id='mode2-info-store', data=None),
@@ -477,7 +542,9 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
             return ""
         # SAVE_DIALOG returns a str on some versions, a tuple/list on others.
         file_path = result[0] if isinstance(result, (list, tuple)) else result
-        save_csv_raw((wav_range, data), params, file_path=file_path)
+        # data/ref are the full-resolution per-channel lists; save_csv_raw pairs
+        # them with params.channel to label columns Ch.<n> / Ch.<n>(Ref).
+        save_csv_raw(data, wav_range, params=params, ref=ref, file_path=file_path)
         return "Raw data saved."
 
     @app.callback(
@@ -547,7 +614,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
                 return dash.no_update, dash.no_update, ""
             file_path = result[0] if isinstance(result, (list, tuple)) else result
             
-        loss=round(gmin_y,5) if params.reference and ref is not None else None
+        loss=round(diff[gmin_idx],5) if params.reference and ref_s else None
         save_csv_peak_row(label.strip(), wl_v, depth, fwhm, loss=loss, file_path=file_path, temperature=temperature)
         
         global _last_peak_file, _last_peak_label, _last_temperature
@@ -601,7 +668,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
 
         rows = []
         for i, m in enumerate(markers):
-            base = f"M{i+1}: {m['x']:.7f} nm, {m['y']:.5f} dBm"
+            base = f"M{i+1}: ({m['x']:.7f}, {m['y']:.5f})"
             if i == 0:
                 rows.append(html.Div(base))
                 continue
@@ -611,9 +678,9 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
             if dl == 0:
                 slope_str = "∞ (vertical)"
             else:
-                slope_str = f"{(dp / dl)*-1:+.5f} dBm/nm"
-            deltas = (f"  (|Δx|: {abs(dl):+.7f} nm, "
-                      f"|Δy|: {abs(dp):+.5f} dBm, "
+                slope_str = f"{(dp / dl)*-1:+.5f}"
+            deltas = (f"  (|Δx|: {abs(dl):+.7f}, "
+                      f"|Δy|: {abs(dp):+.5f}, "
                       f"slope: {slope_str})")
             rows.append(html.Div(base + deltas))
         return patched, rows
@@ -705,42 +772,65 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
             row['Depth'] = f"{m2['y'] - markers[-1]['y']:.5f}"
         return [row]
 
-    @app.callback(
-        Output('spectrum', 'figure', allow_duplicate=True),
-        Input('spectrum', 'relayoutData'),
-        prevent_initial_call=True,
-    )
-    def resample_on_zoom(relayout):
-        if not relayout:
-            return dash.no_update
-        # (trace index, wl array, dbm array) for the primary spectrum plus
-        # every overlay. data[0] is the primary; overlays live at
-        # overlay_start.. (see the overlay-building block above).
-        curves = [(0, wl, dbm)]
-        curves += [(ref_start, wl, ref)]
-        if len(overlays) > 1:
-            curves += [(overlay_start + i, wl, ov[0])
-                    for i, ov in enumerate(overlays)]
+    def _resample_curves(max_display, x0=None, x1=None):
+        """Patch every spectrum/reference/overlay line to <=max_display points
+        over the wavelength window [x0, x1] (full range when x0/x1 are None).
+
+        Every line shares the same `wl` axis (and the same [x0, x1] slice), so
+        they are downsampled together in a single lttb_multi pass. The trace
+        index + wl-aligned y for each line were recorded during figure build
+        (main_traces / ref_traces / overlay_traces), so only the lines that were
+        actually drawn are touched."""
+        max_display = int(max_display) if max_display else MAX_DISPLAY
+        curves = main_traces + ref_traces + overlay_traces
+
+        if x0 is None or x1 is None:
+            i0, i1 = 0, len(wl)
+        else:
+            i0 = max(0, int(np.searchsorted(wl, x0)) - 1)
+            i1 = min(len(wl), int(np.searchsorted(wl, x1)) + 1)
+        w_arr = wl[i0:i1]
+        results = lttb_multi(w_arr, [d[i0:i1] for _, d in curves], max_display)
+
         patched = Patch()
-        if relayout.get('xaxis.autorange') or relayout.get('autosize'):
-            for idx, w_arr, d_arr in curves:
-                w_d, d_d = lttb(w_arr, d_arr, MAX_DISPLAY)
-                patched['data'][idx]['x'] = w_d
-                patched['data'][idx]['y'] = d_d
-            return patched
-        if 'xaxis.range[0]' not in relayout:
-            return dash.no_update
-        x0, x1 = relayout['xaxis.range[0]'], relayout['xaxis.range[1]']
-        for idx, w_arr, d_arr in curves:
-            i0 = max(0, int(np.searchsorted(w_arr, x0)) - 1)
-            i1 = min(len(w_arr), int(np.searchsorted(w_arr, x1)) + 1)
-            w_d, d_d = lttb(w_arr[i0:i1], d_arr[i0:i1], MAX_DISPLAY)
+        for (idx, _), (w_d, d_d) in zip(curves, results):
             patched['data'][idx]['x'] = w_d
             patched['data'][idx]['y'] = d_d
         return patched
 
+    @app.callback(
+        Output('spectrum', 'figure', allow_duplicate=True),
+        Input('spectrum', 'relayoutData'),
+        State('max-display-input', 'value'),
+        prevent_initial_call=True,
+    )
+    def resample_on_zoom(relayout, max_display):
+        if not relayout:
+            return dash.no_update
+        if relayout.get('xaxis.autorange') or relayout.get('autosize'):
+            return _resample_curves(max_display)
+        if 'xaxis.range[0]' not in relayout:
+            return dash.no_update
+        return _resample_curves(max_display, relayout['xaxis.range[0]'],
+                                relayout['xaxis.range[1]'])
+
+    @app.callback(
+        Output('spectrum', 'figure', allow_duplicate=True),
+        Input('max-display-input', 'value'),
+        State('spectrum', 'figure'),
+        prevent_initial_call=True,
+    )
+    def resample_on_max_display(max_display, figure):
+        # Re-render at the new resolution over the currently visible x-range
+        # (read from the live figure layout; None => full autorange).
+        xaxis = (figure or {}).get('layout', {}).get('xaxis', {})
+        rng = None if xaxis.get('autorange') else xaxis.get('range')
+        if rng:
+            return _resample_curves(max_display, rng[0], rng[1])
+        return _resample_curves(max_display)
+
     if pk is not None:
-        _ALL_MARKERS = ['peaks', 'max', 'avg']
+        _ALL_MARKERS = ['peaks', 'max', 'avg'] + (['il'] if il_idx is not None else [])
 
         @app.callback(
             Output('fwhm-dropdown', 'value'),
@@ -776,6 +866,8 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
             patched['data'][9]['visible'] = show_max
             patched['data'][10]['visible'] = show_avg
             patched['data'][11]['visible'] = show_avg
+            if il_idx is not None:
+                patched['data'][il_idx]['visible'] = 'il' in value
             return patched
 
     # ------------------------------------------------------------------
@@ -815,14 +907,19 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
 # Demo: run this file directly to test
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    csv_path = "raw_data_single.csv"
+    # csv_path = "raw_data_2026-06-15.csv"
+    csv_path = "raw_data_hc13n_reference.csv"
     
     with open(csv_path) as f:
         params_dict = json.loads(f.readline().lstrip("# "))
         params = Params(**params_dict) if params_dict else None
         df = pd.read_csv(f)
         
-    data_np  = df.to_numpy()
-    
-    while True:
-        display_plot(data_np[:, 1], params=params)
+    data = [df[f'{COL_CH}{i}'].to_numpy() for i in params.channel]
+    ref  = (
+            [df[f'{COL_REF}{i}'].to_numpy() for i in params.channel]
+            if params.reference
+            else None
+        )
+
+    display_plot(data, params=params, ref=ref)

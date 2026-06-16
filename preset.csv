@@ -1,5 +1,4 @@
-Name,Start Wavelength (nm),Stop Wavelength (nm),Sweep Speed (nm/s),Step Size (pm),TLS Power (dBm),Initial Power Meter Range (dBm),Dynamic Range Scans,Decrement (dB)
-HC_13N,1536,1537,0.5,0.0125,0.1,10,1,10
-C2H2_740T,1529,1531,0.5,0.1,0.1,10,3,10
-newnew,1536,1537,0.5,0.0125,0.1,10,1,10
-C2H2_740T_single,1529,1531,0.5,0.1,0.1,10,1,10
+Name,Start Wavelength (nm),Stop Wavelength (nm),Sweep Speed (nm/s),Step Size (pm),TLS Power (dBm),Initial Power Meter Range (dBm),Dynamic Range Scans,Decrement (dB),Channel
+HC13N,1536,1537,0.5,0.0125,0.1,10,1,10,1
+C2H2_740T,1529,1531,0.5,0.1,0.1,10,3,10,1
+HC13N_mc,1536,1537,0.5,0.1,0.1,-20,1,10,1 2

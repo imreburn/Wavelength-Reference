@@ -8,6 +8,10 @@ import json
 
 from backend_plotly import display_plot
 from structs import Params
+from save_csv import (COL_X, COL_CH, COL_REF)
+from logger import setup_logging
+
+log = setup_logging("PlotSweep")
 
 root = tk.Tk()
 root.withdraw()
@@ -20,19 +24,22 @@ csv_path = filedialog.askopenfilename(
 root.destroy()
 
 if not csv_path:
+    log.error(f"Failed to read: {csv_path}")
     sys.exit(0)
-
-params = None
-
-if "keysight" in csv_path:
-    df = pd.read_csv(csv_path, skiprows=19, header=None, names=["Wavelength", "Power"])
-    df.set_index("Wavelength")
-    df["Wavelength"] = df["Wavelength"] * 1e9
 else:
-    with open(csv_path) as f:
-        params_dict = json.loads(f.readline().lstrip("# "))
-        params = Params(**params_dict) if params_dict else None
-        df = pd.read_csv(f)
-        
-data_np  = df.to_numpy()
-display_plot(data_np[:, 1], params=params)
+    log.info(f"Read successfully: {csv_path}")
+
+with open(csv_path) as f:
+    params_dict = json.loads(f.readline().lstrip("# "))
+    params = Params(**params_dict) if params_dict else None
+    df = pd.read_csv(f)
+
+data = [df[f'{COL_CH}{i}'].to_numpy() for i in params.channel]
+
+ref = (
+    [df[f'{COL_REF}{i}'].to_numpy() for i in params.channel]
+    if params.reference
+    else None
+)
+
+display_plot(data, params=params, ref=ref)

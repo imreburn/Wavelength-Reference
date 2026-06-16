@@ -18,6 +18,27 @@ EXTRA_LABELS   = [PM_RANGE_LABEL, DYN_SCAN_LABEL, DECREMENT_LABEL]
 EXTRA_OPTIONS  = {PM_RANGE_LABEL: PM_RANGE_OPTIONS, DYN_SCAN_LABEL: DYN_SCAN_OPTIONS, DECREMENT_LABEL: DECREMENT_OPTIONS}
 EXTRA_DEFAULTS = {PM_RANGE_LABEL: "10", DYN_SCAN_LABEL: "1", DECREMENT_LABEL: "10"}
 
+# Acquisition channel selection (checkboxes 1–4); at least one must be chosen.
+CHANNEL_LABEL   = "Channel"
+CHANNEL_OPTIONS = (1, 2, 3, 4)
+CHANNEL_DEFAULT = "1"  # space-separated channel list, as stored in a preset
+
+
+def channels_to_str(channels):
+    """Serialize a channel tuple/list to the space-separated form stored in presets."""
+    return " ".join(str(c) for c in channels)
+
+
+def parse_channels(s):
+    """Parse a space-separated channel string into a tuple of ints (skips junk)."""
+    out = []
+    for tok in str(s).split():
+        try:
+            out.append(int(tok))
+        except ValueError:
+            continue
+    return tuple(out)
+
 PM_FLOOR = -110  # powermeter sensitivity floor (dBm)
 
 PRESET_CSV = "preset.csv"
@@ -47,6 +68,8 @@ def load_presets():
                 for label in EXTRA_LABELS:
                     cell = (row.get(label) or "").strip()
                     vals[label] = cell if cell else EXTRA_DEFAULTS[label]
+                cell = (row.get(CHANNEL_LABEL) or "").strip()
+                vals[CHANNEL_LABEL] = cell if cell else CHANNEL_DEFAULT
                 presets[name] = vals
         return presets
     except Exception:
@@ -59,9 +82,9 @@ def save_preset(name, vals):
     Existing presets are preserved and a matching name is overwritten in place;
     a new name is appended. Returns None on success or an error message string.
     """
-    fieldnames = ["Name"] + FIELD_LABELS + EXTRA_LABELS
+    fieldnames = ["Name"] + FIELD_LABELS + EXTRA_LABELS + [CHANNEL_LABEL]
     presets = load_presets()
-    presets[name] = {label: vals.get(label, "") for label in FIELD_LABELS + EXTRA_LABELS}
+    presets[name] = {label: vals.get(label, "") for label in FIELD_LABELS + EXTRA_LABELS + [CHANNEL_LABEL]}
     try:
         with open(PRESET_CSV, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -79,7 +102,7 @@ def delete_preset(name):
     if name not in presets:
         return f"Preset '{name}' not found."
     del presets[name]
-    fieldnames = ["Name"] + FIELD_LABELS + EXTRA_LABELS
+    fieldnames = ["Name"] + FIELD_LABELS + EXTRA_LABELS + [CHANNEL_LABEL]
     try:
         with open(PRESET_CSV, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)

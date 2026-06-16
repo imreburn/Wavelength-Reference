@@ -5,12 +5,23 @@
 ### Added
 
 - A preset can be saved via "Manage Preset...". It may replace an existing preset or create a new one. The user also can delete a preset.
-- "Change" button is added. Pushing it invalidates existing configuration and reference if previously set.
+- "Change" button is added in the GUI input window. Pushing it invalidates existing configuration and reference if previously set.
+- Support multi channels. Measurements from all channels will be plotted in a single window. Data analysis (peak detection and insertion loss) is performed for one channel (the smallest channel number).
+- The user can change the maximum number of datapoints per speectrum used for downsampling spectra. The default is 10,000.
 
 ### Changed
 
 - Now **WavelengthSweep** includes **RefSweep**. Users can set the last measurement as the reference.
 - When a reference is set, the subsequent measurements are plotted as raw data.
+- TLS is placed at the stop wavelength after each run.
+- Insertion Loss value is shown below the marker.
+- The "Clear markers" button moved below Click Mode.
+- "Show markers" can also control "I.L" marker if exists.
+- Units are removed from Delta mode markers.
+
+### Fixed
+
+- Fixed an error that power measurement of cell was saved for the insertion loss when saving peak data.
 
 ## [v1.0.2] - 2026-06-12
 

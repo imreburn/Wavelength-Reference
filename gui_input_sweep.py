@@ -7,6 +7,7 @@ from structs import Params
 from gui_input_common import (
     FIELD_LABELS, DEFAULTS, SWEEP_SPEED_OPTIONS, PADDING,
     EXTRA_LABELS, EXTRA_DEFAULTS, PM_RANGE_LABEL, DYN_SCAN_LABEL, DECREMENT_LABEL,
+    CHANNEL_LABEL, CHANNEL_OPTIONS, CHANNEL_DEFAULT, channels_to_str, parse_channels,
     load_presets, save_preset, delete_preset, make_extra_widgets, validate_inputs, validate_extras, validate_dynamic_range, validation_error,
 )
 
@@ -45,6 +46,8 @@ def get_inputs():
         preset_menu.config(state=field_state)
         for w in entry_widgets:
             w.config(state=field_state)
+        for cb in channel_checks:
+            cb.config(state=field_state)
         extra_menus[PM_RANGE_LABEL].config(state=field_state)
         extra_menus[DYN_SCAN_LABEL].config(state=field_state)
         if locked:
@@ -79,6 +82,11 @@ def get_inputs():
             validation_error(error, result_label, num_data, avg_time, saved, run_btn)
             return
 
+        channels = tuple(ch for ch in CHANNEL_OPTIONS if channel_vars[ch].get())
+        if not channels:
+            validation_error("at least one channel must be selected.", result_label, num_data, avg_time, saved, run_btn)
+            return
+
         ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         ds = datetime.now().strftime("%Y-%m-%d")
 
@@ -93,6 +101,7 @@ def get_inputs():
         params.pm_range   = pm_range
         params.dyn_scans  = dyn_scans
         params.decrement  = decrement
+        params.channel    = channels
 
         params.padding    = PADDING
         params.time       = ts
@@ -142,9 +151,17 @@ def get_inputs():
 
     def on_preset_change(*_):
         name = preset_var.get()
-        if name == "none" or name not in presets:
+        if name == "none":
+            # Selecting "none" resets every field back to its default.
+            vals = dict(zip(FIELD_LABELS, DEFAULTS))
+            vals.update(EXTRA_DEFAULTS)
+            vals[CHANNEL_LABEL] = CHANNEL_DEFAULT
+            num_data.set("0")
+            avg_time.set("0")
+        elif name in presets:
+            vals = presets[name]
+        else:
             return
-        vals = presets[name]
         for entry, label in zip(entries, FIELD_LABELS):
             if isinstance(entry, tk.StringVar):
                 entry.set(vals[label])
@@ -153,6 +170,9 @@ def get_inputs():
                 entry.insert(0, vals[label])
         for label in EXTRA_LABELS:
             extra_vars[label].set(vals[label])
+        preset_channels = parse_channels(vals[CHANNEL_LABEL])
+        for ch in CHANNEL_OPTIONS:
+            channel_vars[ch].set(1 if ch in preset_channels else 0)
         on_entry_change()
 
     def on_run():
@@ -161,6 +181,7 @@ def get_inputs():
         _last["fields"] = [e.get() for e in entries]
         _last["preset"] = preset_var.get()
         _last["extras"] = {label: extra_vars[label].get() for label in EXTRA_LABELS}
+        _last["channels"] = channels_to_str(ch for ch in CHANNEL_OPTIONS if channel_vars[ch].get())
 
         ran["ok"] = True
         _state["has_run"] = True
@@ -177,6 +198,7 @@ def get_inputs():
         preset_vals = {label: entry.get() for entry, label in zip(entries, FIELD_LABELS)}
         for label in EXTRA_LABELS:
             preset_vals[label] = extra_vars[label].get()
+        preset_vals[CHANNEL_LABEL] = channels_to_str(ch for ch in CHANNEL_OPTIONS if channel_vars[ch].get())
 
         existing = load_presets()
         names = list(existing.keys())
@@ -272,7 +294,7 @@ def get_inputs():
         if _state["reference"]:
             status_value.config(text="Set", fg="red")
         else:
-            status_value.config(text="Not Set", fg="black")
+            status_value.config(text="Not Set", fg="blue")
         set_ref_btn.config(state="normal" if _state["has_run"] else "disabled")
         del_ref_btn.config(state="normal" if _state["reference"] else "disabled")
 
@@ -308,8 +330,9 @@ def get_inputs():
     N = len(FIELD_LABELS)
 
     # ---- Grid row layout -------------------------------------------------
-    FIELDS_START = 2                     # preset at FIELDS_START, fields at FIELDS_START+1..+N
-    EXTRAS_START = FIELDS_START + N + 1   # rows for the three extra dropdowns
+    FIELDS_START = 2                     # preset at FIELDS_START, channel next, fields after
+    CHANNEL_ROW  = FIELDS_START + 1      # channel checkboxes sit below Load Preset
+    EXTRAS_START = FIELDS_START + N + 2   # rows for the three extra dropdowns
     LOGCOUNT_ROW = EXTRAS_START + 3
     AVGTIME_ROW  = LOGCOUNT_ROW + 1
     SAVEBTN_ROW  = AVGTIME_ROW + 1
@@ -330,22 +353,34 @@ def get_inputs():
     preset_menu.grid(row=FIELDS_START, column=1, pady=4, sticky="w")
     preset_var.trace_add("write", on_preset_change)
 
+    # Channel checkboxes (1–4). Default to channel 1; at least one is required.
+    init_channels = parse_channels(_last.get("channels", CHANNEL_DEFAULT))
+    channel_vars = {ch: tk.IntVar(value=1 if ch in init_channels else 0) for ch in CHANNEL_OPTIONS}
+    tk.Label(frame, text=CHANNEL_LABEL, anchor="e").grid(row=CHANNEL_ROW, column=0, pady=4, padx=(0, 8), sticky="e")
+    channel_frame = tk.Frame(frame)
+    channel_frame.grid(row=CHANNEL_ROW, column=1, pady=4, sticky="w")
+    channel_checks = []
+    for ch in CHANNEL_OPTIONS:
+        cb = tk.Checkbutton(channel_frame, text=str(ch), variable=channel_vars[ch], command=on_entry_change)
+        cb.pack(side="left")
+        channel_checks.append(cb)
+
     init_fields = _last.get("fields", DEFAULTS)
     entries = []
     entry_widgets = []
     for i, (label_text, default) in enumerate(zip(FIELD_LABELS, init_fields)):
-        tk.Label(frame, text=label_text, anchor="e").grid(row=FIELDS_START+i+1, column=0, pady=4, padx=(0, 8), sticky="e")
+        tk.Label(frame, text=label_text, anchor="e").grid(row=FIELDS_START+i+2, column=0, pady=4, padx=(0, 8), sticky="e")
         if i == 2:  # Sweep Speed — dropdown
             sv = tk.StringVar(value=default if default in SWEEP_SPEED_OPTIONS else SWEEP_SPEED_OPTIONS[0])
             menu = tk.OptionMenu(frame, sv, *SWEEP_SPEED_OPTIONS)
-            menu.grid(row=FIELDS_START+i+1, column=1, pady=4, sticky="w")
+            menu.grid(row=FIELDS_START+i+2, column=1, pady=4, sticky="w")
             sv.trace_add("write", on_entry_change)
             entries.append(sv)
             entry_widgets.append(menu)
         else:
             e = tk.Entry(frame, width=20)
             e.insert(0, default)
-            e.grid(row=FIELDS_START+i+1, column=1, pady=4, sticky="w")
+            e.grid(row=FIELDS_START+i+2, column=1, pady=4, sticky="w")
             e.bind("<Key>", on_entry_change)
             entries.append(e)
             entry_widgets.append(e)
@@ -356,8 +391,8 @@ def get_inputs():
     init_extras = _last.get("extras", EXTRA_DEFAULTS)
     extra_vars, extra_menus = make_extra_widgets(frame, EXTRAS_START, init_extras, on_entry_change)
 
-    num_data = tk.StringVar()
-    avg_time = tk.StringVar()
+    num_data = tk.StringVar(value="0")
+    avg_time = tk.StringVar(value="0")
 
     tk.Label(frame, text="Log Count / Sweep", anchor="e").grid(row=LOGCOUNT_ROW, column=0, sticky="e", pady=4, padx=(0, 8))
     tk.Label(frame, textvariable=num_data, anchor="w").grid(row=LOGCOUNT_ROW, column=1, sticky="w", pady=4)
@@ -384,7 +419,7 @@ def get_inputs():
     ref_header = tk.Frame(frame)
     ref_header.grid(row=HEADER3_ROW, column=0, columnspan=2, sticky="w", pady=(10, 0))
     tk.Label(ref_header, text="Reference", font=("TkDefaultFont", 10, "bold")).pack(side="left")
-    status_value = tk.Label(ref_header, text="Not Set", fg="black")
+    status_value = tk.Label(ref_header, text="Not Set", fg="blue", font=("TkDefaultFont", 10, "bold"))
     status_value.pack(side="left", padx=(8, 0))
     ttk.Separator(frame, orient="horizontal").grid(
         row=HEADER3_ROW + 1, column=0, columnspan=2, sticky="ew", pady=(0, 6))

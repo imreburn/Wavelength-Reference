@@ -11,7 +11,11 @@ from structs import Params, PeakInfo
 
 log = logging.getLogger(__name__)
 
-def save_csv_raw(data, params:Params=None, file_path=None):
+COL_X   = "Wavelength (nm)"
+COL_CH  = "Ch."
+COL_REF = "Ref-Ch."
+
+def save_csv_raw(data, x, params:Params=None, ref=None, file_path=None):
     if file_path is None:
         initial_dir = os.path.join("Test Results", "Raw Data")
         os.makedirs(initial_dir, exist_ok=True)
@@ -30,7 +34,13 @@ def save_csv_raw(data, params:Params=None, file_path=None):
         log.warning("Raw data save cancelled.\n")
         return
     
-    df = pd.DataFrame({"Wavelength":data[0], "Power":data[1]})
+    df = pd.DataFrame({COL_X:x})
+    for ch, power in zip(params.channel, data):
+        df[COL_CH+str(ch)] = power
+    
+    if params.reference and ref:
+        for ch, ref_power in zip(params.channel, ref):
+            df[COL_REF+str(ch)] = ref_power
     
     with open(file_path, "w", newline="") as f:
         f.write("# " + json.dumps(asdict(params) if params is not None else {}) + "\n")

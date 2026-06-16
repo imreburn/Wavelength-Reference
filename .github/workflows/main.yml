@@ -35,7 +35,7 @@ jobs:
       - name: Verify builds
         shell: bash
         run: |
-          for exe in dist/Sweeps/WavelengthSweep.exe dist/Sweeps/RefSweep.exe dist/Sweeps/PlotSweep.exe; do
+          for exe in dist/Sweeps/WavelengthSweep.exe dist/Sweeps/PlotSweep.exe; do
             if [ ! -f "$exe" ]; then
               echo "ERROR: $exe not found"
               exit 1
