@@ -4,24 +4,26 @@
 
 ### Added
 
-- A preset can be saved via "Manage Preset...". It may replace an existing preset or create a new one. The user also can delete a preset.
+- A preset can be saved via "Manage Preset...". It may replace an existing preset or create a new one. The user also can delete an existing preset.
 - "Change" button is added in the GUI input window. Pushing it invalidates existing configuration and reference if previously set.
-- Support multi channels. Measurements from all channels will be plotted in a single window. Data analysis (peak detection and insertion loss) is performed for one channel (the smallest channel number).
-- The user can change the maximum number of datapoints per speectrum used for downsampling spectra. The default is 10,000.
+- Supports multi channels. Measurements from all channels will be plotted in a single window. Data analysis (peak detection and insertion loss) is performed for one channel (the smallest channel number).
+- The user can change the maximum number of datapoints per spectrum used for downsampling spectra. The default is 10,000.
+- "Read Power..." button is added in the GUI input window. After parameters are checked and saved, the button is activated. A new window appears and shows power for all channels in every second.
 
 ### Changed
 
-- Now **WavelengthSweep** includes **RefSweep**. Users can set the last measurement as the reference.
-- When a reference is set, the subsequent measurements are plotted as raw data.
-- TLS is placed at the stop wavelength after each run.
-- Insertion Loss value is shown below the marker.
-- The "Clear markers" button moved below Click Mode.
+- Now **WavelengthSweep** includes **RefSweep**. Users can set the last measurement as a reference spectrum.
+- When a reference is set, the subsequent measurements are plotted as raw data, instead of being subtracted by the reference.
+- Insertion loss value is shown on the spectrum below the marker.
+- The "Clear markers" button moved below the Click Mode.
 - "Show markers" can also control "I.L" marker if exists.
 - Units are removed from Delta mode markers.
 
 ### Fixed
 
-- Fixed an error that power measurement of cell was saved for the insertion loss when saving peak data.
+- Fixed an error that the power of cell was saved for the insertion loss when saving peak data.
+- Fixed a Runtime warning where measured power is less than or equal to 0.
+- Fixed an issue that the GUI window looks fuzzy at start.
 
 ## [v1.0.2] - 2026-06-12
 

@@ -7,6 +7,8 @@ log = logging.getLogger(__name__)
 VISA_ADDRESS_POWER_METER    = 'USB0::0x0957::0x3718::DE53500131::0::INSTR'
 VISA_ADDRESS_TLS            = 'TCPIP0::100.65.2.45::inst0::INSTR'       
 
+TLS_PASSWORD = 1234
+
 def exceptionHandler(exception):
 
     log.error('Error information:\n\tAbbreviation: %s\n\tError code: %s\n\tDescription: %s' % \
@@ -40,47 +42,57 @@ def reset_inst(pm, laser):
     time.sleep(3)
 
 
+def check_inst(pm=None, laser=None):
+    if laser:
+        if (n := int(laser.query(":SYST:ERR:COUN?"))) > 0:
+            for _ in range(n):
+                log.error("[LASER] System error: %s", laser.query(':SYST:ERR?'))
+        
+        if int(laser.query(":LOCK?")) == 1:
+            log.warning("[LASER] TLS Locked. Unlock")
+            laser.write(f":LOCK 0, {TLS_PASSWORD}")
+            
+        if int(laser.query(":LOCK?")) == 1:
+            log.error("[LASER] TLS cannot be unlocked.")
+        
+        while int(laser.query("*OPC?")) == 0:
+            log.warning("[LASER] Device is busy.")
+            time.sleep(1)
+        
+    if pm:        
+        while True:
+            pm_check_error = (pm.query(":SYST:ERR?")).split(',')
+            if int(pm_check_error[0]) == 0:
+                break
+            log.error("[PM] System error: %s", pm_check_error)
+        
+        while int(pm.query("*OPC?")) == 0:
+            log.warning("[PM] Device is busy.")
+            time.sleep(1)
+
+
 def init_inst(pm, laser):
     log.info("Initializing instruments...")
-    reset_inst(pm, laser)
 
     # Laser
-    if (int(laser.query(":LOCK?")) == 1):
-        log.warning("[LASER] TLS Locked. Unlock")
-        laser.write(":LOCK 0, 1234")
-
+    laser.clear()
     laser.write(":STAT:QUES:ENAB 32767")    
     
     # Power Meter
     pm.clear()
     pm.write(":STAT:QUES:ENAB 32767")
 
+    # Identify
     log.info(pm.query("*IDN?"))
     log.info(laser.query("*IDN?"))
-
-    log.info("Instruments ready")
-
     
-def read_pm(pm):
-    try:
-        # for i in range(1, 5):
-        #     pm.write(f":SENSE{i}:POWER:RANGE:AUTO ON")
-        
-        res = pm.query_binary_values(":READ:POW:ALL?")
-        
-        pm_ranges = [0, 0, 0, 0]
-        # for i in range(1, 5):
-        #     pm_ranges.append(pm.query(f":SENSE{i}:POWER:RANGE?"))
-    
-    except pyvisa.VisaIOError as ex:
-        log.error('VISA Error')
-        exceptionHandler(ex)
-    
-    return [(r, pw) for r, pw in zip(pm_ranges, res)]
+    log.info("Instruments are ready.")
 
 
 def prep_inst():
     pm, laser = get_inst()
+    reset_inst(pm, laser)
+    check_inst(pm, laser)
     init_inst(pm, laser)
     return pm, laser
 

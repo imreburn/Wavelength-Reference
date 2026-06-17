@@ -1,5 +1,6 @@
 import os
 import sys
+import dpi_awareness  # noqa: F401  # set Windows DPI awareness before any Tk()
 import tkinter as tk
 from tkinter import filedialog
 import pandas as pd

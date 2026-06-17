@@ -13,7 +13,7 @@ try:
     last_data = None
 
     while True:
-        params = get_inputs()
+        params = get_inputs(pm, laser)
         if not params:
             break
         

@@ -1,7 +1,15 @@
 from datetime import datetime
+import math
+import time
 import tkinter as tk
 from tkinter import ttk
 import logging
+
+# Set Windows DPI awareness before the first Tk() window is created (import-time
+# side effect). Must come before any tkinter window in the process.
+import dpi_awareness  # noqa: F401
+
+log = logging.getLogger(__name__)
 
 from structs import Params
 from gui_input_common import (
@@ -11,12 +19,12 @@ from gui_input_common import (
     load_presets, save_preset, delete_preset, make_extra_widgets, validate_inputs, validate_extras, validate_dynamic_range, validation_error,
 )
 
-log = logging.getLogger(__name__)
+from prep_instruments import prep_inst, check_inst
 
 _last = {}  # persists raw field values within one execution
 
 # Fixed on-screen position for the window at first launch (top-left x, y).
-WINDOW_POS = (50, 50)
+WINDOW_POS = (50, 10)
 
 # Persists across get_inputs() calls (the window is recreated each loop):
 #   has_run   — at least one Run has happened this session
@@ -34,7 +42,7 @@ def section_header(frame, text, row):
         row=row + 1, column=0, columnspan=2, sticky="ew", pady=(0, 6))
 
 
-def get_inputs():
+def get_inputs(pm=None, laser=None):
     params = Params()
     params.reference = _state["reference"]
     saved = {"ok": False}
@@ -59,6 +67,7 @@ def get_inputs():
         change_btn.config(state="normal" if locked else "disabled")
         preset_save_btn.config(state="normal" if locked else "disabled")
         run_btn.config(state="normal" if locked else "disabled")
+        read_pm_btn.config(state="normal" if locked else "disabled")
 
     def on_save():
         values, error = validate_inputs([e.get() for e in entries], num_data, avg_time)
@@ -189,6 +198,90 @@ def get_inputs():
         log.info("params: %s", params)
         result_label.config(text="Running...", fg="black")
         root.after(200, root.destroy)
+
+    def on_read_power():
+        if not saved["ok"] or not pm or not laser:
+            return
+        # Opens a separate window for the power readout.
+        top = tk.Toplevel(root)
+        top.title("Power Meter Readout")
+        top.resizable(False, False)
+        top.transient(root)
+        # Check instruments
+        check_inst(pm, laser)
+        
+        laser.write(f":SOURCE0:WAVE  {params.wl_stop:.3f} NM")
+        laser.write(":SOURCE0:POWER:UNIT  0")
+        laser.write(f":SOURCE0:POWER {params.tls_dbm} DBM")
+        laser.write(":SOURCE0:POW:STATE 1")
+
+        for i in range(1, 5):
+            pm.write(f":SENSE{i}:POW:WAVE {params.wl_stop:.3f} NM")
+            pm.write(f":INIT{i}:CONT 1")
+            pm.write(f":SENSE{i}:POW:RANGE:AUTO 1")
+
+        # Show the wavelength / TLS power the readout is being taken at.
+        info = tk.Frame(top)
+        info.grid(row=0, column=0, columnspan=4, padx=10, pady=(10, 4), sticky="w")
+        tk.Label(info, text="Wavelength (nm):", font=("TkDefaultFont", 10, "bold")).grid(
+            row=0, column=0, sticky="w", padx=(0, 6))
+        tk.Label(info, text=f"{params.wl_stop}", font=("TkDefaultFont", 10)).grid(
+            row=0, column=1, sticky="w", padx=(0, 20))
+        tk.Label(info, text="TLS Power (dBm):", font=("TkDefaultFont", 10, "bold")).grid(
+            row=1, column=0, sticky="w", padx=(0, 6))
+        tk.Label(info, text=f"{params.tls_dbm}", font=("TkDefaultFont", 10)).grid(
+            row=1, column=1, sticky="w")
+
+        for col, text in enumerate(("Ch.", "Power Range (Auto)", "Power (dBm)", "Power (W)")):
+            tk.Label(top, text=text, anchor="e", font=("TkDefaultFont", 10, "bold")).grid(
+                row=1, column=col, padx=10, pady=(10, 4), sticky="e")
+
+        range_vars, power_vars, watt_vars = [], [], []
+        for i in range(4):
+            rv, pv, wv = tk.StringVar(value="—"), tk.StringVar(value="—"), tk.StringVar(value="—")
+            tk.Label(top, text=str(i + 1), font=("TkDefaultFont", 14)).grid(
+                row=i + 2, column=0, padx=10, pady=2)
+            tk.Label(top, textvariable=rv, anchor="e", width=10,
+                     font=("TkDefaultFont", 14)).grid(
+                row=i + 2, column=1, padx=10, pady=2, sticky="e")
+            tk.Label(top, textvariable=pv, anchor="e", width=12,
+                     font=("TkDefaultFont", 14)).grid(
+                row=i + 2, column=2, padx=10, pady=2, sticky="e")
+            tk.Label(top, textvariable=wv, anchor="e", width=14,
+                     font=("TkDefaultFont", 14)).grid(
+                row=i + 2, column=3, padx=10, pady=2, sticky="e")
+            range_vars.append(rv)
+            power_vars.append(pv)
+            watt_vars.append(wv)
+
+        job = {"id": None}
+
+        def refresh():
+            powers = pm.query(":FETCH:POW:ALL:CSV?").strip().split(',')
+            p_ranges = [pm.query(f":SENSE{i}:POW:RANGE?") for i in range(1, 5)]
+            for i in range(4):
+                range_vars[i].set(f"{int(float(p_ranges[i]))} dBm")
+                p_w = float(powers[i])
+                watt_vars[i].set(f"{p_w:.4e} W")
+                # dBm = 10*log10(P / 1 mW); guard non-positive readings, which
+                # the meter can report at/below its noise floor.
+                if p_w > 0:
+                    power_vars[i].set(f"{10 * math.log10(p_w * 1e3):.3f} dBm")
+                else:
+                    power_vars[i].set("—")
+            job["id"] = top.after(1000, refresh)
+
+        def on_top_close():
+            if job["id"] is not None:
+                top.after_cancel(job["id"])
+            top.destroy()
+
+        top.protocol("WM_DELETE_WINDOW", on_top_close)
+
+        tk.Button(top, text="Close", command=on_top_close, width=10).grid(
+            row=99, column=0, columnspan=4, pady=10)
+
+        refresh()
 
     def on_save_preset():
         # Only reachable once parameters have passed Save's checks.
@@ -411,8 +504,12 @@ def get_inputs():
 
     # ---- Instruments -----------------------------------------------------
     section_header(frame, "Instruments", HEADER2_ROW)
-    run_btn = tk.Button(frame, text="Run", command=on_run, width=10, state="disabled")
-    run_btn.grid(row=RUNBTN_ROW, column=0, columnspan=2, pady=10)
+    inst_frame = tk.Frame(frame)
+    inst_frame.grid(row=RUNBTN_ROW, column=0, columnspan=2, pady=10)
+    run_btn = tk.Button(inst_frame, text="Run", command=on_run, width=10, state="disabled")
+    run_btn.pack(side="left", padx=5)
+    read_pm_btn = tk.Button(inst_frame, text="Read Power...", command=on_read_power, state="disabled")
+    read_pm_btn.pack(side="left", padx=5)
 
     # ---- Reference -------------------------------------------------------
     # Status sits next to the section title instead of in its own field.
@@ -458,8 +555,10 @@ def get_inputs():
 
 
 if __name__ == "__main__":
+    pm, laser = prep_inst()
+    
     while True:
-        params = get_inputs()
+        params = get_inputs(pm, laser)
         if not params:
             break
         print(params)
