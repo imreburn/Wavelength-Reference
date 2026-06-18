@@ -14,6 +14,7 @@ def exceptionHandler(exception):
     log.error('Error information:\n\tAbbreviation: %s\n\tError code: %s\n\tDescription: %s' % \
           (exception.abbreviation, exception.error_code, exception.description))
 
+
 def get_inst():
     rm = pyvisa.ResourceManager()
     
@@ -24,8 +25,8 @@ def get_inst():
         log.error('VISA Error')
         exceptionHandler(ex)
 
-    pm.read_termination    = '\n'
-    laser.read_termination = '\n'
+    pm.read_termination     = '\n'
+    laser.read_termination  = '\n'
     pm.write_termination    = '\n'
     laser.write_termination = '\n'
     log.info("Connected to instruments")
@@ -49,16 +50,17 @@ def check_inst(pm=None, laser=None):
                 log.error("[LASER] System error: %s", laser.query(':SYST:ERR?'))
         
         if int(laser.query(":LOCK?")) == 1:
-            log.warning("[LASER] TLS Locked. Unlock")
+            log.warning("[LASER] Locked. Trying to Unlock")
             laser.write(f":LOCK 0, {TLS_PASSWORD}")
             
         if int(laser.query(":LOCK?")) == 1:
-            log.error("[LASER] TLS cannot be unlocked.")
+            log.error("[LASER] cannot be unlocked.")
         
+        time.sleep(0.5)
         while int(laser.query("*OPC?")) == 0:
             log.warning("[LASER] Device is busy.")
-            time.sleep(1)
-        
+            time.sleep(0.5)
+            
     if pm:        
         while True:
             pm_check_error = (pm.query(":SYST:ERR?")).split(',')
@@ -66,9 +68,10 @@ def check_inst(pm=None, laser=None):
                 break
             log.error("[PM] System error: %s", pm_check_error)
         
+        time.sleep(0.5)
         while int(pm.query("*OPC?")) == 0:
             log.warning("[PM] Device is busy.")
-            time.sleep(1)
+            time.sleep(0.5)
 
 
 def init_inst(pm, laser):

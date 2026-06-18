@@ -49,6 +49,7 @@ exe_sweep = EXE(
     strip=False,
     upx=False,
     console=True,
+    icon="icon.ico",
 )
 
 exe_plot = EXE(
@@ -62,6 +63,7 @@ exe_plot = EXE(
     strip=False,
     upx=False,
     console=True,
+    icon="icon.ico",
 )
 
 # A single COLLECT bundles both exes and the union of their binaries/datas
