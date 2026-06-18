@@ -6,7 +6,7 @@
 
 - Information about Delta markers are displayed as a table. For the first marker, delta values are calculated with respect to the origin.
 
-## Fixed
+### Fixed
 
 - Fixed the bug related to "Max points(x1000)/plot" button. It is active and users can set the maximum number of points per plot for sampling. Actual number is multiplied by 1000. Default value is 10. (10k points per plot)
 
