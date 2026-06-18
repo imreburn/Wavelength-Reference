@@ -287,6 +287,12 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
             ),
             html.Div("0 = no downsampling (may be slow)", style={'fontSize': '11px', 'color': '#888',
                                                    'marginTop': '2px'}),
+            dcc.Input(
+                id='dummy',
+                type='number', min=0, step=1000, value=MAX_DISPLAY,
+                debounce=True,
+                style={'width': '160px', 'boxSizing': 'border-box'}, placeholder='Nothing'
+            ),
         ]),
         html.Details([
             html.Summary("Show markers", style={'fontWeight': 'bold', 'cursor': 'pointer', 'marginBottom': '6px'}),
@@ -381,13 +387,9 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
                                'padding': '8px 10px', 'marginTop': '8px'}),
             html.Div(id='save-peak-info',
                      style={'fontSize': '12px', 'color': '#888', 'marginTop': '4px'}),
-        ]),
-        # Repeat: close this plot window and auto-Run the next sweep with the same
-        # parameters. Also bound to the Enter key (see the clientside callback below).
-        html.Div([
+            # Repeat: close this plot window and auto-Run the next sweep with the same parameters. Also bound to the Enter key (see the clientside callback below).
             html.Button('Repeat (Enter)', id='repeat-btn', n_clicks=0,
-                        style={'width': '160px', 'fontSize': '16px', 'fontWeight': 'bold',
-                               'padding': '8px 10px'}),
+                        style={'width': '160px', 'fontSize': '16px', 'fontWeight': 'bold', 'padding': '8px 10px', 'marginTop': '8px'}),
             # Dummy sink for the keybind clientside callback; the keydown
             # listener it installs is what actually clicks the button.
             html.Div(id='repeat-keybind-dummy', style={'display': 'none'}),
