@@ -94,7 +94,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     SLIDER_STEP  = d_x    # nm 
 
     OFFSET_RANGE = 25 # half-range of searching in samples. 0.0125 pm * 2000 = 25.0 pm
-    MAX_DISPLAY  = 10000  # max points rendered at once for the spectrum
+    MAX_DISPLAY  = 10000  # max points rendered at once for the spectrum 
 
     # ------------------------------------------------------------------
     # Initial figure (built once, captures the data)
@@ -277,22 +277,14 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     app = dash.Dash(__name__)
     right_sidebar = html.Div([
         html.Div([
-            html.Label("Max points/plot", style={'fontWeight': 'bold', 'marginBottom': '4px',
-                                                 'display': 'block'}),
+            html.Label("Max points/plot (x1000)", style={'fontWeight': 'bold', 'marginBottom': '4px', 'display': 'block'}),
             dcc.Input(
                 id='max-display-input',
-                type='number', min=0, step=1000, value=MAX_DISPLAY,
+                type='number', min=0, max=1000, value=MAX_DISPLAY // 1000,
                 debounce=True,
                 style={'width': '160px', 'boxSizing': 'border-box'},
             ),
-            html.Div("0 = no downsampling (may be slow)", style={'fontSize': '11px', 'color': '#888',
-                                                   'marginTop': '2px'}),
-            dcc.Input(
-                id='dummy',
-                type='number', min=0, max=1000000, step=1000, value=MAX_DISPLAY,
-                debounce=True,
-                style={'width': '160px', 'boxSizing': 'border-box'}, placeholder='Nothing'
-            ),
+            html.Div("0 = no downsampling (may be slow)", style={'fontSize': '11px', 'color': '#888', 'marginTop': '2px'}),
         ]),
         html.Details([
             html.Summary("Show markers", style={'fontWeight': 'bold', 'cursor': 'pointer', 'marginBottom': '6px'}),
@@ -329,8 +321,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
                         style={'width': '150px', 'fontSize': '15px',
                                'padding': '5px 12px', 'marginTop': '5px'}),
             html.Div([
-                html.Label("Fine tune (Bandwidth marker)", style={'fontSize': '11px', 'color': '#888',
-                                               'marginBottom': '4px', 'display': 'block'}),
+                html.Label("Fine tune (Bandwidth marker)", style={'fontSize': '11px', 'color': '#888', 'marginBottom': '4px', 'display': 'block'}),
                 dcc.Slider(
                     id='mode2-slider',
                     min=-SLIDER_RANGE,
@@ -341,9 +332,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
                     tooltip=None,
                     updatemode='drag',
                 ),
-                html.Label("Slider range (pm)", style={'fontSize': '11px', 'color': '#888',
-                                                'marginTop': '6px', 'marginBottom': '4px',
-                                                'display': 'block'}),
+                html.Label("Slider range (pm)", style={'fontSize': '11px', 'color': '#888','marginTop': '6px', 'marginBottom': '4px', 'display': 'block'}),
                 dcc.Input(
                     id='slider-range-input',
                     type='number', step='any', value=SLIDER_RANGE * 1000,
@@ -801,10 +790,10 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
             i_left  = max(0, idx - search_range)
             i_right = min(len(dbm) - 1, idx + search_range)
             patched['data'][3]['x'] = [float(left_nm)]
-            patched['data'][3]['y'] = [float(max(dbm[i_left], y - y_offset))]
+            patched['data'][3]['y'] = [max(dbm[i_left], y - y_offset)]
             patched['data'][3]['text'] = ['L']
             patched['data'][4]['x'] = [float(right_nm)]
-            patched['data'][4]['y'] = [float(max(dbm[i_right], y - y_offset))]
+            patched['data'][4]['y'] = [max(dbm[i_right], y - y_offset)]
             patched['data'][4]['text'] = ['R']
             
             width_info = f"width: {width_pm:.4f} pm\n"
@@ -853,8 +842,10 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
         index + wl-aligned y for each line were recorded during figure build
         (main_traces / ref_traces / overlay_traces), so only the lines that were
         actually drawn are touched."""
-        # None/empty input -> default; 0 -> downsampling disabled (full data).
-        max_display = MAX_DISPLAY if max_display in (None, '') else int(max_display)
+        # The field value is in thousands of points; multiply to get the real
+        # cap. None/empty input -> default; 0 -> downsampling disabled (full data).
+        max_display = MAX_DISPLAY // 1000 if max_display in (None, '') else int(max_display)
+        max_display *= 1000
         curves = main_traces + ref_traces + overlay_traces
 
         if x0 is None or x1 is None:
@@ -870,15 +861,8 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
 
         patched = Patch()
         for (idx, _), (w_d, d_d) in zip(curves, results):
-            # Patch values bypass plotly's figure-level numpy->JSON conversion,
-            # so they must already be JSON-native. Hand Dash plain lists, not
-            # numpy arrays: the fallback JSON encoder used when orjson isn't
-            # present (e.g. the frozen exe, which never bundles orjson) cannot
-            # serialize ndarrays, so the callback 500s and the plot silently
-            # never updates -- even though the initial go.Figure (serialized by
-            # plotly) renders fine.
-            patched['data'][idx]['x'] = np.asarray(w_d).tolist()
-            patched['data'][idx]['y'] = np.asarray(d_d).tolist()
+            patched['data'][idx]['x'] = w_d
+            patched['data'][idx]['y'] = d_d
         return patched
 
     @app.callback(
