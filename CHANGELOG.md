@@ -2,7 +2,7 @@
 
 ## [v1.1.2] - 2026-06-18
 
-## Changed
+### Changed
 
 - Information about Delta markers are displayed as a table. For the first marker, delta values are calculated with respect to the origin.
 
