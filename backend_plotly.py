@@ -289,7 +289,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
                                                    'marginTop': '2px'}),
             dcc.Input(
                 id='dummy',
-                type='number', min=0, step=1000, value=MAX_DISPLAY,
+                type='number', min=0, max=1000000, step=1000, value=MAX_DISPLAY,
                 debounce=True,
                 style={'width': '160px', 'boxSizing': 'border-box'}, placeholder='Nothing'
             ),
