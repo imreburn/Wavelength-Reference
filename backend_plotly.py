@@ -255,7 +255,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
         showlegend=True,
         height=600,
         width=1250,
-        margin=dict(t=30, b=50),
+        margin=dict(t=30, b=60),
         uirevision='constant',
     )
 
@@ -277,7 +277,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     app = dash.Dash(__name__)
     right_sidebar = html.Div([
         html.Div([
-            html.Label("Max points/plot (x1000)", style={'fontWeight': 'bold', 'marginBottom': '4px', 'display': 'block'}),
+            html.Label("Max points(x1000)/plot", style={'fontWeight': 'bold', 'marginBottom': '4px', 'display': 'block'}),
             dcc.Input(
                 id='max-display-input',
                 type='number', min=0, max=1000, value=MAX_DISPLAY // 1000,
@@ -512,9 +512,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
                     style_header={'fontWeight': 'bold', 'backgroundColor': '#f0f0f0'},
                     style_table={'marginBottom': '10px', 'width': 'fit-content'},
                 ),
-                html.Div(id='marker-info',
-                         style={'marginTop': '10px', 'fontFamily': 'monospace',
-                                'whiteSpace': 'pre'}),
+                html.Div(id='marker-info', style={'marginTop': '10px'}),
             ]),
             right_sidebar,
         ], style={'display': 'flex', 'alignItems': 'flex-start'}),
@@ -719,27 +717,39 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
         patched['data'][1]['y']    = [m['y'] for m in markers]
         patched['data'][1]['text'] = [f'M{i+1}' for i in range(len(markers))]
 
-        # "Delta Markers" heading, shown only when markers exist (empty markers
-        # — e.g. after Clear — leaves marker-info blank).
-        rows = [html.Div("Delta Markers", style={'fontWeight': 'bold',
-                                                 'marginBottom': '4px'})] if markers else []
+        # Delta Markers table, shown only when markers exist (empty markers
+        # — e.g. after Clear — leaves marker-info blank). Delta columns are
+        # blank for the first marker (nothing to difference against).
+        if not markers:
+            return patched, None
+
+        rows = []
         for i, m in enumerate(markers):
-            base = f"M{i+1}: ({m['x']:.7f}, {m['y']:.5f})"
-            if i == 0:
-                rows.append(html.Div(base))
-                continue
-            prev = markers[i - 1]
+            # First marker differences against the origin (0, 0); subsequent
+            # markers difference against the previous marker.
+            prev = markers[i - 1] if i > 0 else {'x': 0.0, 'y': 0.0}
             dl = m['x'] - prev['x']
             dp = m['y'] - prev['y']
-            if dl == 0:
-                slope_str = "∞ (vertical)"
-            else:
-                slope_str = f"{(dp / dl)*-1:+.5f}"
-            deltas = (f"  (|Δx|: {abs(dl):+.7f}, "
-                      f"|Δy|: {abs(dp):+.5f}, "
-                      f"slope: {slope_str})")
-            rows.append(html.Div(base + deltas))
-        return patched, rows
+            slope_str = "∞ (vertical)" if dl == 0 else f"{(dp / dl)*-1:+.5f}"
+            rows.append({
+                'Marker': f'M{i+1}',
+                'x': f"{m['x']:.6f}", 'y': f"{m['y']:.5f}",
+                '|Δx|': f"{abs(dl):.6f}",
+                '|Δy|': f"{abs(dp):.5f}",
+                'slope': slope_str,
+            })
+
+        columns = ['Marker', 'x', 'y', '|Δx|', '|Δy|', 'slope']
+        table = dash_table.DataTable(
+            data=rows,
+            columns=[{'name': c, 'id': c} for c in columns],
+            style_cell={'fontFamily': '"Times New Roman", Times, serif',
+                        'padding': '4px 8px', 'textAlign': 'center'},
+            style_as_list_view=True,
+            style_header={'fontWeight': 'bold', 'backgroundColor': '#f0f0f0'},
+            style_table={'marginBottom': '10px', 'width': 'fit-content'},
+        )
+        return patched, table
     
     @app.callback(
         Output('mode2-slider', 'min'),
