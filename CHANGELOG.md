@@ -7,7 +7,6 @@
 - A preset can be saved via "Manage Preset...". It may replace an existing preset or create a new one. The user also can delete an existing preset.
 - "Change" button is added in the config window. Pushing it invalidates existing configuration and reference if previously set.
 - Supports multi channels. Measurements from all channels will be plotted in a single window. Data analysis (peak detection and insertion loss) is performed for one channel (the smallest channel number).
-- The user can change the maximum number of datapoints per spectrum used for downsampling spectra. The default is 10,000. Setting it as 0 disables downsampling.
 - "Read Power..." button is added in the config window. After parameters are checked and saved, the button is activated. A new window appears and shows power for all channels in every second.
 - "Repeat" button (or press Enter) is added in the plot window. Clicking this button closes the plot window and clicks "Run" button in the config window automatically.
 

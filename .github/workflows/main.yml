@@ -46,7 +46,6 @@ jobs:
       - name: Get build name
         shell: bash
         run: |
-          echo "SHORT_SHA=${GITHUB_SHA::8}" >> $GITHUB_ENV
           # On tag pushes use the tag (e.g. v1.0.0); otherwise fall back to short SHA.
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             echo "BUILD_NAME=${GITHUB_REF_NAME}" >> $GITHUB_ENV
@@ -64,8 +63,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
-          name: Sweeps-${{ env.BUILD_NAME }}-${{ env.SHORT_SHA }}
-          path: dist/Sweeps-${{ env.BUILD_NAME }}.zip
+          name: Sweeps-${{ env.BUILD_NAME }}
+          path: dist/Sweeps
 
       - name: Create GitHub Release   # ← new step
         uses: softprops/action-gh-release@v3
