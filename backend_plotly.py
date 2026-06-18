@@ -799,10 +799,10 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
             i_left  = max(0, idx - search_range)
             i_right = min(len(dbm) - 1, idx + search_range)
             patched['data'][3]['x'] = [float(left_nm)]
-            patched['data'][3]['y'] = [max(dbm[i_left], y - y_offset)]
+            patched['data'][3]['y'] = [float(max(dbm[i_left], y - y_offset))]
             patched['data'][3]['text'] = ['L']
             patched['data'][4]['x'] = [float(right_nm)]
-            patched['data'][4]['y'] = [max(dbm[i_right], y - y_offset)]
+            patched['data'][4]['y'] = [float(max(dbm[i_right], y - y_offset))]
             patched['data'][4]['text'] = ['R']
             
             width_info = f"width: {width_pm:.4f} pm\n"
@@ -868,8 +868,15 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
 
         patched = Patch()
         for (idx, _), (w_d, d_d) in zip(curves, results):
-            patched['data'][idx]['x'] = w_d
-            patched['data'][idx]['y'] = d_d
+            # Patch values bypass plotly's figure-level numpy->JSON conversion,
+            # so they must already be JSON-native. Hand Dash plain lists, not
+            # numpy arrays: the fallback JSON encoder used when orjson isn't
+            # present (e.g. the frozen exe, which never bundles orjson) cannot
+            # serialize ndarrays, so the callback 500s and the plot silently
+            # never updates -- even though the initial go.Figure (serialized by
+            # plotly) renders fine.
+            patched['data'][idx]['x'] = np.asarray(w_d).tolist()
+            patched['data'][idx]['y'] = np.asarray(d_d).tolist()
         return patched
 
     @app.callback(

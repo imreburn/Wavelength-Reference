@@ -57,6 +57,7 @@ jobs:
       - name: Zip builds   # bundle the contents of the shared folder into one zip
         shell: bash
         run: |
+          cp preset.csv dist/Sweeps/
           cd dist/Sweeps
           7z a "../Sweeps-${BUILD_NAME}.zip" .
 
@@ -64,7 +65,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: Sweeps-${{ env.BUILD_NAME }}-${{ env.SHORT_SHA }}
-          path: dist/Sweeps
+          path: dist/Sweeps-${{ env.BUILD_NAME }}.zip
 
       - name: Create GitHub Release   # ← new step
         uses: softprops/action-gh-release@v3
