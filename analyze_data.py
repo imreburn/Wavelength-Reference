@@ -120,7 +120,9 @@ def peak_detection(x, y):
 def find_bandwidth(wl, dbm, idx, y_offset, search_range):
     height = float(dbm[idx]) - y_offset
     i_min = max(0, idx - search_range)
-    i_max = min(len(wl), idx + search_range)
+    # len(wl) - 1 (not len(wl)): the right-side loop below reads dbm[i] at i == i_max,
+    # so i_max must stay a valid index or it raises IndexError at the spectrum's end.
+    i_max = min(len(wl) - 1, idx + search_range)
     
     # left side
     i = idx

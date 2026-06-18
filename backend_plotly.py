@@ -29,7 +29,8 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     ----------
     data : list of arrays
         One power array (dBm) per channel, ordered to match
-        ``params.channel``. The wavelength axis is reconstructed from
+        ``params.channel``. The wavelength 
+        axis is reconstructed from
         ``params`` (it is shared by every channel). All peak/marker
         analysis and insertion loss run on the FIRST channel only
         (``data[0]`` / ``params.channel[0]``); the rest are drawn for
@@ -269,6 +270,9 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     # Holder so callbacks (running on the server thread) can reach the
     # pywebview window, which is only created later in this function.
     _window_holder = {}
+    # Set by the Repeat button; read after the window closes to tell the caller
+    # to auto-Run the next sweep. NOT part of Params (which stays run-only).
+    _repeat = {'flag': False}
 
     app = dash.Dash(__name__)
     right_sidebar = html.Div([
@@ -277,10 +281,12 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
                                                  'display': 'block'}),
             dcc.Input(
                 id='max-display-input',
-                type='number', min=1000, step=1000, value=MAX_DISPLAY,
+                type='number', min=0, step=1000, value=MAX_DISPLAY,
                 debounce=True,
                 style={'width': '160px', 'boxSizing': 'border-box'},
             ),
+            html.Div("0 = no downsampling (may be slow)", style={'fontSize': '11px', 'color': '#888',
+                                                   'marginTop': '2px'}),
         ]),
         html.Details([
             html.Summary("Show markers", style={'fontWeight': 'bold', 'cursor': 'pointer', 'marginBottom': '6px'}),
@@ -317,7 +323,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
                         style={'width': '150px', 'fontSize': '15px',
                                'padding': '5px 12px', 'marginTop': '5px'}),
             html.Div([
-                html.Label("Fine tune", style={'fontSize': '11px', 'color': '#888',
+                html.Label("Fine tune (Bandwidth marker)", style={'fontSize': '11px', 'color': '#888',
                                                'marginBottom': '4px', 'display': 'block'}),
                 dcc.Slider(
                     id='mode2-slider',
@@ -375,6 +381,16 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
                                'padding': '8px 10px', 'marginTop': '8px'}),
             html.Div(id='save-peak-info',
                      style={'fontSize': '12px', 'color': '#888', 'marginTop': '4px'}),
+        ]),
+        # Repeat: close this plot window and auto-Run the next sweep with the same
+        # parameters. Also bound to the Enter key (see the clientside callback below).
+        html.Div([
+            html.Button('Repeat (Enter)', id='repeat-btn', n_clicks=0,
+                        style={'width': '160px', 'fontSize': '16px', 'fontWeight': 'bold',
+                               'padding': '8px 10px'}),
+            # Dummy sink for the keybind clientside callback; the keydown
+            # listener it installs is what actually clicks the button.
+            html.Div(id='repeat-keybind-dummy', style={'display': 'none'}),
         ]),
     ], style={'padding': '20px 10px', 'display': 'flex', 'flexDirection': 'column',
               'gap': '20px', 'fontFamily': 'system-ui, sans-serif'})
@@ -478,7 +494,10 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
                 dcc.Graph(id='spectrum', figure=initial_fig, config={'scrollZoom':True}),
                 dash_table.DataTable(
                     data=peak_df.to_dict('records'),
-                    columns=[{'name': c, 'id': c} for c in peak_df.columns],
+                    # Display "Peak No." in the header while keeping the column id
+                    # 'Peak' (which peak_df lookups and the width rules depend on).
+                    columns=[{'name': 'Peak No.' if c == 'Peak' else c, 'id': c}
+                             for c in peak_df.columns],
                     style_cell={'fontFamily': '"Times New Roman", Times, serif', 'padding': '4px 8px', 'textAlign': 'center'},
                     style_cell_conditional=peak_col_widths,
                     style_as_list_view=True,
@@ -490,12 +509,11 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
                         'fontWeight': 'bold',
                     }] if pk is not None else [],
                 ) if pk is not None else None,
-                # html.P(peak_text, style={'whiteSpace': 'pre-wrap'}) if pk is not None else None,
                 dash_table.DataTable(
                     id='custom-table',
-                    columns=[{'name': c, 'id': c} for c in
-                             ['Peak', 'x', 'y', 'Depth', 'Bandwidth', 'base_x', 'base_y']],
-                    data=[{'Peak': 'custom', 'x': '', 'y': '', 'Depth': '',
+                    columns=[{'name': 'Peak No.' if c == 'Peak' else c, 'id': c} for c in
+                             ['Channel', 'Peak', 'x', 'y', 'Depth', 'Bandwidth', 'base_x', 'base_y']],
+                    data=[{'Channel': channels[0], 'Peak': 'custom', 'x': '', 'y': '', 'Depth': '',
                            'Bandwidth': '', 'base_x': '', 'base_y': ''}],
                     style_cell={'fontFamily': '"Times New Roman", Times, serif', 'padding': '4px 8px', 'textAlign': 'center'},
                     style_cell_conditional=custom_col_widths,
@@ -546,6 +564,46 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
         # them with params.channel to label columns Ch.<n> / Ch.<n>(Ref).
         save_csv_raw(data, wav_range, params=params, ref=ref, file_path=file_path)
         return "Raw data saved."
+
+    @app.callback(
+        Output('repeat-keybind-dummy', 'children'),
+        Input('repeat-btn', 'n_clicks'),
+        prevent_initial_call=True,
+    )
+    def on_repeat(n_clicks):
+        # Remember the request, then close the window. webview.start() returns,
+        # the function below shuts the server down, and display_plot() returns
+        # _repeat['flag'] to the caller (main_sweep), which auto-Runs next loop.
+        _repeat['flag'] = True
+        window = _window_holder.get('window')
+        if window is not None:
+            window.destroy()
+        return dash.no_update
+
+    # Enter triggers Repeat — but only when focus isn't in a text/number field
+    # or open dropdown, so typing a label/temperature and pressing Enter there
+    # doesn't fire it. Installed once via a document-level keydown listener.
+    app.clientside_callback(
+        """
+        function(n) {
+            if (!window._repeatKeyBound) {
+                window._repeatKeyBound = true;
+                document.addEventListener('keydown', function(e) {
+                    if (e.key !== 'Enter') return;
+                    var t = e.target;
+                    var tag = t && t.tagName ? t.tagName.toUpperCase() : '';
+                    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+                    if (t && t.closest && t.closest('.Select')) return;  // dcc.Dropdown
+                    var btn = document.getElementById('repeat-btn');
+                    if (btn) btn.click();
+                });
+            }
+            return '';
+        }
+        """,
+        Output('repeat-btn', 'title'),
+        Input('repeat-btn', 'n_clicks'),
+    )
 
     @app.callback(
         Output('peak-modal', 'style'),
@@ -650,8 +708,12 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     )
     def update_mode2_anchor(clickData, click_mode):
         if clickData and click_mode == 2:
-            pt = clickData['points'][0]
-            return {'x': pt['x'], 'y': pt['y']}, 0
+            # Only the click's x-coordinate matters: Bandwidth is always measured
+            # on the first main spectrum (dbm / channels[0]), so the clicked
+            # curve's y is intentionally ignored. With several overlapping spectra
+            # (multi-channel, reference, scans) this keeps the marker pinned to the
+            # first spectrum no matter which line happened to register the click.
+            return {'x': clickData['points'][0]['x']}, 0
         return dash.no_update, dash.no_update
 
     @app.callback(
@@ -666,7 +728,10 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
         patched['data'][1]['y']    = [m['y'] for m in markers]
         patched['data'][1]['text'] = [f'M{i+1}' for i in range(len(markers))]
 
-        rows = []
+        # "Delta Markers" heading, shown only when markers exist (empty markers
+        # — e.g. after Clear — leaves marker-info blank).
+        rows = [html.Div("Delta Markers", style={'fontWeight': 'bold',
+                                                 'marginBottom': '4px'})] if markers else []
         for i, m in enumerate(markers):
             base = f"M{i+1}: ({m['x']:.7f}, {m['y']:.5f})"
             if i == 0:
@@ -728,11 +793,16 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
         if y_offset:
             search_range = int(search_range_pm/(d_x*1000))
             left_nm, right_nm, width_pm = find_bandwidth(wl, dbm, idx, y_offset, search_range)
+            # Clip the search-edge indices: near the spectrum ends idx-search_range
+            # can go negative (numpy would wrap to the far end) and idx+search_range
+            # can run past len(dbm) (IndexError). Clamp to valid bounds.
+            i_left  = max(0, idx - search_range)
+            i_right = min(len(dbm) - 1, idx + search_range)
             patched['data'][3]['x'] = [float(left_nm)]
-            patched['data'][3]['y'] = [max(dbm[idx - search_range], y - y_offset)]
+            patched['data'][3]['y'] = [max(dbm[i_left], y - y_offset)]
             patched['data'][3]['text'] = ['L']
             patched['data'][4]['x'] = [float(right_nm)]
-            patched['data'][4]['y'] = [max(dbm[idx + search_range], y - y_offset)]
+            patched['data'][4]['y'] = [max(dbm[i_right], y - y_offset)]
             patched['data'][4]['text'] = ['R']
             
             width_info = f"width: {width_pm:.4f} pm\n"
@@ -757,7 +827,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
         prevent_initial_call=True,
     )
     def update_custom_table(m2, markers):
-        row = {'Peak': 'custom', 'x': '', 'y': '', 'Depth': '',
+        row = {'Channel': channels[0], 'Peak': 'custom', 'x': '', 'y': '', 'Depth': '',
                'Bandwidth': '', 'base_x': '', 'base_y': ''}
         if m2 is not None:
             row['x'] = f"{m2['x']:.6f}"
@@ -781,7 +851,8 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
         index + wl-aligned y for each line were recorded during figure build
         (main_traces / ref_traces / overlay_traces), so only the lines that were
         actually drawn are touched."""
-        max_display = int(max_display) if max_display else MAX_DISPLAY
+        # None/empty input -> default; 0 -> downsampling disabled (full data).
+        max_display = MAX_DISPLAY if max_display in (None, '') else int(max_display)
         curves = main_traces + ref_traces + overlay_traces
 
         if x0 is None or x1 is None:
@@ -790,7 +861,10 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
             i0 = max(0, int(np.searchsorted(wl, x0)) - 1)
             i1 = min(len(wl), int(np.searchsorted(wl, x1)) + 1)
         w_arr = wl[i0:i1]
-        results = lttb_multi(w_arr, [d[i0:i1] for _, d in curves], max_display)
+        if max_display <= 0:
+            results = [(w_arr, d[i0:i1]) for _, d in curves]
+        else:
+            results = lttb_multi(w_arr, [d[i0:i1] for _, d in curves], max_display)
 
         patched = Patch()
         for (idx, _), (w_d, d_d) in zip(curves, results):
@@ -811,8 +885,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
             return _resample_curves(max_display)
         if 'xaxis.range[0]' not in relayout:
             return dash.no_update
-        return _resample_curves(max_display, relayout['xaxis.range[0]'],
-                                relayout['xaxis.range[1]'])
+        return _resample_curves(max_display, relayout['xaxis.range[0]'], relayout['xaxis.range[1]'])
 
     @app.callback(
         Output('spectrum', 'figure', allow_duplicate=True),
@@ -901,6 +974,10 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     finally:
         server.shutdown()
         thread.join()
+
+    # True when the user clicked Repeat (or pressed Enter); the caller uses this
+    # to auto-Run the next sweep. False on a normal window close.
+    return _repeat['flag']
 
 
 # ---------------------------------------------------------------------------

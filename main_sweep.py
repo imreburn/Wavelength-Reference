@@ -11,9 +11,10 @@ log = setup_logging("WavelengthSweep")
 try:
     pm, laser = prep_inst()
     last_data = None
+    auto_run = False  # set by Repeat on the previous plot; auto-Runs this loop
 
     while True:
-        params = get_inputs(pm, laser)
+        params = get_inputs(pm, laser, auto_run=auto_run)
         if not params:
             break
         
@@ -31,7 +32,7 @@ try:
         if not params.reference:
             last_data = data.copy()
         
-        display_plot(data, params=params, ref=last_data, overlays=scans)
+        auto_run = display_plot(data, params=params, ref=last_data, overlays=scans)
             
 except Exception:
     log.exception("Unhandled error")

@@ -42,7 +42,10 @@ def section_header(frame, text, row):
         row=row + 1, column=0, columnspan=2, sticky="ew", pady=(0, 6))
 
 
-def get_inputs(pm=None, laser=None):
+def get_inputs(pm=None, laser=None, auto_run=False):
+    # auto_run: re-run the previous sweep without manual interaction (set by the
+    # plot window's Repeat button). It is a control flag only — never stored on
+    # Params, which holds run parameters exclusively.
     params = Params()
     params.reference = _state["reference"]
     saved = {"ok": False}
@@ -386,19 +389,17 @@ def get_inputs(pm=None, laser=None):
     def update_ref_ui():
         if _state["reference"]:
             status_value.config(text="Set", fg="red")
+            # A set reference can always be unset.
+            ref_btn.config(text="Unset Reference", state="normal")
         else:
             status_value.config(text="Not Set", fg="blue")
-        set_ref_btn.config(state="normal" if _state["has_run"] else "disabled")
-        del_ref_btn.config(state="normal" if _state["reference"] else "disabled")
+            # Can only set a reference once there's a run to reference.
+            ref_btn.config(text="Set Reference",
+                           state="normal" if _state["has_run"] else "disabled")
 
-    def on_set_ref():
-        _state["reference"] = True
-        params.reference = True
-        update_ref_ui()
-
-    def on_del_ref():
-        _state["reference"] = False
-        params.reference = False
+    def on_toggle_ref():
+        _state["reference"] = not _state["reference"]
+        params.reference = _state["reference"]
         update_ref_ui()
 
     root = tk.Tk()
@@ -523,10 +524,8 @@ def get_inputs(pm=None, laser=None):
 
     ref_frame = tk.Frame(frame)
     ref_frame.grid(row=REFBTN_ROW, column=0, columnspan=2, pady=4)
-    set_ref_btn = tk.Button(ref_frame, text="Set as Reference", command=on_set_ref, state="disabled")
-    set_ref_btn.pack(side="left", padx=5)
-    del_ref_btn = tk.Button(ref_frame, text="Delete Reference", command=on_del_ref, state="disabled")
-    del_ref_btn.pack(side="left", padx=5)
+    ref_btn = tk.Button(ref_frame, text="Set Reference", command=on_toggle_ref, state="disabled")
+    ref_btn.pack(side="left", padx=5)
 
     # Enter triggers Run when it's enabled (on_run is a no-op until saved).
     root.bind("<Return>", lambda _e: on_run())
@@ -543,6 +542,12 @@ def get_inputs(pm=None, laser=None):
     if "fields" in _last:
         on_save()
 
+    # Repeat from the plot window: the values are already saved (above), so just
+    # fire Run once the window is up. Only valid when there are prior values to
+    # re-run; a fresh session (no _last) can't auto-run.
+    if auto_run and "fields" in _last:
+        root.after(500, on_run)
+
     # Grab keyboard focus so Enter works without clicking the window first
     # (on reopen, focus tends to stay on the console).
     root.lift()
@@ -555,10 +560,10 @@ def get_inputs(pm=None, laser=None):
 
 
 if __name__ == "__main__":
-    pm, laser = prep_inst()
+    # pm, laser = prep_inst()
     
     while True:
-        params = get_inputs(pm, laser)
+        params = get_inputs()
         if not params:
             break
         print(params)

@@ -19,7 +19,7 @@ EXTRA_OPTIONS  = {PM_RANGE_LABEL: PM_RANGE_OPTIONS, DYN_SCAN_LABEL: DYN_SCAN_OPT
 EXTRA_DEFAULTS = {PM_RANGE_LABEL: "10", DYN_SCAN_LABEL: "1", DECREMENT_LABEL: "10"}
 
 # Acquisition channel selection (checkboxes 1–4); at least one must be chosen.
-CHANNEL_LABEL   = "Channel"
+CHANNEL_LABEL   = "Input Channel"
 CHANNEL_OPTIONS = (1, 2, 3, 4)
 CHANNEL_DEFAULT = "1"  # space-separated channel list, as stored in a preset
 

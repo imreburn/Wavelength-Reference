@@ -1,6 +1,9 @@
-# WavelengthSweep
+# WavelengthSweep & PlotSweep
 
-`WavelengthSweep.exe` performs repeated single continous sweep and measures power, with configurable parameters. Measurement is analyzed and visualized. The raw data and peak analysis can be exported to CSV. 
+- `WavelengthSweep.exe` can operate Keysight instruments (Tunable Laser Source and Optical Power Meter). Users can configure and save parameters. Measurement is analyzed and visualized. The raw data and peak analysis can be exported to CSV.
+- `PlotSweep.exe` is a standalone executable to plot a saved raw data.
+
+---
 
 ## Installation
 
@@ -10,33 +13,37 @@ After downloading the `.zip`, **unblock it before extracting**:
 2. Check **Unblock** at the bottom → **OK**.
 3. Now extract the `.zip`.
 
-All three apps (`WavelengthSweep.exe`, `RefSweep.exe`, `PlotSweep.exe`) live in the same folder and share a single `_internal` directory — keep them together.
-
-## Usage
-
-### Running a sweep
-
-1. Run `WavelengthSweep.exe`.
-2. A configuration window will appear. Enter the desired settings (start wavelength, stop wavelength, etc.) manually, or load a preset. The last-used configuration is retained for the duration of the session.
-3. Click **Save**. The program will calculate the number of data points to be logged and the averaging time. The given step size may be slightly reduced to ensure the averaging time is an integer value.
-4. Click **Run**. The configuration window will close and the measurement will begin. A graph window will appear with the results.
-5. After the user closes the graph window, the program returns to step 1.
+All apps (`WavelengthSweep.exe`, `PlotSweep.exe`) live in the same folder and share a single `_internal` directory — keep them together.
 
 ---
 
-### How to Use Presets
+## Usage
 
-- The program attempts to read `preset.csv` on startup. This file must be located in the same directory as `.exe` files. Because a new build `.zip` do not include `preset.csv`, copy the file from previous location.
-- To add a preset, open the file in a text editor and add a new line with a name and the corresponding values, separated by commas with no spaces. Create a new `preset.csv` if not exists. Please refer to the example `preset.csv` in the repository.
-- **Preset parameters:** Name, Start Wavelength (nm), Stop Wavelength (nm), Sweep Speed (nm/s), Step Size (pm), TLS Power (dBm), Initial Power meter Range (dBm), Dynamic Range Scans, Decrement (dB)
-- Dynamic Range Scans and Decrement will be ignored when loaded in `RefSweep.exe`.
-- 
+### Run a test
+
+1. Run `WavelengthSweep.exe`.
+2. A configuration window will appear. Enter the desired settings (start wavelength, stop wavelength, etc.) manually, or load a preset.
+3. Click **Save**. The program will check whether parameters are valid, and calculate the log count and the averaging time. The given step size may be slightly reduced to ensure the averaging time is an integer value.
+4. Click **Run (or press Enter)**. The input window will close and the sweep will begin. A result window will appear with the results.
+5. After the result window is closed, the program returns to step 1.
+
+---
+
+### Analyzing measurement
+
+**Detecting Peak(s)**
+
+- Simple peak analysis (depth, FWHM) is included.
+
+**Plotting**
+
+- The default plotting backend is **Plotly** (`matplotlib` is dropped since the version 20260527).
 
 ---
 
 ### Saving Results to CSV
 
-Users can save raw data and/or peak analysis results to a CSV file.
+Users can save raw data and/or peak data to a CSV file.
 
 **Save Raw Data**
 
@@ -52,13 +59,35 @@ Following fields are saved in the CSV file.
 
 ---
 
-## Peak Analysis and Plotting
+### Run subsequent tests (until program is quit)
 
-**Detecting Peak(s)**
+- Parameters for the last test are saved and fields are greyed.
+- To run another test with the same parameters, just click **Run or press Enter**.
+- To change parameters, click **Change**.
 
-- Simple peak analysis (depth, FWHM) is included.
+---
 
-**Plotting**
+### Load/Save/Delete Preset
 
-- The default plotting backend is **Plotly** (matplotlib is dropped since the version 20260527).
-- `PlotSweep.exe` is a standalone executable to plot a saved raw data. It also can plot CSV files saved from KeySight software.
+- The program attempts to read `preset.csv` on startup. This file must be located in the same directory as `.exe` files. Because a new build `.zip` do not include `preset.csv`, copy the file from previous location.
+- Once parameters are **saved** (in that, they passed checks), **Manage Presets...** button is activated. In the pop-up, users can replace an existing preset with the currently saved parameters, create a new preset with them, or delete an existing preset.
+
+---
+
+### Read Power in real-time
+
+- Once parameters are **saved**, **Read Power...** becomes active. In the pop-up, the current powers for all four channels are measured and shown in two units(dBm and W), and updated every second.
+- Power range setting is automatically adjusted.
+- Parameters for source power and wavelength are referred from the saved parameters: **TLS Power (dBm), Stop Wavelength (nm)**, respectively.
+
+### Reference
+
+- Once a measurement is taken, it can be set a reference for subsequent measurements, by clicking **"Set Reference"**. To unset the reference, click **"Unset Reference"**.
+- Because the parameters must be same for both reference and subsequent measurements, clicking **"Change"** button is assumed that the user would change parameters. Thus it immediately invalidates the existing reference and user should take a new measurement.
+- For subsequent measurements, the reference and the new measurement spectra will be shown together in the result window. Both are unmodified.
+- Difference between the new measurement and the reference is calculated element-by-element. The minimum is taken as the insertion loss.
+
+### Multi input channels
+
+- Users can select input channels by selecting checkboxes up to 4. At least one must be selected.
+- Peak detection is performed only for a single channel with the least channel number.
