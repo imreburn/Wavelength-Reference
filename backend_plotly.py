@@ -283,9 +283,10 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
                 id='max-display-input',
                 type='number', min=0, step=1000, value=MAX_DISPLAY,
                 debounce=True,
+                disabled=True,  # frozen at MAX_DISPLAY until the input bug is fixed
                 style={'width': '160px', 'boxSizing': 'border-box'},
             ),
-            html.Div("0 = no downsampling (may be slow)", style={'fontSize': '11px', 'color': '#888',
+            html.Div(f"fixed at {MAX_DISPLAY:,} points", style={'fontSize': '11px', 'color': '#888',
                                                    'marginTop': '2px'}),
         ]),
         html.Details([
