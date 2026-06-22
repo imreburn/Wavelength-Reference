@@ -7,8 +7,11 @@ directory containing the scripts, preserving the original "next to the code"
 behaviour so nothing breaks without it.
 """
 import sys
-from pathlib import Path
 
+from pathlib import Path
+import logging
+
+log = logging.getLogger(__name__)
 # Anchor next to the running program. As a frozen PyInstaller exe, __file__
 # points inside the bundle (_internal), so use the executable's own directory;
 # as a normal script, use the directory containing this module.
@@ -19,6 +22,7 @@ else:
 
 _DATAPATH_FILE = _BASE_DIR / "datapath.txt"
 
+log.info("Read a file for data path: %s", str(_DATAPATH_FILE))
 
 def data_dir():
     """Return the configured base data directory as a Path.
@@ -30,12 +34,19 @@ def data_dir():
         for line in _DATAPATH_FILE.read_text().splitlines():
             line = line.strip()
             if line:
-                return Path(line.replace("\\", "/")).expanduser()
+                datasweep = Path(line.replace("\\", "/")).expanduser()
+                datasweep.mkdir(parents=False, exist_ok=True)
+                print("Read succesfully. Path: ", str(datasweep))
+                return datasweep
     except OSError:
         pass
+    log.warning("Path cannot be read or path does not exist. Default path: %s", str(_DATAPATH_FILE.parent))
     return _DATAPATH_FILE.parent
 
 
 def data_path(*parts):
     """Join path `parts` onto the base data directory (see data_dir())."""
     return data_dir().joinpath(*parts)
+
+if __name__ == "__main__":
+    data_dir()
