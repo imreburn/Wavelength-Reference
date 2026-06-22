@@ -9,11 +9,15 @@ import webview
 from webview import FileDialog
 
 import json
+import logging
+
+log = logging.getLogger(__name__)
 
 from structs import PeakInfo, Params
 from analyze_data import peak_detection, find_bandwidth
 from save_csv import save_csv_raw, save_csv_peak_row, COL_X, COL_CH, COL_REF
 from helper_plotly import lttb, lttb_multi
+from datapath import data_path
 
 # Remembered across display_plot() calls (i.e. across loop iterations) so the
 # "Choose a file" dropdown can pre-select the file used last time.
@@ -413,7 +417,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     peak_options += [{'label': 'custom', 'value': 'custom'}]
 
     # Directory where peak CSVs live, and the default filename to fall back on.
-    PEAKS_DIR = os.path.join("Test Results", "Peaks")
+    PEAKS_DIR = data_path("Test Results", "Peaks")
     DEFAULT_PEAK_FILENAME = '.csv'
 
     def _peak_file_options():

@@ -1,5 +1,9 @@
 import csv
 import tkinter as tk
+from datapath import data_path
+
+import logging
+log = logging.getLogger(__name__)
 
 FIELD_LABELS = ["Start Wavelength (nm)", "Stop Wavelength (nm)", "Sweep Speed (nm/s)", "Step Size (pm)", "TLS Power (dBm)"]
 DEFAULTS = ["0", "0", "0.5", "0.0125", "0.1"]
@@ -41,7 +45,7 @@ def parse_channels(s):
 
 PM_FLOOR = -110  # powermeter sensitivity floor (dBm)
 
-PRESET_CSV = "preset.csv"
+PRESET_CSV = data_path("preset.csv")
 
 PADDING = 0.010  # addtional padding in nm
 
@@ -73,6 +77,7 @@ def load_presets():
                 presets[name] = vals
         return presets
     except Exception:
+        log.warning("preset.csv not found.")
         return {}
 
 

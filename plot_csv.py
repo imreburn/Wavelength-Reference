@@ -1,4 +1,3 @@
-import os
 import sys
 import dpi_awareness  # noqa: F401  # set Windows DPI awareness before any Tk()
 import tkinter as tk
@@ -11,14 +10,14 @@ from backend_plotly import display_plot
 from structs import Params
 from save_csv import (COL_X, COL_CH, COL_REF)
 from logger import setup_logging
+from datapath import data_dir
 
 log = setup_logging("PlotSweep")
 
 root = tk.Tk()
 root.withdraw()
-script_dir = os.path.dirname(os.path.abspath(__file__))
 csv_path = filedialog.askopenfilename(
-    initialdir=script_dir,
+    initialdir=str(data_dir()),
     title="Select CSV file",
     filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
 )

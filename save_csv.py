@@ -9,6 +9,7 @@ from dataclasses import asdict
 import logging
 
 from structs import Params, PeakInfo
+from datapath import data_path
 
 log = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ COL_REF = "Ref-Ch."
 
 def save_csv_raw(data, x, params:Params=None, ref=None, file_path=None):
     if file_path is None:
-        initial_dir = os.path.join("Test Results", "Raw Data")
+        initial_dir = str(data_path("Test Results", "Raw Data"))
         os.makedirs(initial_dir, exist_ok=True)
 
         root = tk.Tk()

@@ -3,6 +3,7 @@ from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+from datapath import data_path
 
 def setup_logging(app_name, level=logging.INFO, max_files=20, max_bytes=10 * 1024 * 1024):
     """Configure logging once. Writes to logs/<app_name>/<date>_<time>.log (a new
@@ -13,7 +14,7 @@ def setup_logging(app_name, level=logging.INFO, max_files=20, max_bytes=10 * 102
     deleted at startup so at most `max_files` remain. `max_bytes` caps the size
     of each run's file; if a run exceeds it the file is truncated and reused, so
     no extra backup files accumulate."""
-    log_dir = Path("logs") / app_name
+    log_dir = data_path("logs") / app_name
     log_dir.mkdir(parents=True, exist_ok=True)
 
     # Prune old runs (oldest first) so this run brings the total to max_files.

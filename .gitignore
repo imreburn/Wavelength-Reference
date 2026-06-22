@@ -8,6 +8,5 @@ build/
 dist/
 Test Results/
 *.csv
-!preset.csv
 logs/
 tempCodeRunnerFile.py
