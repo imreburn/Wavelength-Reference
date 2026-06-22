@@ -1,9 +1,23 @@
 import logging
+import os
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from datapath import data_path
+
+
+def fast_exit(code=0):
+    """Terminate the process immediately, skipping the slow native teardown.
+
+    pywebview's WebView2/.NET runtime takes a couple of seconds to finalize
+    after the interpreter's atexit handlers run, so the console window lingers
+    well after the last GUI window closes. Once all real work is done there is
+    nothing left worth waiting for, so flush the logs by hand (os._exit does
+    not run atexit/logging.shutdown) and hard-exit. Call this only at true
+    program end, after instruments are closed."""
+    logging.shutdown()
+    os._exit(code)
 
 def setup_logging(app_name, level=logging.INFO, max_files=20, max_bytes=10 * 1024 * 1024):
     """Configure logging once. Writes to logs/<app_name>/<date>_<time>.log (a new

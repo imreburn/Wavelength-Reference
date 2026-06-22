@@ -967,7 +967,10 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     # server, leaving the figure unresponsive until the next run.
     server = make_server('127.0.0.1', 0, app.server, threaded=True)
     bound_port = server.server_port
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    # poll_interval=0.1 (vs werkzeug's 0.5 default) so thread.join() below
+    # notices server.shutdown() ~5x faster on window close.
+    thread = threading.Thread(
+        target=lambda: server.serve_forever(poll_interval=0.1), daemon=True)
     thread.start()
 
     window = webview.create_window(

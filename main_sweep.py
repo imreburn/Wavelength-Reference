@@ -3,7 +3,7 @@ from gui_input_sweep import get_inputs
 from run_instruments import run_sweep
 from analyze_data import combine_scans
 from backend_plotly import display_plot
-from logger import setup_logging
+from logger import setup_logging, fast_exit
 
 log = setup_logging("WavelengthSweep")
 
@@ -34,7 +34,11 @@ try:
         auto_run = display_plot(data, params=params, ref=last_data, overlays=scans)
     
     close_inst(pm, laser)
-            
+
 except Exception:
     log.exception("Unhandled error")
     raise
+
+# Skip the slow pywebview/.NET native teardown — all work is done and
+# instruments are closed, so hard-exit instead of letting the console linger.
+fast_exit(0)
