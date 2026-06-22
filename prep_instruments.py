@@ -9,6 +9,9 @@ VISA_ADDRESS_TLS            = 'TCPIP0::100.65.2.45::inst0::INSTR'
 
 TLS_PASSWORD = 1234
 
+rm = pyvisa.ResourceManager()
+
+
 def exceptionHandler(exception):
 
     log.error('Error information:\n\tAbbreviation: %s\n\tError code: %s\n\tDescription: %s' % \
@@ -16,8 +19,6 @@ def exceptionHandler(exception):
 
 
 def get_inst():
-    rm = pyvisa.ResourceManager()
-    
     try: 
         pm    = rm.open_resource(VISA_ADDRESS_POWER_METER)
         laser = rm.open_resource(VISA_ADDRESS_TLS)
@@ -98,6 +99,11 @@ def prep_inst():
     check_inst(pm, laser)
     init_inst(pm, laser)
     return pm, laser
+
+def close_inst(pm, laser):
+    pm.close()
+    laser.close()
+    rm.close()
 
 if __name__ == "__main__":
     pm, laser = prep_inst()

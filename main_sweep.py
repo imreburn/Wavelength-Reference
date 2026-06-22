@@ -1,4 +1,4 @@
-from prep_instruments import prep_inst
+from prep_instruments import prep_inst, close_inst
 from gui_input_sweep import get_inputs
 from run_instruments import run_sweep
 from analyze_data import combine_scans
@@ -32,6 +32,8 @@ try:
             last_data = data.copy()
         
         auto_run = display_plot(data, params=params, ref=last_data, overlays=scans)
+    
+    close_inst(pm, laser)
             
 except Exception:
     log.exception("Unhandled error")
