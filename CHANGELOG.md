@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [v1.1.3] - 2026-06-22
 
 ### Added
 
@@ -8,7 +8,7 @@
 
 ### Changed
 
-- Logs and CSV files (preset and data) are now saved to the fixed folder `C:\Users\mikea\OneDrive\Desktop\DataSweep`, instead of a separate folder for each version. The path is written in `datapath.txt` and users may modify.
+- Logs and CSV files (preset and data) are now saved to the fixed folder `C:\Users\mikea\OneDrive\Desktop\DataSweep`, instead of a separate folder for each version. The path is written in `data_dir.txt` and users may modify.
 
 ## [v1.1.2] - 2026-06-18
 

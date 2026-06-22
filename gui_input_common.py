@@ -45,7 +45,7 @@ def parse_channels(s):
 
 PM_FLOOR = -110  # powermeter sensitivity floor (dBm)
 
-PRESET_CSV = data_path("preset.csv")
+PRESET_CSV = data_path("preset.csv", mkdir=False)
 
 PADDING = 0.010  # addtional padding in nm
 

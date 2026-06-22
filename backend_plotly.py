@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 
 from structs import PeakInfo, Params
 from analyze_data import peak_detection, find_bandwidth
-from save_csv import save_csv_raw, save_csv_peak_row, COL_X, COL_CH, COL_REF
+from save_csv import save_csv_raw, save_csv_peak_row, COL_X, COL_CH, COL_REF, RAW_DIR
 from helper_plotly import lttb, lttb_multi
 from datapath import data_path
 
@@ -417,12 +417,11 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     peak_options += [{'label': 'custom', 'value': 'custom'}]
 
     # Directory where peak CSVs live, and the default filename to fall back on.
-    PEAKS_DIR = data_path("Test Results", "Peaks")
+    PEAKS_DIR = data_path("Peaks")
     DEFAULT_PEAK_FILENAME = '.csv'
 
     def _peak_file_options():
         """Dropdown options for existing CSVs in PEAKS_DIR, plus an empty item."""
-        os.makedirs(PEAKS_DIR, exist_ok=True)
         files = sorted(f for f in os.listdir(PEAKS_DIR)
                        if f.lower().endswith('.csv')
                        and os.path.isfile(os.path.join(PEAKS_DIR, f)))
@@ -540,8 +539,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
         if window is None:
             return dash.no_update
 
-        initial_dir = os.path.join("Test Results", "Raw Data")
-        os.makedirs(initial_dir, exist_ok=True)
+        initial_dir = data_path(RAW_DIR)
 
         result = window.create_file_dialog(
             FileDialog.SAVE,
@@ -649,7 +647,6 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
         if window is None:
             return dash.no_update, dash.no_update, "Window not ready."
 
-        os.makedirs(PEAKS_DIR, exist_ok=True)
         if chosen_file:
             # User picked an existing file — save directly, skip the dialog.
             file_path = os.path.join(os.path.abspath(PEAKS_DIR), chosen_file)
