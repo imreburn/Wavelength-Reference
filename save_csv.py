@@ -16,11 +16,11 @@ log = logging.getLogger(__name__)
 COL_X   = "Wavelength (nm)"
 COL_CH  = "Ch."
 COL_REF = "Ref-Ch."
+RAW_DIR = "Raw Data"
 
 def save_csv_raw(data, x, params:Params=None, ref=None, file_path=None):
     if file_path is None:
-        initial_dir = str(data_path("Test Results", "Raw Data"))
-        os.makedirs(initial_dir, exist_ok=True)
+        initial_dir = str(data_path(RAW_DIR))
 
         root = tk.Tk()
         root.withdraw()
@@ -48,7 +48,7 @@ def save_csv_raw(data, x, params:Params=None, ref=None, file_path=None):
         f.write("# " + json.dumps(asdict(params) if params is not None else {}) + "\n")
         df.to_csv(f, index=False)
         
-    log.info(f"Raw data saved to a file: {file_path}")
+    log.info(f"Saved raw data: {file_path}")
 
 
 def save_csv_peak_row(label, wl, depth, fwhm, file_path, temperature=None, loss=None):
@@ -88,4 +88,4 @@ def save_csv_peak_row(label, wl, depth, fwhm, file_path, temperature=None, loss=
     else:
         peak_df.to_csv(file_path, index=False)
     
-    log.info(f"Peak information saved: {file_path}")
+    log.info(f"Saved peak data: {file_path}")

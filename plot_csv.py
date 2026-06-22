@@ -10,6 +10,7 @@ from backend_plotly import display_plot
 from structs import Params
 from save_csv import (COL_X, COL_CH, COL_REF)
 from logger import setup_logging, fast_exit
+
 from datapath import data_path
 
 log = setup_logging("PlotSweep")
@@ -17,7 +18,7 @@ log = setup_logging("PlotSweep")
 root = tk.Tk()
 root.withdraw()
 csv_path = filedialog.askopenfilename(
-    initialdir=str(data_path("Test Results", "Raw Data")),
+    initialdir=str(data_path("Raw Data")),
     title="Select CSV file",
     filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
 )

@@ -1,4 +1,4 @@
-"""Resolve the base directory for data files from a `datapath.txt` file.
+"""Resolve the base directory for data files from a `data_dir.txt` file.
 
 The file lives next to the scripts and holds a single directory path (one line,
 `~` allowed). It acts like a local environment variable pointing at where presets
@@ -20,33 +20,36 @@ if getattr(sys, "frozen", False):
 else:
     _BASE_DIR = Path(__file__).resolve().parent
 
-_DATAPATH_FILE = _BASE_DIR / "datapath.txt"
+_DATAPATH_FILE = _BASE_DIR / "data_dir.txt"
 
-log.info("Read a file for data path: %s", str(_DATAPATH_FILE))
 
 def data_dir():
     """Return the configured base data directory as a Path.
 
-    Reads the first non-blank line of `datapath.txt` and expands a leading `~`.
+    Reads the first non-blank line of `data_dir.txt` and expands a leading `~`.
     Falls back to the directory containing this module on any failure.
     """
+    log.info("Read a path from data_dir.txt: %s", str(_DATAPATH_FILE))
     try:
         for line in _DATAPATH_FILE.read_text().splitlines():
             line = line.strip()
             if line:
-                datasweep = Path(line.replace("\\", "/")).expanduser()
-                datasweep.mkdir(parents=False, exist_ok=True)
-                print("Read succesfully. Path: ", str(datasweep))
-                return datasweep
+                dir_path = Path(line.replace("\\", "/")).expanduser()
+                dir_path.mkdir(parents=False, exist_ok=True)
+                log.info("Successful. Path: %s", str(dir_path))
+                return dir_path
     except OSError:
         pass
-    log.warning("Path cannot be read or path does not exist. Default path: %s", str(_DATAPATH_FILE.parent))
+    log.info("data_dir.txt cannot be read or the parent folder does not exist. Use the default path: %s", str(_DATAPATH_FILE.parent))
     return _DATAPATH_FILE.parent
 
 
-def data_path(*parts):
+def data_path(*parts, mkdir=True):
     """Join path `parts` onto the base data directory (see data_dir())."""
-    return data_dir().joinpath(*parts)
+    ret_path = data_dir().joinpath(*parts)
+    if mkdir:
+        ret_path.mkdir(parents=False, exist_ok=True)
+    return ret_path
 
 if __name__ == "__main__":
     data_dir()
