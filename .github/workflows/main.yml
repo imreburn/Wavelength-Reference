@@ -50,7 +50,7 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             echo "BUILD_NAME=${GITHUB_REF_NAME}" >> $GITHUB_ENV
           else
-            echo "BUILD_NAME=${GITHUB_SHA::8}" >> $GITHUB_ENV
+            echo "BUILD_NAME=${GITHUB_SHA::7}" >> $GITHUB_ENV
           fi
 
       - name: Zip builds   # bundle the contents of the shared folder into one zip
