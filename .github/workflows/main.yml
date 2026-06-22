@@ -56,7 +56,7 @@ jobs:
       - name: Zip builds   # bundle the contents of the shared folder into one zip
         shell: bash
         run: |
-          cp .datapath dist/Sweeps/
+          cp datapath.txt dist/Sweeps/
           cd dist/Sweeps
           7z a "../Sweeps-${BUILD_NAME}.zip" .
 
