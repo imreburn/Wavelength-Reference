@@ -6,9 +6,18 @@ and results live. When it is missing, empty, or unreadable we fall back to the
 directory containing the scripts, preserving the original "next to the code"
 behaviour so nothing breaks without it.
 """
+import sys
 from pathlib import Path
 
-_DATAPATH_FILE = Path(__file__).resolve().parent / "datapath.txt"
+# Anchor next to the running program. As a frozen PyInstaller exe, __file__
+# points inside the bundle (_internal), so use the executable's own directory;
+# as a normal script, use the directory containing this module.
+if getattr(sys, "frozen", False):
+    _BASE_DIR = Path(sys.executable).resolve().parent
+else:
+    _BASE_DIR = Path(__file__).resolve().parent
+
+_DATAPATH_FILE = _BASE_DIR / "datapath.txt"
 
 
 def data_dir():

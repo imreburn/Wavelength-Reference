@@ -3,7 +3,6 @@ from gui_input_sweep import get_inputs
 from run_instruments import run_sweep
 from analyze_data import combine_scans
 from backend_plotly import display_plot
-from structs import Params
 from logger import setup_logging
 
 log = setup_logging("WavelengthSweep")
