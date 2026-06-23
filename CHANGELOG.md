@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- "Read Power..." reads the power meter at a faster rate (1 Hz -> 10 Hz)
+
 ## [v1.1.3] - 2026-06-22
 
 ### Added

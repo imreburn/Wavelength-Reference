@@ -272,7 +272,7 @@ def get_inputs(pm=None, laser=None, auto_run=False):
                     power_vars[i].set(f"{10 * math.log10(p_w * 1e3):.3f} dBm")
                 else:
                     power_vars[i].set("—")
-            job["id"] = top.after(1000, refresh)
+            job["id"] = top.after(100, refresh)
 
         def on_top_close():
             if job["id"] is not None:
