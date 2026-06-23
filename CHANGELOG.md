@@ -4,7 +4,8 @@
 
 ### Changed
 
-- "Read Power..." reads the power meter at a faster rate (1 Hz -> 10 Hz)
+- "Read Power..." reads the power meter at a faster rate (1 Hz -> 10 Hz).
+- Updated the icon.
 
 ## [v1.1.3] - 2026-06-22
 
