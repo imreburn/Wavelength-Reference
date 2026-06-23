@@ -78,8 +78,14 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     # sliced copies below (aligned with `wl`) drive plotting and analysis.
     channels = tuple(params.channel) if params.channel else tuple(range(1, len(data) + 1))
     data_s = [np.asarray(d)[i_lo:i_hi] for d in data]
-    dbm    = data_s[0]                        # channel-1 array drives all analysis
-    ref_s  = [np.asarray(r)[i_lo:i_hi] for r in ref] if ref is not None else None
+    
+    if params.reference and ref:
+        ref_s  = [np.asarray(r)[i_lo:i_hi] for r in ref]
+        diff_s = [d - r for d, r in zip(data_s, ref_s)]
+        dbm = diff_s[0]
+    else:   
+        dbm    = data_s[0]                        
+    
     overlays = list(overlays or [])
     # Overlays are the individual dynamic-range scans; only meaningful with >1.
     overlays_s = ([[np.asarray(c)[i_lo:i_hi] for c in scan] for scan in overlays]
@@ -216,26 +222,32 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     # on channel 1 only; a dashed reference line is drawn for every channel.
     # ------------------------------------------------------------------
     il_idx = None  # trace index of the I.L. marker (None when no reference)
-    if params.reference and ref_s:
-        diff = dbm - ref_s[0]
-        gmin_idx = int(np.nanargmin(diff))
+    if params.reference and ref:
+        gmin_idx = int(np.nanargmin(diff_s[0]))
         gmin_x, gmin_y = float(wl[gmin_idx]), float(dbm[gmin_idx])
         initial_fig.add_scatter(
             x=[gmin_x], y=[gmin_y], mode='markers+text', name='I.L.',
             marker=dict(symbol='star', size=9, color='#C0392B', line=_border),
-            text=[f"<b>IL: {diff[gmin_idx]:.5f}</b>"], textposition='bottom center',
+            text=[f"<b>IL: {diff_s[0][gmin_idx]:.5f}</b>"], textposition='bottom center',
             textfont=dict(size=14, color='#C0392B'),
             hovertemplate='%{x:.7f}<br>%{y:.5f}<extra>I.L.</extra>',
         )
         il_idx = len(initial_fig.data) - 1
-        for k, (ch, r_arr) in enumerate(zip(channels, ref_s)):
+        for k, (ch, r_arr, d_arr) in enumerate(zip(channels, ref_s, data_s)):
             wl_d, r_d = lttb(wl, r_arr, MAX_DISPLAY)
+            wl_d, d_d = lttb(wl, d_arr, MAX_DISPLAY)
             initial_fig.add_scatter(
                 x=wl_d, y=r_d, mode='lines', name=f'{COL_REF}{ch}',
                 line=dict(color=_next_color(), width=2),
-                hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>',
+                hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>', visible='legendonly',
             )
             ref_traces.append((len(initial_fig.data) - 1, r_arr))
+            initial_fig.add_scatter(
+                x=wl_d, y=d_d, mode='lines', name=f'Raw-{COL_CH}{ch}',
+                line=dict(color=_next_color(), width=2),
+                hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>', visible='legendonly',
+            )
+            ref_traces.append((len(initial_fig.data) - 1, d_arr))
 
     # ------------------------------------------------------------------
     # Overlay scans (display-only, legend-only by default). One dotted line
@@ -763,7 +775,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
                 return dash.no_update, dash.no_update, ""
             file_path = result[0] if isinstance(result, (list, tuple)) else result
             
-        loss=round(diff[gmin_idx],5) if params.reference and ref_s else None
+        loss=round(diff_s[0][gmin_idx],5) if params.reference and ref_s else None
         save_csv_peak_row(label.strip(), wl_v, depth, fwhm, loss=loss, file_path=file_path, temperature=temperature)
         
         global _last_peak_file, _last_peak_label, _last_temperature

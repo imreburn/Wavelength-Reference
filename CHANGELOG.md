@@ -12,6 +12,7 @@
 - "Read Power..." reads the power meter at a faster rate (1 Hz -> 10 Hz).
 - Some buttons on the right side of the result window moved to the top bar.
 - Updated the icon.
+- When a reference is set, the subtracted data (measured - reference) is shown by default. Raw data and the reference data are hidden at first, and can be shown via clicking the legends.
 
 ### Fixed
 
