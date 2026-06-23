@@ -2,10 +2,20 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added 5 filters to smooth data.
+- Bind 'p' key to the "Save peak info..." button.
+
 ### Changed
 
 - "Read Power..." reads the power meter at a faster rate (1 Hz -> 10 Hz).
+- Some buttons on the right side of the result window moved to the top bar.
 - Updated the icon.
+
+### Fixed
+
+- Fixed a bug that right click dragging reverses the inverted y-axis. When this happens, users can click 'autoscale' or 'reset axes' button.
 
 ## [v1.1.3] - 2026-06-22
 

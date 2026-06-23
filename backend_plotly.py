@@ -18,6 +18,7 @@ from analyze_data import peak_detection, find_bandwidth
 from save_csv import save_csv_raw, save_csv_peak_row, COL_X, COL_CH, COL_REF, RAW_DIR
 from helper_plotly import lttb, lttb_multi
 from datapath import data_path
+from filters import FILTER_LABELS, FILTER_PARAMS, apply_filter, FilterError
 
 # Remembered across display_plot() calls (i.e. across loop iterations) so the
 # "Choose a file" dropdown can pre-select the file used last time.
@@ -251,6 +252,19 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
             )
             overlay_traces.append((len(initial_fig.data) - 1, c_arr))
 
+    # ------------------------------------------------------------------
+    # Smoothed (filtered) channel-1 trace. Added LAST so every fixed trace
+    # index above stays put. Starts empty/hidden; the "Apply filter" modal
+    # fills it in. `_smooth['y']` holds the full-resolution filtered array
+    # so the zoom/max-points resampler can downsample it like the others.
+    # ------------------------------------------------------------------
+    initial_fig.add_scatter(
+        x=[], y=[], mode='lines', name='Smoothed', visible=False,
+        line=dict(color='#111111', width=2),
+        hovertemplate='%{x:.7f}<br>%{y:.5f}<extra>Smoothed</extra>',
+    )
+    smooth_idx = len(initial_fig.data) - 1
+    _smooth = {'y': None}  # full-res filtered channel-1 array (None until applied)
 
     initial_fig.update_layout(
         xaxis_title='Wavelength (nm)',
@@ -336,22 +350,20 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
                     tooltip=None,
                     updatemode='drag',
                 ),
-                html.Label("Slider range (pm)", style={'fontSize': '11px', 'color': '#888','marginTop': '6px', 'marginBottom': '4px', 'display': 'block'}),
-                dcc.Input(
-                    id='slider-range-input',
-                    type='number', step='any', value=SLIDER_RANGE * 1000,
-                    debounce=True,
-                    style={'width': '100%', 'boxSizing': 'border-box'},
-                ),
                 html.Div(id='mode2-marker-info',
                          style={'display': 'none'}),
-                html.Label("Bandwidth amplitude", style={'fontSize': '11px', 'color': '#888',
-                                                      'marginTop': '12px', 'marginBottom': '4px',
-                                                      'display': 'block'}),
+                html.Label("Bandwidth amplitude", style={'fontSize': '11px', 'color': '#888', 'marginTop': '12px', 'marginBottom': '4px', 'display': 'block'}),
                 dcc.Input(
                     id='mode2-offset-input',
                     type='number', step='any',
                     value=1,
+                    debounce=True,
+                    style={'width': '100%', 'boxSizing': 'border-box'},
+                ),
+                html.Label("Slider range (pm)", style={'fontSize': '11px', 'color': '#888','marginTop': '6px', 'marginBottom': '4px', 'display': 'block'}),
+                dcc.Input(
+                    id='slider-range-input',
+                    type='number', step='any', value=SLIDER_RANGE * 1000,
                     debounce=True,
                     style={'width': '100%', 'boxSizing': 'border-box'},
                 ),
@@ -369,26 +381,35 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
                 ),
             ], style={'marginTop': '10px', 'width': '160px'}),
         ]),
-        html.Div([
-            html.Button('Save raw data...', id='save-raw-btn', n_clicks=0,
-                        style={'width': '160px', 'fontSize': '16px',
-                               'padding': '8px 10px'}),
-            html.Div(id='save-raw-info',
-                     style={'fontSize': '12px', 'color': '#888', 'marginTop': '4px'}),
-            html.Button('Save peak info...', id='save-peak-btn', n_clicks=0,
-                        style={'width': '160px', 'fontSize': '16px',
-                               'padding': '8px 10px', 'marginTop': '8px'}),
-            html.Div(id='save-peak-info',
-                     style={'fontSize': '12px', 'color': '#888', 'marginTop': '4px'}),
-            # Repeat: close this plot window and auto-Run the next sweep with the same parameters. Also bound to the Enter key (see the clientside callback below).
-            html.Button('Repeat (Enter)', id='repeat-btn', n_clicks=0,
-                        style={'width': '160px', 'fontSize': '16px', 'fontWeight': 'bold', 'padding': '8px 10px', 'marginTop': '8px'}),
-            # Dummy sink for the keybind clientside callback; the keydown
-            # listener it installs is what actually clicks the button.
-            html.Div(id='repeat-keybind-dummy', style={'display': 'none'}),
-        ]),
     ], style={'padding': '20px 10px', 'display': 'flex', 'flexDirection': 'column',
               'gap': '20px', 'fontFamily': 'system-ui, sans-serif'})
+
+    # ------------------------------------------------------------------
+    # Horizontal menu bar (top of the window). The action buttons live
+    # here instead of the sidebar; their ids are unchanged so all the
+    # existing callbacks (and the Enter keybind) keep working.
+    # ------------------------------------------------------------------
+    NAV_BTN_STYLE = {
+        'fontSize': '14px', 'padding': '3px 14px', 'border': 'none',
+        'background': 'transparent', 'color': '#fff', 'cursor': 'pointer',
+        'fontFamily': 'system-ui, sans-serif',
+    }
+    NAV_INFO_STYLE = {'fontSize': '11px', 'color': '#cfe0ff',
+                      'alignSelf': 'center', 'marginRight': '8px'}
+    top_navbar = html.Nav([
+        html.Button('Save raw data...', id='save-raw-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        html.Div(id='save-raw-info', style=NAV_INFO_STYLE),
+        html.Button('Save peak info... (p)', id='save-peak-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        html.Div(id='save-peak-info', style=NAV_INFO_STYLE),
+        html.Button('Smooth data...', id='apply-filter-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        # Repeat: close this plot window and auto-Run the next sweep with the same parameters. Also bound to the Enter key (see the clientside callback below).
+        html.Button('Repeat (Enter)', id='repeat-btn', n_clicks=0,
+                    style={**NAV_BTN_STYLE, 'fontWeight': 'bold', 'marginLeft': 'auto'}),
+        # Dummy sink for the keybind clientside callback; the keydown
+        # listener it installs is what actually clicks the button.
+        html.Div(id='repeat-keybind-dummy', style={'display': 'none'}),
+    ], style={'display': 'flex', 'alignItems': 'center', 'gap': '4px',
+              'padding': '3px 16px', 'backgroundColor': '#2c3e50'})
 
     # Shared widths for the first five columns so the peak table and the
     # custom table line up. The two tables use different ids for cols 4-5
@@ -482,7 +503,60 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
                   'boxShadow': '0 4px 20px rgba(0,0,0,0.25)'}),
     )
 
+    # ------------------------------------------------------------------
+    # "Apply filter" modal — pick a smoothing filter and its parameters,
+    # then draw the filtered channel-1 signal as the "Smoothed" trace.
+    # Each filter's parameter controls live in their own block; the dropdown
+    # toggles which block is visible, so new filters can be added by dropping
+    # in another block + a branch in `apply_filter`.
+    # ------------------------------------------------------------------
+    LABEL_STYLE = {'fontWeight': 'bold', 'display': 'block', 'marginBottom': '4px'}
+    PARAM_LABEL_STYLE = {'fontSize': '13px', 'display': 'block', 'marginBottom': '4px'}
+    filter_modal = html.Div(
+        id='filter-modal',
+        style=MODAL_HIDDEN,
+        children=html.Div([
+            html.Label('Select a filter', style=LABEL_STYLE),
+            dcc.Dropdown(
+                id='filter-select',
+                options=[{'label': name, 'value': val}
+                         for val, name in FILTER_LABELS.items()],
+                value=next(iter(FILTER_LABELS)),
+                clearable=False, searchable=False,
+                # Tall enough for every option so the menu never inner-scrolls
+                # (default maxHeight is 200px); optionHeight default is 35px.
+                optionHeight=35,
+                maxHeight=300,
+                style={'marginBottom': '12px'},
+            ),
+            html.Label('Parameters', style=LABEL_STYLE),
+            # Two generic parameter inputs; their labels/visibility are set per
+            # filter from FILTER_PARAMS by the `update_filter_params` callback.
+            # parameter1 maps to the first param, parameter2 to the second.
+            html.Label(id='param1-label', style=PARAM_LABEL_STYLE),
+            dcc.Input(id='param1-input', type='number', step=1, value=21, debounce=False,
+                      style={'width': '100%', 'boxSizing': 'border-box', 'marginBottom': '8px'}),
+            html.Div(id='param2-row', children=[
+                html.Label(id='param2-label', style=PARAM_LABEL_STYLE),
+                dcc.Input(id='param2-input', type='number', step=1, value=3, debounce=False,
+                          style={'width': '100%', 'boxSizing': 'border-box', 'marginBottom': '8px'}),
+            ]),
+            html.Div(id='filter-modal-error',
+                     style={'color': '#C0392B', 'fontSize': '12px',
+                            'minHeight': '16px', 'marginBottom': '8px'}),
+            html.Div([
+                html.Button('Cancel', id='filter-cancel', n_clicks=0),
+                html.Button('Apply', id='filter-apply-confirm', n_clicks=0,
+                            style={'marginLeft': '8px'}),
+            ], style={'textAlign': 'right'}),
+        ], style={'backgroundColor': 'white', 'padding': '20px 24px',
+                  'borderRadius': '8px', 'width': '320px', 'minHeight': '350px',
+                  'fontFamily': 'system-ui, sans-serif',
+                  'boxShadow': '0 4px 20px rgba(0,0,0,0.25)'}),
+    )
+
     app.layout = html.Div([
+        top_navbar,
         html.Div([
             html.Div([
                 dcc.Graph(id='spectrum', figure=initial_fig, config={'scrollZoom':True}),
@@ -523,6 +597,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
         dcc.Store(id='mode2-anchor-store', data=None),
         dcc.Store(id='mode2-info-store', data=None),
         peak_modal,
+        filter_modal,
     ])
 
     # ------------------------------------------------------------------
@@ -594,6 +669,32 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
         """,
         Output('repeat-btn', 'title'),
         Input('repeat-btn', 'n_clicks'),
+    )
+
+    # 'p' opens "Save peak info..." — same focus guard as Enter (skipped while
+    # typing in an input/textarea/select or an open dropdown), and ignored when
+    # a modifier is held so e.g. Cmd/Ctrl+P (print) still works.
+    app.clientside_callback(
+        """
+        function(n) {
+            if (!window._peakKeyBound) {
+                window._peakKeyBound = true;
+                document.addEventListener('keydown', function(e) {
+                    if (e.key !== 'p' && e.key !== 'P') return;
+                    if (e.metaKey || e.ctrlKey || e.altKey) return;
+                    var t = e.target;
+                    var tag = t && t.tagName ? t.tagName.toUpperCase() : '';
+                    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+                    if (t && t.closest && t.closest('.Select')) return;  // dcc.Dropdown
+                    var btn = document.getElementById('save-peak-btn');
+                    if (btn) btn.click();
+                });
+            }
+            return '';
+        }
+        """,
+        Output('save-peak-btn', 'title'),
+        Input('save-peak-btn', 'n_clicks'),
     )
 
     @app.callback(
@@ -670,6 +771,83 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
         _last_peak_label  = label
         _last_temperature = temperature
         return MODAL_HIDDEN, "Peak data saved.", ""
+
+    # ------------------------------------------------------------------
+    # Apply-filter modal: open / cancel / apply
+    # ------------------------------------------------------------------
+    @app.callback(
+        Output('filter-modal', 'style'),
+        Input('apply-filter-btn', 'n_clicks'),
+        prevent_initial_call=True,
+    )
+    def open_filter_modal(n_clicks):
+        return MODAL_SHOWN
+
+    # Relabel the two generic parameter inputs (and their defaults) for the
+    # selected filter, hiding the second input for single-parameter filters.
+    @app.callback(
+        Output('param1-label', 'children'),
+        Output('param1-input', 'value'),
+        Output('param2-label', 'children'),
+        Output('param2-input', 'value'),
+        Output('param2-row', 'style'),
+        Input('filter-select', 'value'),
+    )
+    def update_filter_params(filt):
+        specs = FILTER_PARAMS.get(filt, [])
+        if not specs:
+            return (dash.no_update,) * 5
+        label1, default1 = specs[0]
+        if len(specs) > 1:
+            label2, default2 = specs[1]
+            return label1, default1, label2, default2, {}
+        return label1, default1, dash.no_update, dash.no_update, {'display': 'none'}
+
+    @app.callback(
+        Output('filter-modal', 'style', allow_duplicate=True),
+        Output('spectrum', 'figure', allow_duplicate=True),
+        Output('filter-modal-error', 'children'),
+        Input('filter-cancel', 'n_clicks'),
+        Input('filter-apply-confirm', 'n_clicks'),
+        State('filter-select', 'value'),
+        State('param1-input', 'value'),
+        State('param2-input', 'value'),
+        State('max-display-input', 'value'),
+        State('spectrum', 'figure'),
+        prevent_initial_call=True,
+    )
+    def close_or_apply_filter(cancel, confirm, filt, parameter1, parameter2,
+                              max_display, figure):
+        triggered = callback_context.triggered[0]['prop_id']
+        if 'filter-cancel' in triggered:
+            return MODAL_HIDDEN, dash.no_update, ""
+
+        try:
+            _smooth['y'] = apply_filter(filt, dbm, parameter1, parameter2)
+        except FilterError as e:
+            return dash.no_update, dash.no_update, str(e)
+
+        # Downsample the new line over the currently visible x-range and show it.
+        xaxis = (figure or {}).get('layout', {}).get('xaxis', {})
+        rng = None if xaxis.get('autorange') else xaxis.get('range')
+        if rng:
+            i0 = max(0, int(np.searchsorted(wl, rng[0])) - 1)
+            i1 = min(len(wl), int(np.searchsorted(wl, rng[1])) + 1)
+        else:
+            i0, i1 = 0, len(wl)
+        cap = MAX_DISPLAY // 1000 if max_display in (None, '') else int(max_display)
+        cap *= 1000
+        if cap <= 0:
+            w_d, y_d = wl[i0:i1], _smooth['y'][i0:i1]
+        else:
+            w_d, y_d = lttb(wl[i0:i1], _smooth['y'][i0:i1], cap)
+
+        patched = Patch()
+        patched['data'][smooth_idx]['x'] = w_d
+        patched['data'][smooth_idx]['y'] = y_d
+        patched['data'][smooth_idx]['name'] = FILTER_LABELS.get(filt, 'Smoothed')
+        patched['data'][smooth_idx]['visible'] = True
+        return MODAL_HIDDEN, patched, ""
 
     @app.callback(
         Output('markers-store', 'data'),
@@ -858,6 +1036,9 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
         max_display = MAX_DISPLAY // 1000 if max_display in (None, '') else int(max_display)
         max_display *= 1000
         curves = main_traces + ref_traces + overlay_traces
+        # Include the filtered line once it has been applied.
+        if _smooth['y'] is not None:
+            curves = curves + [(smooth_idx, _smooth['y'])]
 
         if x0 is None or x1 is None:
             i0, i1 = 0, len(wl)
@@ -885,11 +1066,28 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     def resample_on_zoom(relayout, max_display):
         if not relayout:
             return dash.no_update
+
+        # --- restore the inverted y-axis on Reset axes / autoscale -------
+        # autorange='reversed' only holds while the axis is auto-ranging.
+        # Right-click pan drops the reversal (and uirevision locks the
+        # un-inverted view in), but we leave that alone — clicking the
+        # modebar's "Reset axes"/"Autoscale" button (which emits
+        # yaxis.autorange=True) is what puts the inversion back.
+        y_fix = 'reversed' if relayout.get('yaxis.autorange') else None
+
+        # --- x resample over the visible window --------------------------
+        patched = dash.no_update
         if relayout.get('xaxis.autorange') or relayout.get('autosize'):
-            return _resample_curves(max_display)
-        if 'xaxis.range[0]' not in relayout:
-            return dash.no_update
-        return _resample_curves(max_display, relayout['xaxis.range[0]'], relayout['xaxis.range[1]'])
+            patched = _resample_curves(max_display)
+        elif 'xaxis.range[0]' in relayout:
+            patched = _resample_curves(max_display, relayout['xaxis.range[0]'], relayout['xaxis.range[1]'])
+
+        if y_fix is not None:
+            if patched is dash.no_update:
+                patched = Patch()
+            patched['layout']['yaxis']['autorange'] = y_fix
+
+        return patched
 
     @app.callback(
         Output('spectrum', 'figure', allow_duplicate=True),
