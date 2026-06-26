@@ -87,7 +87,16 @@ Following fields are saved in the CSV file.
 - For subsequent measurements, the reference and the new measurement spectra will be shown together in the result window. Both are unmodified.
 - Difference between the new measurement and the reference is calculated element-by-element. The minimum is taken as the insertion loss.
 
-### Multi input channels
+### Multiple input channels
 
 - Users can select input channels by selecting checkboxes up to 4. At least one must be selected.
-- Peak detection is performed only for a single channel with the least channel number.
+- Peak analysis is performed only for a single channel with the least channel number.
+
+### Pass/Fail Criteria
+
+- Users can enter a range (min, max) for peak wavelength, depth, and width. It is saved together with the preset.
+- All fields are 0 by default. If nothing is set, the result is not examined, and no message is shown.
+- If a wavelength range is not set but either the depth or width range is set, the test always fails.
+- If multiple peaks fall within the wavelength range, the peak with the deepest depth is chosen for examination.
+- If a depth range is not set, it is skipped. The same applies to the width.
+- If the wavelength range finds a peak, the row is highlighted in blue in the peak table. It is also automatically selected in the peak list in "Save peak info...".

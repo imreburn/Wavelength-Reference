@@ -32,7 +32,7 @@ def make_analysis(script):
     )
 
 
-a_sweep = make_analysis("main_sweep.py")
+a_sweep = make_analysis("main.py")
 a_plot = make_analysis("plot_csv.py")
 
 pyz_sweep = PYZ(a_sweep.pure)

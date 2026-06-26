@@ -11,20 +11,22 @@ import dpi_awareness  # noqa: F401
 
 log = logging.getLogger(__name__)
 
+# from inst_helper import prep_inst, check_inst
 from structs import Params
-from gui_input_common import (
+from config_helper import (
     FIELD_LABELS, DEFAULTS, SWEEP_SPEED_OPTIONS, PADDING,
     EXTRA_LABELS, EXTRA_DEFAULTS, PM_RANGE_LABEL, DYN_SCAN_LABEL, DECREMENT_LABEL,
     CHANNEL_LABEL, CHANNEL_OPTIONS, CHANNEL_DEFAULT, channels_to_str, parse_channels,
-    load_presets, save_preset, delete_preset, make_extra_widgets, validate_inputs, validate_extras, validate_dynamic_range, validation_error,
+    PASSFAIL_LABELS, PASSFAIL_KEYS, PASSFAIL_DEFAULT, PASSFAIL_COLUMNS, passfail_col,
+    load_presets, save_preset, delete_preset, make_extra_widgets, validate_inputs, validate_extras, validate_dynamic_range, validate_passfail, validation_error,
 )
 
-from prep_instruments import prep_inst, check_inst
+
 
 _last = {}  # persists raw field values within one execution
 
 # Fixed on-screen position for the window at first launch (top-left x, y).
-WINDOW_POS = (50, 10)
+WINDOW_POS = (50, 0)
 
 # Persists across get_inputs() calls (the window is recreated each loop):
 #   has_run   — at least one Run has happened this session
@@ -56,6 +58,8 @@ def get_inputs(pm=None, laser=None, auto_run=False):
         field_state = "disabled" if locked else "normal"
         preset_menu.config(state=field_state)
         for w in entry_widgets:
+            w.config(state=field_state)
+        for w in passfail_widgets:
             w.config(state=field_state)
         for cb in channel_checks:
             cb.config(state=field_state)
@@ -99,6 +103,12 @@ def get_inputs(pm=None, laser=None, auto_run=False):
             validation_error("at least one channel must be selected.", result_label, num_data, avg_time, saved, run_btn)
             return
 
+        pf_raw = {label: (mn.get(), mx.get()) for label, (mn, mx) in passfail_entries.items()}
+        pf_values, error = validate_passfail(pf_raw)
+        if error:
+            validation_error(error, result_label, num_data, avg_time, saved, run_btn)
+            return
+
         ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         ds = datetime.now().strftime("%Y-%m-%d")
 
@@ -115,9 +125,15 @@ def get_inputs(pm=None, laser=None, auto_run=False):
         params.decrement  = decrement
         params.channel    = channels
 
+        for label, (lo_key, hi_key) in PASSFAIL_KEYS.items():
+            lo, hi = pf_values[label]
+            setattr(params, lo_key, lo)
+            setattr(params, hi_key, hi)
+
         params.padding    = PADDING
         params.time       = ts
         params.date       = ds
+        params.name       = "unknown" if preset_var.get() == "none" else preset_var.get()
 
         # If step size is adjusted, change the field color
         step_adjusted = ""
@@ -168,6 +184,8 @@ def get_inputs(pm=None, laser=None, auto_run=False):
             vals = dict(zip(FIELD_LABELS, DEFAULTS))
             vals.update(EXTRA_DEFAULTS)
             vals[CHANNEL_LABEL] = CHANNEL_DEFAULT
+            for col in PASSFAIL_COLUMNS:
+                vals[col] = PASSFAIL_DEFAULT
             num_data.set("0")
             avg_time.set("0")
         elif name in presets:
@@ -185,6 +203,10 @@ def get_inputs(pm=None, laser=None, auto_run=False):
         preset_channels = parse_channels(vals[CHANNEL_LABEL])
         for ch in CHANNEL_OPTIONS:
             channel_vars[ch].set(1 if ch in preset_channels else 0)
+        for label, (mn, mx) in passfail_entries.items():
+            for entry, bound in ((mn, "min"), (mx, "max")):
+                entry.delete(0, tk.END)
+                entry.insert(0, vals[passfail_col(label, bound)])
         on_entry_change()
 
     def on_run():
@@ -194,6 +216,7 @@ def get_inputs(pm=None, laser=None, auto_run=False):
         _last["preset"] = preset_var.get()
         _last["extras"] = {label: extra_vars[label].get() for label in EXTRA_LABELS}
         _last["channels"] = channels_to_str(ch for ch in CHANNEL_OPTIONS if channel_vars[ch].get())
+        _last["passfail"] = {label: (mn.get(), mx.get()) for label, (mn, mx) in passfail_entries.items()}
 
         ran["ok"] = True
         _state["has_run"] = True
@@ -265,14 +288,14 @@ def get_inputs(pm=None, laser=None, auto_run=False):
             for i in range(4):
                 range_vars[i].set(f"{int(float(p_ranges[i]))} dBm")
                 p_w = float(powers[i])
-                watt_vars[i].set(f"{p_w:.4e} W")
+                watt_vars[i].set(f"{p_w*1e6:.3e} \u03BCW")
                 # dBm = 10*log10(P / 1 mW); guard non-positive readings, which
                 # the meter can report at/below its noise floor.
                 if p_w > 0:
                     power_vars[i].set(f"{10 * math.log10(p_w * 1e3):.3f} dBm")
                 else:
                     power_vars[i].set("—")
-            job["id"] = top.after(100, refresh)
+            job["id"] = top.after(50, refresh)
 
         def on_top_close():
             if job["id"] is not None:
@@ -295,6 +318,9 @@ def get_inputs(pm=None, laser=None, auto_run=False):
         for label in EXTRA_LABELS:
             preset_vals[label] = extra_vars[label].get()
         preset_vals[CHANNEL_LABEL] = channels_to_str(ch for ch in CHANNEL_OPTIONS if channel_vars[ch].get())
+        for label, (mn, mx) in passfail_entries.items():
+            preset_vals[passfail_col(label, "min")] = mn.get()
+            preset_vals[passfail_col(label, "max")] = mx.get()
 
         existing = load_presets()
         names = list(existing.keys())
@@ -356,6 +382,7 @@ def get_inputs(pm=None, laser=None, auto_run=False):
                     msg.config(text=error)
                     return
                 remove_from_main_menu(name)
+                presets.pop(name, None)   # keep the in-memory copy in sync with disk
                 top.destroy()
                 result_label.config(text=f"Preset '{name}' deleted.", fg="black")
                 return
@@ -375,6 +402,9 @@ def get_inputs(pm=None, laser=None, auto_run=False):
             if error:
                 msg.config(text=error)
                 return
+
+            # Keep the in-memory copy in sync so it can be loaded without a rebuild.
+            presets[name] = dict(preset_vals)
 
             # Surface a freshly added name in the main preset dropdown too.
             if name not in names:
@@ -435,6 +465,8 @@ def get_inputs(pm=None, laser=None, auto_run=False):
     HEADER3_ROW  = RUNBTN_ROW + 1
     REFBTN_ROW   = HEADER3_ROW + 2
     RESULT_ROW   = REFBTN_ROW + 1
+    # Pass/Fail Conditions sit in their own sub-frame in column 2 (to the right
+    # of the Parameters section), so they don't consume rows in columns 0–1.
 
     # ---- Set Parameters --------------------------------------------------
     section_header(frame, "Parameters", 0)
@@ -493,6 +525,32 @@ def get_inputs(pm=None, laser=None, auto_run=False):
 
     tk.Label(frame, text="Averaging Time (μs)", anchor="e").grid(row=AVGTIME_ROW, column=0, sticky="e", pady=4, padx=(0, 8))
     tk.Label(frame, textvariable=avg_time, anchor="w").grid(row=AVGTIME_ROW, column=1, sticky="w", pady=4)
+
+    # ---- Pass/Fail Conditions (right column) ----------------------------
+    # A self-contained sub-frame placed to the right of the Parameters section.
+    # Each criterion has a min and max float entry placed side by side; values
+    # are validated and saved (and stored in presets) alongside the parameters.
+    pf_container = tk.Frame(frame)
+    pf_container.grid(row=0, column=2, rowspan=AVGTIME_ROW + 1, sticky="n", padx=(40, 0))
+    section_header(pf_container, "Pass/Fail Conditions (Optional)", 0)
+    init_passfail = _last.get("passfail", {})
+    passfail_entries = {}   # label -> (min_entry, max_entry)
+    passfail_widgets = []   # flat list for lock/unlock
+    for j, label in enumerate(PASSFAIL_LABELS):
+        tk.Label(pf_container, text=label, anchor="e").grid(row=j + 2, column=0, pady=4, padx=(0, 8), sticky="e")
+        pf_frame = tk.Frame(pf_container)
+        pf_frame.grid(row=j + 2, column=1, pady=4, sticky="w")
+        lo_init, hi_init = init_passfail.get(label, (PASSFAIL_DEFAULT, PASSFAIL_DEFAULT))
+        row_entries = []
+        for bound_label, bound_init, pad in (("min", lo_init, (2, 12)), ("max", hi_init, (2, 0))):
+            tk.Label(pf_frame, text=bound_label).pack(side="left")
+            e = tk.Entry(pf_frame, width=8)
+            e.insert(0, bound_init)
+            e.pack(side="left", padx=pad)
+            e.bind("<Key>", on_entry_change)
+            row_entries.append(e)
+            passfail_widgets.append(e)
+        passfail_entries[label] = tuple(row_entries)
 
     save_frame = tk.Frame(frame)
     save_frame.grid(row=SAVEBTN_ROW, column=0, columnspan=2, pady=10)

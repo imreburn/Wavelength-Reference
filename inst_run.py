@@ -5,7 +5,7 @@ import numpy as np
 # import pandas as pd
 import logging
 
-from prep_instruments import prep_inst, check_inst
+from inst_helper import prep_inst, check_inst
 from structs import Params
 
 log = logging.getLogger(__name__)

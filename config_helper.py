@@ -27,6 +27,26 @@ CHANNEL_LABEL   = "Input Channel"
 CHANNEL_OPTIONS = (1, 2, 3, 4)
 CHANNEL_DEFAULT = "1"  # space-separated channel list, as stored in a preset
 
+# Pass/Fail criteria: each label has a min and a max float field, defaulting to 0;
+# negative values are rejected. Each label maps to its (min, max) Params attributes.
+PASSFAIL_LABELS  = ["Peak Wavelength (nm)", "Peak Depth", "Peak Width"]
+PASSFAIL_KEYS    = {
+    "Peak Wavelength (nm)": ("wl_min", "wl_max"),
+    "Peak Depth":           ("depth_min", "depth_max"),
+    "Peak Width":           ("width_min", "width_max"),
+}
+PASSFAIL_BOUNDS  = ("min", "max")
+PASSFAIL_DEFAULT = "0"
+
+
+def passfail_col(label, bound):
+    """CSV column name for a Pass/Fail criterion's min or max field."""
+    return f"{label} {bound}"
+
+
+# Flat list of Pass/Fail preset columns, in (label, bound) order.
+PASSFAIL_COLUMNS = [passfail_col(label, b) for label in PASSFAIL_LABELS for b in PASSFAIL_BOUNDS]
+
 
 def channels_to_str(channels):
     """Serialize a channel tuple/list to the space-separated form stored in presets."""
@@ -74,6 +94,9 @@ def load_presets():
                     vals[label] = cell if cell else EXTRA_DEFAULTS[label]
                 cell = (row.get(CHANNEL_LABEL) or "").strip()
                 vals[CHANNEL_LABEL] = cell if cell else CHANNEL_DEFAULT
+                for col in PASSFAIL_COLUMNS:
+                    cell = (row.get(col) or "").strip()
+                    vals[col] = cell if cell else PASSFAIL_DEFAULT
                 presets[name] = vals
         return presets
     except Exception:
@@ -87,9 +110,10 @@ def save_preset(name, vals):
     Existing presets are preserved and a matching name is overwritten in place;
     a new name is appended. Returns None on success or an error message string.
     """
-    fieldnames = ["Name"] + FIELD_LABELS + EXTRA_LABELS + [CHANNEL_LABEL]
+    columns = FIELD_LABELS + EXTRA_LABELS + [CHANNEL_LABEL] + PASSFAIL_COLUMNS
+    fieldnames = ["Name"] + columns
     presets = load_presets()
-    presets[name] = {label: vals.get(label, "") for label in FIELD_LABELS + EXTRA_LABELS + [CHANNEL_LABEL]}
+    presets[name] = {col: vals.get(col, "") for col in columns}
     try:
         with open(PRESET_CSV, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -107,7 +131,7 @@ def delete_preset(name):
     if name not in presets:
         return f"Preset '{name}' not found."
     del presets[name]
-    fieldnames = ["Name"] + FIELD_LABELS + EXTRA_LABELS + [CHANNEL_LABEL]
+    fieldnames = ["Name"] + FIELD_LABELS + EXTRA_LABELS + [CHANNEL_LABEL] + PASSFAIL_COLUMNS
     try:
         with open(PRESET_CSV, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -218,6 +242,27 @@ def validate_extras(extra_strs):
     if extra_strs[DYN_SCAN_LABEL] in ("2", "3") and extra_strs[DECREMENT_LABEL] not in DECREMENT_OPTIONS:
         return f"{DECREMENT_LABEL} must be selected from the dropdown list."
     return None
+
+
+def validate_passfail(raw):
+    """Validate the Pass/Fail Criteria fields.
+
+    `raw`: dict label -> (min_str, max_str). Returns (values, None) on success or
+    (None, error_msg) on failure, where `values` is dict label -> (min_float, max_float).
+    Every field must be a number, none may be negative, and min must not exceed max.
+    """
+    values = {}
+    for label, (lo_s, hi_s) in raw.items():
+        try:
+            lo, hi = float(lo_s), float(hi_s)
+        except ValueError:
+            return None, "all Pass/Fail Criteria fields must be numbers."
+        if lo < 0 or hi < 0:
+            return None, "Pass/Fail Criteria values must not be negative."
+        if lo > hi:
+            return None, f"{label}: min must not exceed max."
+        values[label] = (lo, hi)
+    return values, None
 
 
 def validate_dynamic_range(pm_range, dyn_scans, decrement):

@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Users can optionally input pass/fail criteria for a test. The result is displayed in the figure window.
+
+### Changed
+
+- "Read Power..." reads the power meter at a faster rate (10 Hz -> 20 Hz).
+- The unit of the absolute power is changed (W -> uW)
+
+### Fixed
+
+- Fixed a bug that a preset cannot be loaded if it is newly created by "Manage Presets..." and the user tries to load it after clicking "Change". Now it can be loaded right after the save.
+
 ## [v1.1.4] - 2026-06-23
 
 ### Added

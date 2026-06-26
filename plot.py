@@ -14,9 +14,9 @@ import logging
 log = logging.getLogger(__name__)
 
 from structs import PeakInfo, Params
-from analyze_data import peak_detection, find_bandwidth
+from analyze_data import peak_detection, find_bandwidth, peak_exam
 from save_csv import save_csv_raw, save_csv_peak_row, COL_X, COL_CH, COL_REF, RAW_DIR
-from helper_plotly import lttb, lttb_multi
+from plot_helper import lttb, lttb_multi
 from datapath import data_path
 from filters import FILTER_LABELS, FILTER_PARAMS, apply_filter, FilterError
 
@@ -170,6 +170,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     )
     
     pk = peak_detection(wl, dbm)
+    exam_out, exam_msg, exam_idx = peak_exam(pk, params)
     if pk is not None:
 
         # data[3..9] — peak annotation traces (shifted +1 due to mode-2 trace)
@@ -200,6 +201,9 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
         peak_df = pd.DataFrame(peak_dict)
         peak_df.insert(0, "Peak", [i+1 for i in range(len(peak_df))])
         peak_df.insert(0, "Channel", [channels[0] for _ in range(len(peak_df))])
+        peak_df["Note"] = ""
+        peak_df.loc[peak_df["Depth_max"].idxmax(), "Note"] += "(max depth)"
+
 
     # ------------------------------------------------------------------
     # Remaining channels (channel 1 is data[0] above). Appended AFTER the
@@ -442,9 +446,21 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     if pk is not None:
         # Put the highlighted peak (max Depth_max, see line ~329) at the top.
         max_peak = int(peak_df.loc[peak_df['Depth_max'].idxmax(), 'Peak'])
-        ordered_peaks = [max_peak] + [int(p) for p in peak_df['Peak'] if int(p) != max_peak]
-        peak_options = [{'label': f'Peak {p}' + (' (max depth)' if p == max_peak else ''),
-                         'value': f'peak:{p}'} for p in ordered_peaks]
+        chosen_peak = None
+        if exam_idx is not None:
+            chosen_peak = exam_idx + 1
+            ordered_peaks = [chosen_peak] + ([max_peak] if max_peak != chosen_peak else [] ) + [int(p) for p in peak_df['Peak'] if int(p) not in [chosen_peak, max_peak]]
+            peak_df.loc[peak_df["Peak"] == chosen_peak, "Note"] += "(criteria)"
+        else:
+            ordered_peaks = [max_peak] + [int(p) for p in peak_df['Peak'] if int(p) != max_peak]
+        
+        peak_options = [{'label': f'Peak {p}', 'value': f'peak:{p}'} for p in ordered_peaks]
+        for e in peak_options:
+            peak_num = [int(x) for x in e['label'].split() if x.isdigit()]
+            if chosen_peak is not None and peak_num[0] == chosen_peak:
+                    e['label'] += " (criteria) "
+            if peak_num[0] == max_peak:
+                e['label'] += " (max depth)"
     else:
         peak_options = []
     peak_options += [{'label': 'custom', 'value': 'custom'}]
@@ -567,27 +583,48 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
                   'boxShadow': '0 4px 20px rgba(0,0,0,0.25)'}),
     )
 
+    # Pass/Fail examination result shown between the spectrum graph and the
+    # peak data table. None -> nothing; "Pass" -> green; "Fail" -> red + msg.
+    if exam_out == "Pass":
+        exam_div = html.Div(
+            [html.Span("Pass, ", style={'fontWeight': 'bold'})]
+            + ([html.Span(f"{exam_msg}")] if exam_msg else []),
+            style={'color': 'green', 'fontSize': '20px', 'margin': '8px 0', 'fontFamily': 'system-ui, sans-serif'})
+    elif exam_out == "Fail":
+        exam_div = html.Div(
+            [html.Span("Fail, ", style={'fontWeight': 'bold'})]
+            + ([html.Span(f"{exam_msg}")] if exam_msg else []),
+            style={'color': 'red', 'fontSize': '20px', 'margin': '8px 0', 'fontFamily': 'system-ui, sans-serif'})
+    else:
+        exam_div = None
+
     app.layout = html.Div([
         top_navbar,
         html.Div([
             html.Div([
                 dcc.Graph(id='spectrum', figure=initial_fig, config={'scrollZoom':True}),
+                exam_div,
                 dash_table.DataTable(
                     data=peak_df.to_dict('records'),
                     # Display "Peak No." in the header while keeping the column id
                     # 'Peak' (which peak_df lookups and the width rules depend on).
-                    columns=[{'name': 'Peak No.' if c == 'Peak' else c, 'id': c}
-                             for c in peak_df.columns],
+                    columns=[{'name': 'Peak No.' if c == 'Peak' else c, 'id': c} for c in peak_df.columns],
                     style_cell={'fontFamily': '"Times New Roman", Times, serif', 'padding': '4px 8px', 'textAlign': 'center'},
                     style_cell_conditional=peak_col_widths,
                     style_as_list_view=True,
                     style_header={'fontWeight': 'bold', 'backgroundColor': '#f0f0f0'},
                     style_table={'marginBottom': '10px', 'width': 'fit-content'},
-                    style_data_conditional=[{
+                    style_data_conditional=([{
                         'if': {'filter_query': '{{Depth_max}} >= {}'.format(peak_df['Depth_max'].max())},
                         'backgroundColor': '#FFF3B0',
                         'fontWeight': 'bold',
-                    }] if pk is not None else [],
+                    }] + ([{
+                        # exam_idx starts at 0, Peak starts at 1. Listed after the
+                        # max-depth rule so it takes precedence on overlap.
+                        'if': {'filter_query': '{{Peak}} = {}'.format(exam_idx + 1)},
+                        'backgroundColor': '#ADD8E6',
+                        'fontWeight': 'bold',
+                    }] if exam_idx is not None else [])) if pk is not None else [],
                 ) if pk is not None else None,
                 dash_table.DataTable(
                     id='custom-table',

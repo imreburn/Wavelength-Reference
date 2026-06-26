@@ -1,8 +1,8 @@
-from prep_instruments import prep_inst, close_inst
-from gui_input_sweep import get_inputs
-from run_instruments import run_sweep
+from inst_helper import prep_inst, close_inst
+from config_window import get_inputs
+from inst_run import run_sweep
 from analyze_data import combine_scans
-from backend_plotly import display_plot
+from plot import display_plot
 from logger import setup_logging, fast_exit
 
 log = setup_logging("WavelengthSweep")

@@ -151,6 +151,51 @@ def find_bandwidth(wl, dbm, idx, y_offset, search_range):
     
     return left_nm, right_nm, width_pm
 
+
+def peak_exam(pk, params):
+    def in_between(x, crit):
+        return x >= crit[0] and x <= crit[1]
+    
+    crit_loc = (params.wl_min, params.wl_max)
+    crit_dep = (params.depth_min, params.depth_max)
+    crit_wid = (params.width_min, params.width_max)
+        
+    # No criteria is given
+    if sum(map(sum, [crit_loc, crit_dep, crit_wid])) == 0:
+        return None, None, None
+    
+    if pk is None:
+        return "Fail", "No peak detected", None
+    
+    peak_idx, peak_loc, peak_dep, peak_wid = 0, 0, 0, 0
+    peak_found = False
+    # If there are multiple peaks in the crit_loc range,
+    # the peak with the the deepest depth will be chosen.
+    for i in range(len(pk.peaks.wl)):
+        if in_between(pk.peaks.wl[i], crit_loc):
+            peak_found = True
+            if pk.peaks.max_depths[i] > peak_dep:
+                peak_idx = i
+                peak_loc = pk.peaks.wl[i]
+                peak_dep = pk.peaks.max_depths[i]
+                peak_wid = pk.max_fwhm.width[i]
+    
+    if not peak_found:
+        return "Fail", f"No peak found in {crit_loc}", None
+    
+    error_msg = []
+    if not in_between(peak_dep, crit_dep) and sum(crit_dep) != 0:
+        error_msg.append(f"Peak@{peak_loc:.3f}: depth({peak_dep:.5f}) not in {crit_dep}")
+        
+    if not in_between(peak_wid, crit_wid) and sum(crit_wid) != 0:
+        error_msg.append(f"Peak@{peak_loc:.3f}: width({peak_wid:.3f}) not in {crit_wid}")
+        
+    if error_msg != []:
+        return "Fail", ", ".join(error_msg), peak_idx
+    
+    return "Pass", f"Peak@{peak_loc:.3f} is in: location {crit_loc}, depth {crit_dep}, width {crit_wid}", peak_idx
+        
+
 if __name__ == "__main__":
     data = np.loadtxt("test_2026-05-11_14-44_converted.csv", skiprows=1, delimiter=',')
     print(peak_detection(data[:,0], data[:, 1]))
