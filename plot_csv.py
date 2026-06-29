@@ -3,10 +3,9 @@ import dpi_awareness  # noqa: F401  # set Windows DPI awareness before any Tk()
 import tkinter as tk
 from tkinter import filedialog
 import pandas as pd
-import numpy as np
 import json
 
-from backend_plotly import display_plot
+from plot import display_plot
 from structs import Params
 from save_csv import (COL_X, COL_CH, COL_REF)
 from logger import setup_logging, fast_exit

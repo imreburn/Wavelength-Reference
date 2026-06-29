@@ -289,7 +289,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
         showlegend=True,
         height=600,
         width=1250,
-        margin=dict(t=30, b=60),
+        margin=dict(t=30, b=40),
         uirevision='constant',
     )
 
@@ -496,12 +496,11 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
         style=MODAL_HIDDEN,
         children=html.Div([
             html.H4('Save peak info', style={'marginTop': 0}),
-            html.Label('Peak', style={'fontWeight': 'bold', 'display': 'block',
-                                      'marginBottom': '4px'}),
+            html.Label('Peak', style={'fontWeight': 'bold', 'display': 'block', 'marginBottom': '4px'}),
             dcc.Dropdown(id='peak-select', options=peak_options,
                          value=peak_options[0]['value'], clearable=False,
                          style={'marginBottom': '12px'}),
-            html.Label('Label', style={'fontWeight': 'bold', 'display': 'block',
+            html.Label('Label (SN)', style={'fontWeight': 'bold', 'display': 'block',
                                        'marginBottom': '4px'}),
             dcc.Input(id='peak-label', type='text', value=_last_peak_label, debounce=False,
                       style={'width': '100%', 'boxSizing': 'border-box',
@@ -813,7 +812,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
             file_path = result[0] if isinstance(result, (list, tuple)) else result
             
         loss=round(diff_s[0][gmin_idx],5) if params.reference and ref_s else None
-        save_csv_peak_row(label.strip(), wl_v, depth, fwhm, loss=loss, file_path=file_path, temperature=temperature)
+        save_csv_peak_row(label.strip(), wl_v, depth, fwhm, loss=loss, file_path=file_path, temperature=temperature, date=params.date)
         
         global _last_peak_file, _last_peak_label, _last_temperature
         _last_peak_file   = os.path.basename(file_path)

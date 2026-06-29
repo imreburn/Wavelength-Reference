@@ -1,9 +1,9 @@
 from datetime import datetime
 import math
-import time
 import tkinter as tk
 from tkinter import ttk
 import logging
+import decimal
 
 # Set Windows DPI awareness before the first Tk() window is created (import-time
 # side effect). Must come before any tkinter window in the process.
@@ -11,7 +11,7 @@ import dpi_awareness  # noqa: F401
 
 log = logging.getLogger(__name__)
 
-# from inst_helper import prep_inst, check_inst
+from inst_helper import prep_inst, check_inst
 from structs import Params
 from config_helper import (
     FIELD_LABELS, DEFAULTS, SWEEP_SPEED_OPTIONS, PADDING,
@@ -26,7 +26,7 @@ from config_helper import (
 _last = {}  # persists raw field values within one execution
 
 # Fixed on-screen position for the window at first launch (top-left x, y).
-WINDOW_POS = (50, 0)
+WINDOW_POS = (50, 10)
 
 # Persists across get_inputs() calls (the window is recreated each loop):
 #   has_run   — at least one Run has happened this session
@@ -228,6 +228,8 @@ def get_inputs(pm=None, laser=None, auto_run=False):
     def on_read_power():
         if not saved["ok"] or not pm or not laser:
             return
+        # Prevent opening multiple readout windows while one is already open.
+        read_pm_btn.config(state="disabled")
         # Opens a separate window for the power readout.
         top = tk.Toplevel(root)
         top.title("Power Meter Readout")
@@ -282,13 +284,22 @@ def get_inputs(pm=None, laser=None, auto_run=False):
 
         job = {"id": None}
 
+        def prettyprint(x, baseunit):
+            prefix = "yzafpnµm kMGTPEZY"
+            shift  = decimal.Decimal('1E24')
+            d      = (decimal.Decimal(str(x))*shift).normalize()
+            m, e   = d.to_eng_string().split('E')
+            m = str(round(float(m), 3))
+            return m + " " + prefix[int(e)//3] + baseunit
+
         def refresh():
             powers = pm.query(":FETCH:POW:ALL:CSV?").strip().split(',')
             p_ranges = [pm.query(f":SENSE{i}:POW:RANGE?") for i in range(1, 5)]
             for i in range(4):
                 range_vars[i].set(f"{int(float(p_ranges[i]))} dBm")
                 p_w = float(powers[i])
-                watt_vars[i].set(f"{p_w*1e6:.3e} \u03BCW")
+                # watt_vars[i].set(f"{p_w*1e6:.3e} \u03BCW")
+                watt_vars[i].set(prettyprint(p_w, 'W'))
                 # dBm = 10*log10(P / 1 mW); guard non-positive readings, which
                 # the meter can report at/below its noise floor.
                 if p_w > 0:
@@ -301,6 +312,7 @@ def get_inputs(pm=None, laser=None, auto_run=False):
             if job["id"] is not None:
                 top.after_cancel(job["id"])
             top.destroy()
+            read_pm_btn.config(state="normal")
 
         top.protocol("WM_DELETE_WINDOW", on_top_close)
 
@@ -618,10 +630,10 @@ def get_inputs(pm=None, laser=None, auto_run=False):
 
 
 if __name__ == "__main__":
-    # pm, laser = prep_inst()
+    pm, laser = prep_inst()
     
     while True:
-        params = get_inputs()
+        params = get_inputs(pm, laser)
         if not params:
             break
         print(params)

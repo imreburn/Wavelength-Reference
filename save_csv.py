@@ -51,7 +51,7 @@ def save_csv_raw(data, x, params:Params=None, ref=None, file_path=None):
     log.info(f"Saved raw data: {file_path}")
 
 
-def save_csv_peak_row(label, wl, depth, fwhm, file_path, temperature=None, loss=None):
+def save_csv_peak_row(label, wl, depth, fwhm, file_path, temperature=None, loss=None, date=None):
     """Append a single peak row (already-resolved values) to the CSV at
     file_path. Used by the interactive 'Save peak info' flow.
 
@@ -59,9 +59,9 @@ def save_csv_peak_row(label, wl, depth, fwhm, file_path, temperature=None, loss=
     written only when the target file does not yet exist.
     """
     peak_dict = {
-        "Date"           : [datetime.now().strftime("%Y-%m-%d")],
+        "Date"           : [date if date is not None else datetime.now().strftime("%Y-%m-%d")],
         "Wavelength (nm)": [round(wl, 6)],
-        "Label"          : [label],
+        "Label (SN)"     : [label],
         "I.L."           : [loss],
         "Depth"          : [round(depth, 5)],
         "Width (pm)"     : [round(fwhm, 4)],
@@ -73,15 +73,17 @@ def save_csv_peak_row(label, wl, depth, fwhm, file_path, temperature=None, loss=
     if parent:
         os.makedirs(parent, exist_ok=True)
 
-    WL_TOL_NM = 0.5  # same-label rows within this wavelength are treated as the same peak
+    WL_TOL_NM = 0.01  # same-label rows within this wavelength are treated as the same peak
 
     if os.path.exists(file_path):
         existing_df = pd.read_csv(file_path)
         # Replace an existing row only when it shares this label AND its wavelength
         # is close (within WL_TOL_NM). Same-label rows at a clearly different
         # wavelength are kept, so distinct peaks can coexist under one label.
-        same_label = existing_df["Label"].astype(str) == str(label)
+        same_label = existing_df["Label (SN)"].astype(str) == str(label)
         close_wl = (existing_df["Wavelength (nm)"] - round(wl, 6)).abs() <= WL_TOL_NM
+        if (close_wl & same_label).any():
+            log.info(f"One or more existing peak data will be overwritten by this peak: {peak_df["Wavelength (nm)"]}")
         existing_df = existing_df[~(same_label & close_wl)]
         peak_df = pd.concat([existing_df, peak_df], ignore_index=True)
         peak_df.to_csv(file_path, index=False)

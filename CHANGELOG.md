@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.1.5] - 2026-06-29
 
 ### Added
 
@@ -9,11 +9,12 @@
 ### Changed
 
 - "Read Power..." reads the power meter at a faster rate (10 Hz -> 20 Hz).
-- The unit of the absolute power is changed (W -> uW)
+- The unit of the absolute power is chosen automatically.
 
 ### Fixed
 
 - Fixed a bug that a preset cannot be loaded if it is newly created by "Manage Presets..." and the user tries to load it after clicking "Change". Now it can be loaded right after the save.
+- "Read Power..." button cannot be pushed while the power readout window is open.
 
 ## [v1.1.4] - 2026-06-23
 
