@@ -109,8 +109,8 @@ def get_inputs(pm=None, laser=None, auto_run=False):
             validation_error(error, result_label, num_data, avg_time, saved, run_btn)
             return
 
-        ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        ds = datetime.now().strftime("%Y-%m-%d")
+        ts = datetime.now().strftime("%m/%d/%Y_%H-%M-%S")
+        ds = datetime.now().strftime("%m/%d/%Y")
 
         params.wl_start   = values[0]
         params.wl_stop    = values[1]
@@ -260,13 +260,16 @@ def get_inputs(pm=None, laser=None, auto_run=False):
         tk.Label(info, text=f"{params.tls_dbm}", font=("TkDefaultFont", 10)).grid(
             row=1, column=1, sticky="w")
 
-        for col, text in enumerate(("Ch.", "Power Range (Auto)", "Power (dBm)", "Power (W)")):
+        for col, text in enumerate(("Ch.", "Power Range (Auto)", "Power (dBm)", "Power (W)", "Max power (W)")):
             tk.Label(top, text=text, anchor="e", font=("TkDefaultFont", 10, "bold")).grid(
                 row=1, column=col, padx=10, pady=(10, 4), sticky="e")
 
-        range_vars, power_vars, watt_vars = [], [], []
+        range_vars, power_vars, watt_vars, max_vars = [], [], [], []
+        # Track the peak power (in W) seen on each channel while the window is open.
+        max_watts = [float("-inf")] * 4
         for i in range(4):
-            rv, pv, wv = tk.StringVar(value="—"), tk.StringVar(value="—"), tk.StringVar(value="—")
+            rv, pv, wv, mv = (tk.StringVar(value="—"), tk.StringVar(value="—"),
+                              tk.StringVar(value="—"), tk.StringVar(value="—"))
             tk.Label(top, text=str(i + 1), font=("TkDefaultFont", 14)).grid(
                 row=i + 2, column=0, padx=10, pady=2)
             tk.Label(top, textvariable=rv, anchor="e", width=10,
@@ -278,9 +281,13 @@ def get_inputs(pm=None, laser=None, auto_run=False):
             tk.Label(top, textvariable=wv, anchor="e", width=14,
                      font=("TkDefaultFont", 14)).grid(
                 row=i + 2, column=3, padx=10, pady=2, sticky="e")
+            tk.Label(top, textvariable=mv, anchor="e", width=14,
+                     font=("TkDefaultFont", 14)).grid(
+                row=i + 2, column=4, padx=10, pady=2, sticky="e")
             range_vars.append(rv)
             power_vars.append(pv)
             watt_vars.append(wv)
+            max_vars.append(mv)
 
         job = {"id": None}
 
@@ -300,6 +307,9 @@ def get_inputs(pm=None, laser=None, auto_run=False):
                 p_w = float(powers[i])
                 # watt_vars[i].set(f"{p_w*1e6:.3e} \u03BCW")
                 watt_vars[i].set(prettyprint(p_w, 'W'))
+                if p_w > max_watts[i]:
+                    max_watts[i] = p_w
+                    max_vars[i].set(prettyprint(p_w, 'W'))
                 # dBm = 10*log10(P / 1 mW); guard non-positive readings, which
                 # the meter can report at/below its noise floor.
                 if p_w > 0:
@@ -317,9 +327,9 @@ def get_inputs(pm=None, laser=None, auto_run=False):
         top.protocol("WM_DELETE_WINDOW", on_top_close)
 
         tk.Button(top, text="Close", command=on_top_close, width=10).grid(
-            row=99, column=0, columnspan=4, pady=10)
+            row=99, column=0, columnspan=5, pady=10)
 
-        refresh()
+        top.after(2000, refresh)
 
     def on_save_preset():
         # Only reachable once parameters have passed Save's checks.

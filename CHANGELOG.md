@@ -1,5 +1,20 @@
 # Changelog
 
+## [v1.1.6] - 2026-06-30
+
+### Added
+
+- "Max Power (W)" column is added in the power readout window. It shows the maximum power recorded for each channel while the window is open.
+
+### Changed
+
+- Change the date format. (yyyy-mm-dd -> mm/dd/yyyy)
+- The default prominence threshold for finding peaks has changed. (75 % -> 50 %)
+
+### Fixed
+
+- Fixed a bug that when a label for a peak is entered with only numbers with leading zeros, they will be wiped out when reading the CSV file.
+
 ## [1.1.5] - 2026-06-29
 
 ### Added

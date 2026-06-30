@@ -5,7 +5,9 @@
 
 ---
 
-## Installation
+## Download & Install
+
+The latest version can be downloaded from **Releases** on the right side. It is compressed as a single `Sweeps-vx.x.x.zip` file. I would advise to download it to where it is not synced in a cloud. Instead, shortcuts can be created and placed in Desktop after extracting it (Please read the following instructions before extracting).
 
 After downloading the `.zip`, **unblock it before extracting**:
 
@@ -29,74 +31,26 @@ All apps (`WavelengthSweep.exe`, `PlotSweep.exe`) live in the same folder and sh
 
 ---
 
-### Analyzing measurement
+### Config Window
 
-**Detecting Peak(s)**
+- See [docs/config.md](docs/config.md) for more information.
 
-- Simple peak analysis (depth, FWHM) is included.
+### Figure Window
 
-**Plotting**
-
-- The default plotting backend is **Plotly** (`matplotlib` is dropped since the version 20260527).
+- See [docs/figure.md](docs/figure.md) for more information.
 
 ---
 
-### Saving Results to CSV
+### Data Location
 
-Users can save raw data and/or peak data to a CSV file.
-
-**Save Raw Data**
-
-- Parameters are saved in the first line.
-- Raw data includes wavelength (nm) and power (dBm) values.
-
-**Save Peak Analysis**
-
-Following fields are saved in the CSV file.
-
-- Date, Wavelength (nm), Label, I.L., Depth, Width (pm), Temperature
-- I.L. and Temperature can be left empty.
+- The path to the data folder that stores presets, logs and data is written at `datapath.txt`, which must be placed at the same path as executables (not shortcuts).
+- Data folder may be placed in a cloud-synced location to access data.
 
 ---
 
-### Run subsequent tests (until program is quit)
+### Run a test repeatedly (until program is closed)
 
 - Parameters for the last test are saved and fields are greyed.
 - To run another test with the same parameters, just click **Run or press Enter**.
 - To change parameters, click **Change**.
-
----
-
-### Load/Save/Delete Preset
-
-- The program attempts to read `preset.csv` on startup. This file must be located in the same directory as `.exe` files. Because a new build `.zip` do not include `preset.csv`, copy the file from previous location.
-- Once parameters are **saved** (in that, they passed checks), **Manage Presets...** button is activated. In the pop-up, users can replace an existing preset with the currently saved parameters, create a new preset with them, or delete an existing preset.
-
----
-
-### Read Power in real-time
-
-- Once parameters are **saved**, **Read Power...** becomes active. In the pop-up, the current powers for all four channels are measured and shown in two units(dBm and W), and updated every second.
-- Power range setting is automatically adjusted.
-- Parameters for source power and wavelength are referred from the saved parameters: **TLS Power (dBm), Stop Wavelength (nm)**, respectively.
-
-### Reference
-
-- Once a measurement is taken, it can be set a reference for subsequent measurements, by clicking **"Set Reference"**. To unset the reference, click **"Unset Reference"**.
-- Because the parameters must be same for both reference and subsequent measurements, clicking **"Change"** button is assumed that the user would change parameters. Thus it immediately invalidates the existing reference and user should take a new measurement.
-- For subsequent measurements, the reference and the new measurement spectra will be shown together in the result window. Both are unmodified.
-- Difference between the new measurement and the reference is calculated element-by-element. The minimum is taken as the insertion loss.
-
-### Multiple input channels
-
-- Users can select input channels by selecting checkboxes up to 4. At least one must be selected.
-- Peak analysis is performed only for a single channel with the least channel number.
-
-### Pass/Fail Criteria
-
-- Users can enter a range (min, max) for peak wavelength, depth, and width. It is saved together with the preset.
-- All fields are 0 by default. If nothing is set, the result is not examined, and no message is shown.
-- If a wavelength range is not set but either the depth or width range is set, the test always fails.
-- If multiple peaks fall within the wavelength range, the peak with the deepest depth is chosen for examination.
-- If a depth range is not set, it is skipped. The same applies to the width.
-- If the wavelength range finds a peak, the row is highlighted in blue in the peak table. It is also automatically selected in the peak list in "Save peak info...".
+- To do this even faster, users can click **Repeat or press Enter** in **the figure window**. Doing it closes the figure window, and click Run button in the config window automatically.

@@ -46,7 +46,7 @@ def peak_detection(x, y):
     # Find peaks
     # tunable parameters: prominence, distance, etc.
     # Assume a peak should be deeper than 3/4 of global max-min
-    simple_prominence = (np.max(y) - np.min(y))*(3/4)
+    simple_prominence = (np.max(y) - np.min(y)) * 0.5
     simple_distance = int(len(y)/4)
     peak_indices, peak_properties = find_peaks(y, prominence=simple_prominence, distance=simple_distance)
 
