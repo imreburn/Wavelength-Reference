@@ -101,6 +101,8 @@ def prep_inst():
     return pm, laser
 
 def close_inst(pm, laser):
+    check_inst(pm, laser)
+    laser.write(":SOURCE0:POW:STATE 0")
     pm.close()
     laser.close()
     rm.close()

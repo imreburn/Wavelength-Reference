@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- The range setting for the power meter cannot be lower than -70 dBm, but the program allowed this. Now the config window gives an error message.
+- Prevent an error when the power meter readout rarely gives a saturated value or fails to read.
+
 ## [v1.1.6] - 2026-06-30
 
 ### Added

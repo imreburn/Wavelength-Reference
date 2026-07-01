@@ -18,7 +18,7 @@ from config_helper import (
     EXTRA_LABELS, EXTRA_DEFAULTS, PM_RANGE_LABEL, DYN_SCAN_LABEL, DECREMENT_LABEL,
     CHANNEL_LABEL, CHANNEL_OPTIONS, CHANNEL_DEFAULT, channels_to_str, parse_channels,
     PASSFAIL_LABELS, PASSFAIL_KEYS, PASSFAIL_DEFAULT, PASSFAIL_COLUMNS, passfail_col,
-    load_presets, save_preset, delete_preset, make_extra_widgets, validate_inputs, validate_extras, validate_dynamic_range, validate_passfail, validation_error,
+    load_presets, save_preset, delete_preset, make_extra_widgets, validate_inputs, validate_extras, validate_passfail, validation_error,
 )
 
 
@@ -92,11 +92,6 @@ def get_inputs(pm=None, laser=None, auto_run=False):
         dyn_scans = int(extra_strs[DYN_SCAN_LABEL])
         # Decrement is unused (and may be unvalidated) when only one scan runs.
         decrement = int(extra_strs[DECREMENT_LABEL]) if dyn_scans in (2, 3) else int(EXTRA_DEFAULTS[DECREMENT_LABEL])
-
-        error = validate_dynamic_range(pm_range, dyn_scans, decrement)
-        if error:
-            validation_error(error, result_label, num_data, avg_time, saved, run_btn)
-            return
 
         channels = tuple(ch for ch in CHANNEL_OPTIONS if channel_vars[ch].get())
         if not channels:
@@ -304,7 +299,14 @@ def get_inputs(pm=None, laser=None, auto_run=False):
             p_ranges = [pm.query(f":SENSE{i}:POW:RANGE?") for i in range(1, 5)]
             for i in range(4):
                 range_vars[i].set(f"{int(float(p_ranges[i]))} dBm")
-                p_w = float(powers[i])
+                try:
+                    p_w = float(powers[i])
+                except (ValueError, IndexError):
+                    watt_vars[i].set("-")
+                    continue
+                if p_w > 0.01:
+                    watt_vars[i].set("overflown")
+                    continue
                 # watt_vars[i].set(f"{p_w*1e6:.3e} \u03BCW")
                 watt_vars[i].set(prettyprint(p_w, 'W'))
                 if p_w > max_watts[i]:
@@ -640,10 +642,11 @@ def get_inputs(pm=None, laser=None, auto_run=False):
 
 
 if __name__ == "__main__":
-    pm, laser = prep_inst()
+    # pm, laser = prep_inst()
     
     while True:
-        params = get_inputs(pm, laser)
+        params = get_inputs()
+        # params = get_inputs(pm, laser)
         if not params:
             break
         print(params)

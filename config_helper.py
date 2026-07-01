@@ -63,8 +63,6 @@ def parse_channels(s):
             continue
     return tuple(out)
 
-PM_FLOOR = -110  # powermeter sensitivity floor (dBm)
-
 PRESET_CSV = data_path("preset.csv", mkdir=False)
 
 PADDING = 0.010  # addtional padding in nm
@@ -241,6 +239,8 @@ def validate_extras(extra_strs):
             return f"{label} must be selected from the dropdown list."
     if extra_strs[DYN_SCAN_LABEL] in ("2", "3") and extra_strs[DECREMENT_LABEL] not in DECREMENT_OPTIONS:
         return f"{DECREMENT_LABEL} must be selected from the dropdown list."
+    if int(extra_strs[PM_RANGE_LABEL]) - (int(extra_strs[DYN_SCAN_LABEL]) - 1) * int(extra_strs[DECREMENT_LABEL]) < int(PM_RANGE_OPTIONS[-1]):
+        return f"The range cannot be set lower than {PM_RANGE_OPTIONS[-1]} dBm."
     return None
 
 
@@ -263,19 +263,6 @@ def validate_passfail(raw):
             return None, f"{label}: min must not exceed max."
         values[label] = (lo, hi)
     return values, None
-
-
-def validate_dynamic_range(pm_range, dyn_scans, decrement):
-    """Return (None) if the dynamic-range sweep stays in range, else an error message.
-
-    Each scan steps the powermeter range down by `decrement` dB, so the lowest range
-    reached is pm_range - (dyn_scans - 1) * decrement; it must not drop below PM_FLOOR.
-    """
-    lowest = pm_range - (dyn_scans - 1) * decrement
-    if lowest < PM_FLOOR:
-        return (f"Powermeter range reaches {lowest} dBm over {dyn_scans} scans; "
-                f"must stay >= {PM_FLOOR} dBm. Reduce scans or decrement.")
-    return None
 
 
 def validation_error(msg, result_label, num_data, avg_time, saved, run_btn):
