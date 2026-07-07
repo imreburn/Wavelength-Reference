@@ -307,6 +307,48 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None, title=
     _repeat = {'flag': False}
 
     app = dash.Dash(__name__)
+
+    # Block the right mouse button over the plot. Plotly has no config flag to
+    # disable right-drag panning, and that pan is what drops the y-axis
+    # autorange:'reversed' orientation (a regression that only showed up in the
+    # packaged build's bundled plotly.js). A capture-phase listener on the
+    # document intercepts button-2 mousedown / contextmenu before they reach
+    # Plotly's own drag handlers, so right-drag never starts. Injected via
+    # index_string (not an assets/ folder) so it survives PyInstaller freezing.
+    app.index_string = '''<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>{%title%}</title>
+        {%favicon%}
+        {%css%}
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+        <script>
+        (function () {
+            var onGraph = function (e) {
+                return e.target && e.target.closest && e.target.closest('#spectrum');
+            };
+            document.addEventListener('mousedown', function (e) {
+                if (e.button === 2 && onGraph(e)) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                }
+            }, true);
+            document.addEventListener('contextmenu', function (e) {
+                if (onGraph(e)) { e.preventDefault(); }
+            }, true);
+        })();
+        </script>
+    </body>
+</html>'''
+
     right_sidebar = html.Div([
         html.Div([
             html.Label("Max points(x1000)/plot", style={'fontWeight': 'bold', 'marginBottom': '4px', 'display': 'block'}),
@@ -1171,7 +1213,10 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None, title=
         # un-inverted view in), but we leave that alone — clicking the
         # modebar's "Reset axes"/"Autoscale" button (which emits
         # yaxis.autorange=True) is what puts the inversion back.
-        y_fix = 'reversed' if relayout.get('yaxis.autorange') else None
+        # Disabled: right-drag pan is now blocked at the DOM level (see the
+        # index_string script), so the y-axis can no longer be un-inverted and
+        # this reset-axes correction is unnecessary.
+        # y_fix = 'reversed' if relayout.get('yaxis.autorange') else None
 
         # --- x resample over the visible window --------------------------
         patched = dash.no_update
@@ -1180,10 +1225,10 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None, title=
         elif 'xaxis.range[0]' in relayout:
             patched = _resample_curves(max_display, relayout['xaxis.range[0]'], relayout['xaxis.range[1]'])
 
-        if y_fix is not None:
-            if patched is dash.no_update:
-                patched = Patch()
-            patched['layout']['yaxis']['autorange'] = y_fix
+        # if y_fix is not None:
+        #     if patched is dash.no_update:
+        #         patched = Patch()
+        #     patched['layout']['yaxis']['autorange'] = y_fix
 
         return patched
 
