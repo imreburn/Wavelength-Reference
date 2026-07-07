@@ -624,9 +624,9 @@ def get_inputs(pm=None, laser=None, auto_run=False):
     section_header(frame, "Instruments", HEADER2_ROW)
     inst_frame = tk.Frame(frame)
     inst_frame.grid(row=RUNBTN_ROW, column=0, columnspan=2, pady=10)
-    run_btn = tk.Button(inst_frame, text="Run", command=on_run, width=10, state="disabled")
+    run_btn = tk.Button(inst_frame, text="Run (Enter)", command=on_run, width=10, state="disabled")
     run_btn.pack(side="left", padx=5)
-    read_pm_btn = tk.Button(inst_frame, text="Read Power(p)...", command=on_read_power, state="disabled")
+    read_pm_btn = tk.Button(inst_frame, text="Read Power...(p)", command=on_read_power, state="disabled")
     read_pm_btn.pack(side="left", padx=5)
 
     # ---- Reference -------------------------------------------------------
@@ -648,7 +648,7 @@ def get_inputs(pm=None, laser=None, auto_run=False):
     root.bind("<Return>", lambda _e: on_run())
     root.bind("<KP_Enter>", lambda _e: on_run())
 
-    # 'p' triggers Read Power (matches the "(p)" hint on the button), but not
+    # 'p' triggers Read Power, but not
     # while typing into an entry field where 'p' is a literal character.
     def on_read_power_key(_e):
         if isinstance(root.focus_get(), tk.Entry):

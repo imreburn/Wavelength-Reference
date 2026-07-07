@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [v1.1.7] - 2026-07-07
 
 ### Added
 
@@ -16,6 +16,7 @@
 - The range setting for the power meter cannot be lower than -70 dBm, but the program allowed this. Now the config window gives an error message.
 - Prevent an error when the power meter readout rarely gives a saturated value or fails to read.
 - Fixed a bug ([#62](https://github.com/imreburn/Wavelength-Reference/issues/62))
+- Fixed a bug ([#23](https://github.com/imreburn/Wavelength-Reference/issues/23)) by disabling the mouse right button.
 
 ## [v1.1.6] - 2026-06-30
 
