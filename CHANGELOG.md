@@ -2,10 +2,20 @@
 
 ## [Unreleased]
 
+### Added
+
+- Keyboard shortcut (`p`) for "Read Power(p)..." button. ([#61](https://github.com/imreburn/Wavelength-Reference/issues/61))
+- "Save peak info" window shows the wavelength, depth and width of the selected peak and insertion loss.([#57](https://github.com/imreburn/Wavelength-Reference/issues/57))
+
+### Changed
+
+- The name of y-axis changes to "Power (dBm or dB)", and "(dBm)" or "(dB)" is appended to the legend of each spectrum.([#56](https://github.com/imreburn/Wavelength-Reference/issues/56))
+
 ### Fixed
 
 - The range setting for the power meter cannot be lower than -70 dBm, but the program allowed this. Now the config window gives an error message.
 - Prevent an error when the power meter readout rarely gives a saturated value or fails to read.
+- Fixed a bug ([#62](https://github.com/imreburn/Wavelength-Reference/issues/62))
 
 ## [v1.1.6] - 2026-06-30
 

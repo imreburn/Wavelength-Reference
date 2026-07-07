@@ -52,6 +52,11 @@ def get_inputs(pm=None, laser=None, auto_run=False):
     params.reference = _state["reference"]
     saved = {"ok": False}
     ran = {"ok": False}
+    # Cleanup for the power-readout window, if one is open. Set while the readout
+    # window exists so root teardown (Run/Close) can cancel its pending `after`
+    # refresh loop before destroying it — otherwise queued callbacks fire against
+    # the destroyed widget ("invalid command name ...refresh").
+    _readout = {"close": None}
 
     def set_locked(locked):
         """Lock/unlock the parameter fields and toggle Save/Change/Run accordingly."""
@@ -217,6 +222,10 @@ def get_inputs(pm=None, laser=None, auto_run=False):
         _state["has_run"] = True
         _state["pos"] = (root.winfo_x(), root.winfo_y())
         log.info("params: %s", params)
+        # Tear down the power-readout window (and its refresh loop) first, so its
+        # pending `after` callbacks don't fire after root.destroy() kills it.
+        if _readout["close"]:
+            _readout["close"]()
         result_label.config(text="Running...", fg="black")
         root.after(200, root.destroy)
 
@@ -295,6 +304,10 @@ def get_inputs(pm=None, laser=None, auto_run=False):
             return m + " " + prefix[int(e)//3] + baseunit
 
         def refresh():
+            # Bail out if the window was torn down between the `after` being
+            # scheduled and it firing.
+            if not top.winfo_exists():
+                return
             powers = pm.query(":FETCH:POW:ALL:CSV?").strip().split(',')
             p_ranges = [pm.query(f":SENSE{i}:POW:RANGE?") for i in range(1, 5)]
             for i in range(4):
@@ -321,17 +334,28 @@ def get_inputs(pm=None, laser=None, auto_run=False):
             job["id"] = top.after(50, refresh)
 
         def on_top_close():
+            _readout["close"] = None
             if job["id"] is not None:
-                top.after_cancel(job["id"])
-            top.destroy()
-            read_pm_btn.config(state="normal")
+                try:
+                    top.after_cancel(job["id"])
+                except tk.TclError:
+                    pass
+                job["id"] = None
+            if top.winfo_exists():
+                top.destroy()
+            if read_pm_btn.winfo_exists():
+                read_pm_btn.config(state="normal")
 
+        # Expose cleanup so root teardown (Run/Close) can cancel the refresh loop.
+        _readout["close"] = on_top_close
         top.protocol("WM_DELETE_WINDOW", on_top_close)
 
         tk.Button(top, text="Close", command=on_top_close, width=10).grid(
             row=99, column=0, columnspan=5, pady=10)
 
-        top.after(2000, refresh)
+        # Track the initial delayed refresh so it can be cancelled if the window
+        # is closed within the first 2 seconds.
+        job["id"] = top.after(2000, refresh)
 
     def on_save_preset():
         # Only reachable once parameters have passed Save's checks.
@@ -460,6 +484,14 @@ def get_inputs(pm=None, laser=None, auto_run=False):
     root.title("Test Configuration")
     root.resizable(False, False)
 
+    # Exceptions raised inside Tk callbacks (after/event/command handlers) don't
+    # propagate out through mainloop(), so main.py's try/except never sees them.
+    # Route them through our logger instead of Tk's default stderr-only print.
+    def _log_tk_exception(exc, val, tb):
+        log.error("Tkinter callback error", exc_info=(exc, val, tb))
+
+    root.report_callback_exception = _log_tk_exception
+
     # Place the window at its fixed start position, or wherever the user last
     # left it. "+x+y" sets position only, leaving the auto-computed size alone.
     start_x, start_y = _state["pos"] or WINDOW_POS
@@ -468,6 +500,9 @@ def get_inputs(pm=None, laser=None, auto_run=False):
     def on_close():
         # Remember where the user left the window before closing.
         _state["pos"] = (root.winfo_x(), root.winfo_y())
+        # Cancel the readout refresh loop before destroying its parent window.
+        if _readout["close"]:
+            _readout["close"]()
         root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", on_close)
@@ -591,7 +626,7 @@ def get_inputs(pm=None, laser=None, auto_run=False):
     inst_frame.grid(row=RUNBTN_ROW, column=0, columnspan=2, pady=10)
     run_btn = tk.Button(inst_frame, text="Run", command=on_run, width=10, state="disabled")
     run_btn.pack(side="left", padx=5)
-    read_pm_btn = tk.Button(inst_frame, text="Read Power...", command=on_read_power, state="disabled")
+    read_pm_btn = tk.Button(inst_frame, text="Read Power(p)...", command=on_read_power, state="disabled")
     read_pm_btn.pack(side="left", padx=5)
 
     # ---- Reference -------------------------------------------------------
@@ -612,6 +647,17 @@ def get_inputs(pm=None, laser=None, auto_run=False):
     # Enter triggers Run when it's enabled (on_run is a no-op until saved).
     root.bind("<Return>", lambda _e: on_run())
     root.bind("<KP_Enter>", lambda _e: on_run())
+
+    # 'p' triggers Read Power (matches the "(p)" hint on the button), but not
+    # while typing into an entry field where 'p' is a literal character.
+    def on_read_power_key(_e):
+        if isinstance(root.focus_get(), tk.Entry):
+            return
+        if str(read_pm_btn["state"]) == "disabled":
+            return
+        on_read_power()
+    root.bind("<KeyPress-p>", on_read_power_key)
+    root.bind("<KeyPress-P>", on_read_power_key)
 
     result_label = tk.Label(frame, text="", wraplength=320, justify="left")
     result_label.grid(row=RESULT_ROW, column=0, columnspan=2)

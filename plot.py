@@ -26,9 +26,7 @@ _last_peak_file   = ''
 _last_peak_label  = ''
 _last_temperature = None
 
-def display_plot(data, params: Params = None, *, ref=None, overlays=None,
-                  title="Absorption Spectrum",
-                  width=1400, height=1000, port=8050):
+def display_plot(data, params: Params = None, *, ref=None, overlays=None, title="Absorption Spectrum", port=8050):
     """
     Parameters
     ----------
@@ -78,18 +76,18 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     # sliced copies below (aligned with `wl`) drive plotting and analysis.
     channels = tuple(params.channel) if params.channel else tuple(range(1, len(data) + 1))
     data_s = [np.asarray(d)[i_lo:i_hi] for d in data]
-    
+    main_s = data_s.copy()
+    pow_unit = " (dBm)"
     if params.reference and ref:
         ref_s  = [np.asarray(r)[i_lo:i_hi] for r in ref]
-        diff_s = [d - r for d, r in zip(data_s, ref_s)]
-        dbm = diff_s[0]
-    else:   
-        dbm    = data_s[0]                        
+        main_s = [d - r for d, r in zip(data_s, ref_s)]
+        pow_unit = " (dB)"
+    
+    dbm = main_s[0]                        
     
     overlays = list(overlays or [])
     # Overlays are the individual dynamic-range scans; only meaningful with >1.
-    overlays_s = ([[np.asarray(c)[i_lo:i_hi] for c in scan] for scan in overlays]
-                  if len(overlays) > 1 else [])
+    overlays_s = ([[np.asarray(c)[i_lo:i_hi] for c in scan] for scan in overlays] if len(overlays) > 1 else [])
     d_x = round(wl[1] - wl[0], 7)
     
     peak_df = pd.DataFrame()
@@ -129,7 +127,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     # fail to repaint, leaving a blank/stale curve after a zoom. At
     # <=MAX_DISPLAY points SVG is fine.
     initial_fig.add_scatter(
-        x=wl_init, y=dbm_init, mode='lines', name=f'{COL_CH}{channels[0]}',
+        x=wl_init, y=dbm_init, mode='lines', name=f'{COL_CH}{channels[0]}{pow_unit}',
         line=dict(color=_next_color(), width=2),
         hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>',
     )
@@ -210,12 +208,12 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     # fixed-index marker/peak traces so data[1..11] stay put. Solid line,
     # one color per channel.
     # ------------------------------------------------------------------
-    for k, (ch, d_arr) in enumerate(zip(channels, data_s)):
+    for k, (ch, d_arr) in enumerate(zip(channels, main_s)):
         if k == 0:
             continue
         wl_d, d_d = lttb(wl, d_arr, MAX_DISPLAY)
         initial_fig.add_scatter(
-            x=wl_d, y=d_d, mode='lines', name=f'{COL_CH}{ch}',
+            x=wl_d, y=d_d, mode='lines', name=f'{COL_CH}{ch}{pow_unit}',
             line=dict(color=_next_color(), width=2),
             hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>',
         )
@@ -227,12 +225,12 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     # ------------------------------------------------------------------
     il_idx = None  # trace index of the I.L. marker (None when no reference)
     if params.reference and ref:
-        gmin_idx = int(np.nanargmin(diff_s[0]))
+        gmin_idx = int(np.nanargmin(main_s[0]))
         gmin_x, gmin_y = float(wl[gmin_idx]), float(dbm[gmin_idx])
         initial_fig.add_scatter(
             x=[gmin_x], y=[gmin_y], mode='markers+text', name='I.L.',
             marker=dict(symbol='star', size=9, color='#C0392B', line=_border),
-            text=[f"<b>IL: {diff_s[0][gmin_idx]:.5f}</b>"], textposition='bottom center',
+            text=[f"<b>IL: {main_s[0][gmin_idx]:.5f}</b>"], textposition='bottom center',
             textfont=dict(size=14, color='#C0392B'),
             hovertemplate='%{x:.7f}<br>%{y:.5f}<extra>I.L.</extra>',
         )
@@ -241,13 +239,13 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
             wl_d, r_d = lttb(wl, r_arr, MAX_DISPLAY)
             wl_d, d_d = lttb(wl, d_arr, MAX_DISPLAY)
             initial_fig.add_scatter(
-                x=wl_d, y=r_d, mode='lines', name=f'{COL_REF}{ch}',
+                x=wl_d, y=r_d, mode='lines', name=f'{COL_REF}{ch} (dBm)',
                 line=dict(color=_next_color(), width=2),
                 hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>', visible='legendonly',
             )
             ref_traces.append((len(initial_fig.data) - 1, r_arr))
             initial_fig.add_scatter(
-                x=wl_d, y=d_d, mode='lines', name=f'Raw-{COL_CH}{ch}',
+                x=wl_d, y=d_d, mode='lines', name=f'Raw_{COL_CH}{ch} (dBm)',
                 line=dict(color=_next_color(), width=2),
                 hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>', visible='legendonly',
             )
@@ -261,7 +259,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
         for k, (ch, c_arr) in enumerate(zip(channels, scan)):
             wl_d, o_d = lttb(wl, c_arr, MAX_DISPLAY)
             initial_fig.add_scatter(
-                x=wl_d, y=o_d, mode='lines', name=f'{COL_CH}{ch}(Scan {s + 1})',
+                x=wl_d, y=o_d, mode='lines', name=f'{COL_CH}{ch}(Scan {s + 1}) (dBm)',
                 line=dict(color=_next_color(), width=2),
                 hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>',
                 visible='legendonly',
@@ -284,7 +282,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
 
     initial_fig.update_layout(
         xaxis_title='Wavelength (nm)',
-        yaxis_title='Power (dBm)',
+        yaxis_title='Power (dBm or dB)',
         hovermode='closest',
         showlegend=True,
         height=600,
@@ -491,6 +489,35 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     MODAL_HIDDEN = {**MODAL_OVERLAY, 'display': 'none'}
     MODAL_SHOWN  = {**MODAL_OVERLAY, 'display': 'flex'}
 
+    def _peak_stats(sel, m2, markers):
+        """Resolve (wavelength, depth, width) for the selected peak, mirroring
+        the values used when saving. Returns None for any value that isn't
+        available (e.g. a 'custom' peak with no markers placed yet)."""
+        try:
+            if sel == 'custom':
+                if m2 is None or not markers:
+                    return None, None, None
+                return m2['x'], m2['y'] - markers[-1]['y'], m2.get('width_pm')
+            i   = int(sel.split(':')[1])
+            row = peak_df[peak_df['Peak'] == i].iloc[0]
+            return float(row['x']), float(row['Depth_max']), float(row['FWHM_max'])
+        except Exception:
+            return None, None, None
+
+    def _fmt_stat(v, nd):
+        """Format a stat value to nd decimals, or '' when unavailable."""
+        return '' if v is None else f'{float(v):.{nd}f}'
+
+    # Insertion loss for the global minimum, same expression used at save time.
+    _il_value = round(main_s[0][gmin_idx], 5) if params.reference and ref_s else None
+
+    # Initial read-only stats for the default (first) peak selection.
+    _init_wl, _init_depth, _init_width = _peak_stats(peak_options[0]['value'], None, None)
+
+    _stat_label_style = {'fontWeight': 'bold', 'display': 'block', 'marginBottom': '4px'}
+    _stat_input_style = {'width': '100%', 'boxSizing': 'border-box',
+                         'marginBottom': '8px', 'backgroundColor': '#F2F2F2'}
+
     peak_modal = html.Div(
         id='peak-modal',
         style=MODAL_HIDDEN,
@@ -500,14 +527,25 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
             dcc.Dropdown(id='peak-select', options=peak_options,
                          value=peak_options[0]['value'], clearable=False,
                          style={'marginBottom': '12px'}),
+            html.Label('Wavelength (nm)', style=_stat_label_style),
+            dcc.Input(id='peak-wavelength', type='text', readOnly=True,
+                      value=_fmt_stat(_init_wl, 6), style=_stat_input_style),
+            html.Label('Depth', style=_stat_label_style),
+            dcc.Input(id='peak-depth', type='text', readOnly=True,
+                      value=_fmt_stat(_init_depth, 5), style=_stat_input_style),
+            html.Label('Width (pm)', style=_stat_label_style),
+            dcc.Input(id='peak-width', type='text', readOnly=True,
+                      value=_fmt_stat(_init_width, 3), style=_stat_input_style),
+            html.Label('Insertion Loss (I.L.)', style=_stat_label_style),
+            dcc.Input(id='peak-loss', type='text', value=_il_value, readOnly=True, style=_stat_input_style),
             html.Label('Label (SN)', style={'fontWeight': 'bold', 'display': 'block',
                                        'marginBottom': '4px'}),
-            dcc.Input(id='peak-label', type='text', value=_last_peak_label, debounce=False,
+            dcc.Input(id='peak-label', type='text', value=_last_peak_label, debounce=False, placeholder="Required",
                       style={'width': '100%', 'boxSizing': 'border-box',
                              'marginBottom': '8px'}),
-            html.Label('Temperature', style={'fontWeight': 'bold', 'display': 'block',
+            html.Label('Temperature (\u00B0C)', style={'fontWeight': 'bold', 'display': 'block',
                                              'marginBottom': '4px'}),
-            dcc.Input(id='peak-temperature', type='number', value=_last_temperature, debounce=False,
+            dcc.Input(id='peak-temperature', type='number', value=_last_temperature, debounce=False, placeholder="Optional",
                       style={'width': '100%', 'boxSizing': 'border-box',
                              'marginBottom': '8px'}),
             html.Label('Choose a file', style={'fontWeight': 'bold', 'display': 'block',
@@ -757,6 +795,18 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
         return MODAL_SHOWN, opts, _remembered_file_value(opts)
 
     @app.callback(
+        Output('peak-wavelength', 'value'),
+        Output('peak-depth', 'value'),
+        Output('peak-width', 'value'),
+        Input('peak-select', 'value'),
+        State('mode2-info-store', 'data'),
+        State('markers-store', 'data'),
+    )
+    def update_peak_stats(sel, m2, markers):
+        wl_v, depth, fwhm = _peak_stats(sel, m2, markers)
+        return _fmt_stat(wl_v, 6), _fmt_stat(depth, 5), _fmt_stat(fwhm, 4)
+
+    @app.callback(
         Output('peak-modal', 'style', allow_duplicate=True),
         Output('save-peak-info', 'children'),
         Output('peak-modal-error', 'children'),
@@ -764,13 +814,14 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
         Input('peak-save-confirm', 'n_clicks'),
         State('peak-select', 'value'),
         State('peak-label', 'value'),
+        State('peak-loss', 'value'),
         State('peak-temperature', 'value'),
         State('peak-file-select', 'value'),
         State('mode2-info-store', 'data'),
         State('markers-store', 'data'),
         prevent_initial_call=True,
     )
-    def close_or_save_peak(cancel, confirm, sel, label, temperature, chosen_file, m2, markers):
+    def close_or_save_peak(cancel, confirm, sel, label, loss, temperature, chosen_file, m2, markers):
         triggered = callback_context.triggered[0]['prop_id']
         if 'peak-cancel' in triggered:
             return MODAL_HIDDEN, dash.no_update, ""
@@ -786,8 +837,8 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
             depth = m2['y'] - markers[-1]['y']
             fwhm  = m2.get('width_pm')
         else:
-            i = int(sel.split(':')[1])
-            row = peak_df[peak_df['Peak'] == i].iloc[0]
+            i     = int(sel.split(':')[1])
+            row   = peak_df[peak_df['Peak'] == i].iloc[0]
             wl_v  = float(row['x'])
             depth = float(row['Depth_max'])
             fwhm  = float(row['FWHM_max'])
@@ -810,8 +861,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
                 # User cancelled the file dialog — keep the modal open.
                 return dash.no_update, dash.no_update, ""
             file_path = result[0] if isinstance(result, (list, tuple)) else result
-            
-        loss=round(diff_s[0][gmin_idx],5) if params.reference and ref_s else None
+
         save_csv_peak_row(label.strip(), wl_v, depth, fwhm, loss=loss, file_path=file_path, temperature=temperature, date=params.date)
         
         global _last_peak_file, _last_peak_label, _last_temperature
@@ -1219,7 +1269,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None,
     window = webview.create_window(
         title,
         f'http://127.0.0.1:{bound_port}',
-        width=width, height=height, maximized=True,
+        width=1200, height=800, maximized=True,
     )
     _window_holder['window'] = window
     try:
@@ -1242,7 +1292,7 @@ if __name__ == "__main__":
     
     with open(csv_path) as f:
         params_dict = json.loads(f.readline().lstrip("# "))
-        params = Params(**params_dict) if params_dict else None
+        params = Params(**params_dict)
         df = pd.read_csv(f)
         
     data = [df[f'{COL_CH}{i}'].to_numpy() for i in params.channel]

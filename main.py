@@ -9,7 +9,7 @@ log = setup_logging("WavelengthSweep")
 
 try:
     pm, laser = prep_inst()
-    last_data = None
+    ref_data = None
     auto_run = False  # set by Repeat on the previous plot; auto-Runs this loop
 
     while True:
@@ -22,16 +22,16 @@ try:
         
         for i in range(1, params.dyn_scans+1):
             log.info(f"Start a scan: {i}")
-            scans.append(run_sweep(pm, laser, params, dryrun=False))            
+            scans.append(run_sweep(pm, laser, params))            
             params.pm_range -= params.decrement
             
         params.pm_range = saved_pm_range
         data = combine_scans(scans, params)
         
         if not params.reference:
-            last_data = data.copy()
+            ref_data = data.copy()
         
-        auto_run = display_plot(data, params=params, ref=last_data, overlays=scans)
+        auto_run = display_plot(data, params=params, ref=ref_data, overlays=scans)
     
     close_inst(pm, laser)
 

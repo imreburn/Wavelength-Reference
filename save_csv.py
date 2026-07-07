@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 
 COL_X   = "Wavelength (nm)"
 COL_CH  = "Ch."
-COL_REF = "Ref-Ch."
+COL_REF = "Ref_" + COL_CH
 RAW_DIR = "Raw Data"
 
 def save_csv_raw(data, x, params:Params=None, ref=None, file_path=None):

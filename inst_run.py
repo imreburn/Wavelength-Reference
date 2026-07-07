@@ -2,7 +2,6 @@ import sys
 import pyvisa
 import time
 import numpy as np
-# import pandas as pd
 import logging
 
 from inst_helper import prep_inst, check_inst
@@ -88,7 +87,6 @@ def run_sweep(pm, laser, params: Params, dryrun=False):
     while int(laser.query(":SOURCE0:WAV:SWE:STATE?")) == 1:
         log.info("[LASER] Sweeping...")
         time.sleep(1)
-    
     
     log.info("[LASER] Sweep finished")
 
