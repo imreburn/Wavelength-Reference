@@ -4,7 +4,8 @@ import time
 import numpy as np
 import logging
 
-from inst_helper import prep_inst, check_inst, POWER_LIMIT
+from inst_helper import prep_inst, check_inst
+from constants import POWER_LIMIT
 from structs import Params
 
 log = logging.getLogger(__name__)
@@ -91,7 +92,7 @@ def run_sweep(pm, laser, params: Params, dryrun=False):
         pm.write(f":SENSE{i}:FUNC:RES?")
         time.sleep(2)
     
-        power_w_all.append(pm.read_binary_values(container=np.ndarray))
+        power_w_all.append(np.asarray(pm.read_binary_values(container=np.ndarray), dtype=np.float64))
         log.info(f"[PM] Ch.{i}: Log count: {len(power_w_all[-1])}")
         pm.write(f":SENSE{i}:FUNC:STAT LOGG, STOP")
     

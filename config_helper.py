@@ -253,6 +253,8 @@ def validate_passfail(raw):
     """
     values = {}
     for label, (lo_s, hi_s) in raw.items():
+        lo_s = lo_s.strip() or "0"
+        hi_s = hi_s.strip() or "0"
         try:
             lo, hi = float(lo_s), float(hi_s)
         except ValueError:

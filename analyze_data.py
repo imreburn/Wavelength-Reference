@@ -11,7 +11,7 @@ from scipy.signal import find_peaks, peak_widths
 import logging
 
 from structs import PeakInfo, Peaks, PeakFwhm, MaxPeak, Params
-from inst_helper import POWER_LIMIT
+from constants import POWER_LIMIT
 
 log = logging.getLogger(__name__)
 

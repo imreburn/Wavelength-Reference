@@ -12,3 +12,4 @@ logs/
 tempCodeRunnerFile.py
 Raw Data/
 Peaks/
+.ruff_cache

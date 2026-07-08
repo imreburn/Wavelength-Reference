@@ -90,8 +90,8 @@ def pre_process(raw_w: Dataset, params: Params):
     
     if params.reference and raw_w.ref:
         dbm_s.unit = "dB"
-        watt_s.ref = raw_w.ref[i_lo:i_hi]
-        watt_s.diff = [(d-r) for d, r in zip(raw_w.data, raw_w.ref)]
+        watt_s.ref = [d[i_lo:i_hi] for d in raw_w.ref]
+        watt_s.diff = [(d-r) for d, r in zip(watt_s.data, watt_s.ref)]
         dbm_s.ref = [wtodbm(d) for d in watt_s.ref]
         dbm_s.diff = [(d-r) for d, r in zip(dbm_s.data, dbm_s.ref)]
     

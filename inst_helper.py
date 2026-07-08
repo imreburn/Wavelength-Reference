@@ -2,24 +2,23 @@ import pyvisa
 import time
 import logging
 
+from constants import VISA_ADDRESS_POWER_METER, VISA_ADDRESS_TLS, TLS_PASSWORD
+
 log = logging.getLogger(__name__)
 
-VISA_ADDRESS_POWER_METER    = 'USB0::0x0957::0x3718::DE53500131::0::INSTR'
-VISA_ADDRESS_TLS            = 'TCPIP0::100.65.2.45::inst0::INSTR'       
+_rm = None
 
-TLS_PASSWORD = 1234
+def get_rm():
+    """Lazily create the VISA ResourceManager on first use.
 
-POWER_LIMIT = {"10" : 10e-3,
-             "0"  : 1.9999e-3,
-             "-10": 199.99e-6,
-             "-20": 19.999e-6,
-             "-30": 1.9999e-6,
-             "-40": 199.99e-9,
-             "-50": 19.999e-9,
-             "-60": 1.9999e-9,
-             "-70": 199.99e-12}
-
-rm = pyvisa.ResourceManager()
+    Deferring this avoids requiring a VISA backend at import time, so modules
+    that only need constants can import them from `constants` without an
+    instrument backend present.
+    """
+    global _rm
+    if _rm is None:
+        _rm = pyvisa.ResourceManager()
+    return _rm
 
 def exceptionHandler(exception):
 
@@ -29,6 +28,7 @@ def exceptionHandler(exception):
 
 def get_inst():
     try: 
+        rm    = get_rm()
         pm    = rm.open_resource(VISA_ADDRESS_POWER_METER)
         laser = rm.open_resource(VISA_ADDRESS_TLS)
     except pyvisa.VisaIOError as ex:
@@ -114,7 +114,7 @@ def close_inst(pm, laser):
     laser.write(":SOURCE0:POW:STATE 0")
     pm.close()
     laser.close()
-    rm.close()
+    get_rm().close()
 
 if __name__ == "__main__":
     pm, laser = prep_inst()

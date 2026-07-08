@@ -1,5 +1,6 @@
 import threading
 import os
+import tempfile
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -261,6 +262,19 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     smooth_idx = len(initial_fig.data) - 1
     _smooth = {'y': None}  # full-res filtered channel-1 array (None until applied)
 
+    # Pale line connecting the mode-1 (Delta) markers. A separate trace from the
+    # diamonds (data[1]) and appended last (like the smoothed trace) so the fixed
+    # marker/peak indices above stay put. It is sampled with many interpolated
+    # points per segment (see redraw_markers) rather than one vertex per marker,
+    # so Plotly's closest-point click snaps ONTO the line — letting the user drop
+    # a Delta marker anywhere along the connector, not only at an existing marker.
+    initial_fig.add_scatter(
+        x=[], y=[], mode='lines', name='Delta:line', showlegend=False,
+        line=dict(color='rgba(216,90,48,0.35)', width=1),
+        hovertemplate='%{x:.7f}<br>%{y:.5f}',
+    )
+    delta_line_idx = len(initial_fig.data) - 1
+
     initial_fig.update_layout(
         xaxis_title='Wavelength (nm)',
         yaxis_title='Power (dBm or dB)',
@@ -439,6 +453,8 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         html.Button('Save peak info... (p)', id='save-peak-btn', n_clicks=0, style=NAV_BTN_STYLE),
         html.Div(id='save-peak-info', style=NAV_INFO_STYLE),
         html.Button('Smooth data...', id='apply-filter-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        html.Button('Plot in Watt...', id='plot-watt-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        html.Div(id='plot-watt-info', style=NAV_INFO_STYLE),
         # Repeat: close this plot window and auto-Run the next sweep with the same parameters. Also bound to the Enter key (see the clientside callback below).
         html.Button('Repeat (Enter)', id='repeat-btn', n_clicks=0,
                     style={**NAV_BTN_STYLE, 'fontWeight': 'bold', 'marginLeft': 'auto'}),
@@ -532,7 +548,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         return '' if v is None else f'{float(v):.{nd}f}'
 
     # Insertion loss for the global minimum, same expression used at save time.
-    _il_value = round(dbm_s.data[0][gmin_idx], 5) if params.reference else None
+    _il_value = round(gmin_y, 5) if params.reference else None
 
     # Initial read-only stats for the default (first) peak selection.
     _init_wl, _init_depth, _init_width = _peak_stats(peak_options[0]['value'], None, None)
@@ -741,6 +757,71 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         return "Raw data saved."
 
     @app.callback(
+        Output('plot-watt-info', 'children'),
+        Input('plot-watt-btn', 'n_clicks'),
+        prevent_initial_call=True,
+    )
+    def plot_watt(n_clicks):
+        # Option A: build a standalone Plotly figure in linear (Watt) units and
+        # open it in a SECOND pywebview window as a self-contained HTML file.
+        # It's a zoomable viewer only (no Dash callbacks / analysis behind it).
+        # Full resolution — no lttb — so deep zoom stays faithful (the static
+        # HTML can't re-downsample on zoom the way the main window does).
+        _cs = {'i': 0}
+        def _color():
+            c = LINE_COLORS[_cs['i'] % len(LINE_COLORS)]
+            _cs['i'] += 1
+            return c
+
+        def _line(y_arr, name, **kw):
+            fig.add_scatter(
+                x=wl, y=y_arr, mode='lines', name=name,
+                line=dict(color=_color(), width=2),
+                hovertemplate='%{x:.7f}<br>%{y:.5e}<extra></extra>', **kw,
+            )
+
+        fig = go.Figure()
+        if params.reference:
+            # Main = data - ref (linear); raw data and reference kept legend-only.
+            for ch, d in zip(channels, watt_s.diff):
+                _line(d, f'{COL_CH}{ch}_{watt_s.unit}')
+            for ch, r in zip(channels, watt_s.ref):
+                _line(r, f'{COL_REF}{ch}_{watt_s.unit}', visible='legendonly')
+            for ch, d in zip(channels, watt_s.data):
+                _line(d, f'Raw_{COL_CH}{ch}_{watt_s.unit}', visible='legendonly')
+        else:
+            for ch, d in zip(channels, watt_s.data):
+                _line(d, f'{COL_CH}{ch}_{watt_s.unit}')
+
+        # Dynamic-range scans (display-only, legend-only); only with >1 scan.
+        if len(watt_s.scans) > 1:
+            for s, scan in enumerate(watt_s.scans, start=1):
+                for ch, c_arr in zip(channels, scan):
+                    _line(c_arr, f'{COL_SCAN}{s}_{COL_CH}{ch}_{watt_s.unit}', visible='legendonly')
+
+        fig.update_layout(
+            xaxis_title='Wavelength (nm)',
+            yaxis_title=f'Power ({watt_s.unit})',
+            hovermode='closest', showlegend=True,
+            height=600, width=1250, margin=dict(t=30, b=40),
+        )
+        fig.update_xaxes(tickformat='.3f', hoverformat='.5f', showspikes=True,
+                         spikecolor='gray', spikemode='across', spikethickness=1)
+        fig.update_yaxes(showspikes=True, spikemode='across',
+                         spikecolor='gray', spikethickness=1)
+
+        # Self-contained HTML (plotly.js inlined) so it opens offline / in the
+        # packaged build. Fixed path in the temp dir — reused across clicks.
+        html_path = os.path.join(tempfile.gettempdir(), 'wavelength_watt_plot.html')
+        fig.write_html(html_path, include_plotlyjs=True, config={'scrollZoom': True})
+
+        webview.create_window(
+            f'{title} — Watt', html_path,
+            width=1250, height=700, maximized=True,
+        )
+        return "Watt window opened."
+
+    @app.callback(
         Output('repeat-keybind-dummy', 'children'),
         Input('repeat-btn', 'n_clicks'),
         prevent_initial_call=True,
@@ -822,10 +903,15 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         Output('peak-depth', 'value'),
         Output('peak-width', 'value'),
         Input('peak-select', 'value'),
+        # Also recompute when the modal is (re)opened: the dropdown retains its
+        # value across openings, so a selection that hasn't changed (e.g. a
+        # 'custom' peak that was edited in the meantime) would otherwise keep
+        # showing stale stats until the user switches selection and back.
+        Input('save-peak-btn', 'n_clicks'),
         State('mode2-info-store', 'data'),
         State('markers-store', 'data'),
     )
-    def update_peak_stats(sel, m2, markers):
+    def update_peak_stats(sel, _n_clicks, m2, markers):
         wl_v, depth, fwhm = _peak_stats(sel, m2, markers)
         return _fmt_stat(wl_v, 6), _fmt_stat(depth, 5), _fmt_stat(fwhm, 4)
 
@@ -1013,9 +1099,22 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     )
     def redraw_markers(markers):
         patched = Patch()
-        patched['data'][1]['x']    = [m['x'] for m in markers]
-        patched['data'][1]['y']    = [m['y'] for m in markers]
+        xs = [m['x'] for m in markers]
+        ys = [m['y'] for m in markers]
+        patched['data'][1]['x']    = xs
+        patched['data'][1]['y']    = ys
         patched['data'][1]['text'] = [f'M{i+1}' for i in range(len(markers))]
+
+        # Densify the connector: sample many points along each marker-to-marker
+        # segment so a click "snaps" onto the line (Plotly reports the nearest of
+        # these points). Empty until there are at least two markers to join.
+        lx, ly = [], []
+        for i in range(len(markers) - 1):
+            t = np.linspace(0.0, 1.0, 100)
+            lx.extend((xs[i] + t * (xs[i + 1] - xs[i])).tolist())
+            ly.extend((ys[i] + t * (ys[i + 1] - ys[i])).tolist())
+        patched['data'][delta_line_idx]['x'] = lx
+        patched['data'][delta_line_idx]['y'] = ly
 
         # Delta Markers table, shown only when markers exist (empty markers
         # — e.g. after Clear — leaves marker-info blank). Delta columns are
@@ -1031,15 +1130,19 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             dl = m['x'] - prev['x']
             dp = m['y'] - prev['y']
             slope_str = "∞ (vertical)" if dl == 0 else f"{(dp / dl)*-1:+.5f}"
+            # Midpoint (average) with the previous marker; blank for the first,
+            # which has no previous marker to average against.
+            mid_x = f"{(m['x'] + prev['x']) / 2:.6f}"
+            mid_y = f"{(m['y'] + prev['y']) / 2:.5f}"
             rows.append({
                 'Marker': f'M{i+1}',
                 'x': f"{m['x']:.6f}", 'y': f"{m['y']:.5f}",
-                '|Δx|': f"{abs(dl):.6f}",
-                '|Δy|': f"{abs(dp):.5f}",
+                '|Δx|': f"{abs(dl):.6f}", '|Δy|': f"{abs(dp):.5f}",
                 'slope': slope_str,
+                'mid x': mid_x, 'mid y': mid_y,
             })
 
-        columns = ['Marker', 'x', 'y', '|Δx|', '|Δy|', 'slope']
+        columns = ['Marker', 'x', 'y', '|Δx|', '|Δy|', 'slope', 'mid x', 'mid y',]
         table = dash_table.DataTable(
             data=rows,
             columns=[{'name': c, 'id': c} for c in columns],
@@ -1119,7 +1222,6 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         offset = slider_val or 0
         info = {'x': x, 'y': y, 'width_pm': width_pm}
         return patched, f"Marker:{x:.7f} nm\n       {y:.5f} dBm\n", width_info, info
-        # return ""
 
     @app.callback(
         Output('custom-table', 'data'),
@@ -1313,19 +1415,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
 # Demo: run this file directly to test
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    # csv_path = "raw_data_2026-06-15.csv"
-    csv_path = "raw_data_hc13n_reference.csv"
+    from open_csv import plot_raw
+    csv_path = "Raw Data/hc13n_watt_reference.csv"
+    plot_raw(csv_path)
     
-    with open(csv_path) as f:
-        params_dict = json.loads(f.readline().lstrip("# "))
-        params = Params(**params_dict)
-        df = pd.read_csv(f)
-        
-    data = [df[f'{COL_CH}{i}'].to_numpy() for i in params.channel]
-    ref  = (
-            [df[f'{COL_REF}{i}'].to_numpy() for i in params.channel]
-            if params.reference
-            else None
-        )
-
-    display_plot(data, params=params, ref=ref)

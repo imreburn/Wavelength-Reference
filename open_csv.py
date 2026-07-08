@@ -12,37 +12,44 @@ from logger import setup_logging, fast_exit
 
 from datapath import data_path
 
-log = setup_logging("PlotSweep")
+def plot_raw(filepath=None):
+    log = setup_logging("PlotSweep")
 
-root = tk.Tk()
-root.withdraw()
-csv_path = filedialog.askopenfilename(
-    initialdir=str(data_path("Raw Data")),
-    title="Select CSV file",
-    filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-)
-root.destroy()
+    if not filepath:
+        root = tk.Tk()
+        root.withdraw()
+        csv_path = filedialog.askopenfilename(
+            initialdir=str(data_path("Raw Data")),
+            title="Select CSV file",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+        )
+        root.destroy()
 
-if not csv_path:
-    log.error(f"Failed to read: {csv_path}")
-    sys.exit(0)
-else:
-    log.info(f"Read successfully: {csv_path}")
+        if not csv_path:
+            log.error(f"Failed to read: {csv_path}")
+            sys.exit(0)
+        else:
+            log.info(f"Read successfully: {csv_path}")
+    else:
+        csv_path = filepath
 
-with open(csv_path) as f:
-    params_dict = json.loads(f.readline().lstrip("# "))
-    params = Params(**params_dict)
-    df = pd.read_csv(f)
+    with open(csv_path) as f:
+        params_dict = json.loads(f.readline().lstrip("# "))
+        params = Params(**params_dict)
+        df = pd.read_csv(f)
 
-raw_w = Dataset(unit="W")
-raw_w.data = [df[f'{COL_CH}{i}_{raw_w.unit}'].to_numpy() for i in params.channel]
+    raw_w = Dataset(unit="W")
+    raw_w.data = [df[f'{COL_CH}{i}_{raw_w.unit}'].to_numpy() for i in params.channel]
 
-raw_w.ref = [df[f'{COL_REF}{i}_{raw_w.unit}'].to_numpy() for i in params.channel] if params.reference else []
+    raw_w.ref = [df[f'{COL_REF}{i}_{raw_w.unit}'].to_numpy() for i in params.channel] if params.reference else []
 
-for i in range(1, params.dyn_scans + 1):
-    raw_w.scans.append([df[f'{COL_SCAN}{i}_{COL_CH}{ch}_{raw_w.unit}'].to_numpy() for ch in params.channel])
+    for i in range(1, params.dyn_scans + 1):
+        raw_w.scans.append([df[f'{COL_SCAN}{i}_{COL_CH}{ch}_{raw_w.unit}'].to_numpy() for ch in params.channel])
 
-display_plot(raw_w, params=params)
+    display_plot(raw_w, params=params)
 
-# Skip the slow pywebview/.NET native teardown so the console closes promptly.
-fast_exit(0)
+    # Skip the slow pywebview/.NET native teardown so the console closes promptly.
+    fast_exit(0)
+    
+if __name__ == "__main__":
+    plot_raw()

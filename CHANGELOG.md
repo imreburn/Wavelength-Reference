@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- "Plot in Watt..." button is on the top bar of the figure window. New window pops up when clicking the button, plotting all spectra in Watt.([#58](https://github.com/imreburn/Wavelength-Reference/issues/58))
+
+### Changed
+
+- The power unit of the saved raw data changes from dBm(or dB) to Watt.
+- If the fields of "Pass/Fail Criteria" are left empty, 0 is assigned instead of saying an error message.([#64](https://github.com/imreburn/Wavelength-Reference/issues/64))
+
+### Fixed
+
+- If a custom peak is selected from the "Save peak info..." modal, and either it is saved or cancelled, and the custom peak changed, the old values are still displayed until users select another peak and select custom peak again.([#66](https://github.com/imreburn/Wavelength-Reference/issues/66))
+
 ## [v1.1.7] - 2026-07-07
 
 ### Added
