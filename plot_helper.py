@@ -1,5 +1,5 @@
 import numpy as np
-
+from structs import Dataset, Params
 
 def lttb_multi(x, ys, n_out):
     """Largest-Triangle-Three-Buckets downsampling for several y-series.
@@ -58,3 +58,41 @@ def lttb_multi(x, ys, n_out):
 def lttb(x, y, n_out):
     """Single-series LTTB downsampling (thin wrapper over `lttb_multi`)."""
     return lttb_multi(x, [y], n_out)[0]
+
+def gen_xaxis(params: Params):
+    wav_stop_tmp = params.wl_start - params.padding + (params.step_pm * 1e-3) * (params.num_data - 1)
+    wav_range    = np.linspace(params.wl_start - params.padding, wav_stop_tmp, params.num_data).round(7)
+
+    i_lo = np.searchsorted(wav_range, params.wl_start - params.step_pm * 1e-3, side='left')
+    i_hi = np.searchsorted(wav_range, params.wl_stop  + params.step_pm * 1e-3, side='right')
+    
+    return wav_range, i_lo, i_hi
+
+def pre_process(raw_w: Dataset, params: Params):
+    def wtodbm(x):
+        """convert Watt to dBm, and multiply by -1 as it is loss
+
+        Args:
+            x (np.ndarray): 1-D numpy array in Watt
+
+        Returns:
+            np.ndarray: 1-D numpy array in dBm * (-1)
+        """
+        return -10 * np.log10(x * 1000)
+    
+    wav_range, i_lo, i_hi = gen_xaxis(params)
+    
+    watt_s, dbm_s = Dataset(unit="W"), Dataset(unit="dBm")
+    watt_s.scans = [[d[i_lo:i_hi] for d in scan] for scan in raw_w.scans]
+    dbm_s.scans = [[wtodbm(d) for d in scan] for scan in watt_s.scans]
+    watt_s.data = [d[i_lo:i_hi] for d in raw_w.data]
+    dbm_s.data = [wtodbm(d) for d in watt_s.data]
+    
+    if params.reference and raw_w.ref:
+        dbm_s.unit = "dB"
+        watt_s.ref = raw_w.ref[i_lo:i_hi]
+        watt_s.diff = [(d-r) for d, r in zip(raw_w.data, raw_w.ref)]
+        dbm_s.ref = [wtodbm(d) for d in watt_s.ref]
+        dbm_s.diff = [(d-r) for d, r in zip(dbm_s.data, dbm_s.ref)]
+    
+    return wav_range[i_lo:i_hi], watt_s, dbm_s

@@ -11,27 +11,31 @@ from scipy.signal import find_peaks, peak_widths
 import logging
 
 from structs import PeakInfo, Peaks, PeakFwhm, MaxPeak, Params
+from inst_helper import POWER_LIMIT
 
 log = logging.getLogger(__name__)
 
 def combine_scans(scans, params: Params):
     """Combines multiple scans. If scans has one scan, it just return the scan as a combined data.
-    """
-    # Start with the first scan (with the highest range setting)
-    combined = scans[0].copy()
+    - Unit is Watt
     
-    for i in range(1, len(scans)):
-        p_range       = params.pm_range - i * params.decrement
-        p_range_next  = p_range - params.decrement
-        p_range      *= -1
-        p_range_next *= -1
+       scans: list of list, [[Ch.1, ...] <- 1st scan, [Ch.1, ...]]
+ 
+    Return:
+        combined: [Ch.1, ...]
+    """
+    # Start with the last scan (with the lowest power range setting)
+    combined = scans[-1].copy()
+    p_range = params.pm_range - (params.dyn_scans - 1) * params.decrement
+    
+    for scan in scans[-2::-1]:
+        pow_limit_prev = POWER_LIMIT[str(p_range)]
         
-        for ch_idx, ch_new in enumerate(scans[i]):
+        for ch_idx, ch_new in enumerate(scan):
             ch_com = combined[ch_idx]
-            if i == len(scans) - 1:
-                combined[ch_idx] = np.where((ch_new >= p_range), ch_new, ch_com)
-            else:
-                combined[ch_idx] = np.where((ch_new >= p_range) & (ch_new < p_range_next), ch_new, ch_com)
+            combined[ch_idx] = np.where((ch_new > pow_limit_prev), ch_new, ch_com)
+            
+        p_range += params.decrement
 
     return combined
 
@@ -152,7 +156,7 @@ def find_bandwidth(wl, dbm, idx, y_offset, search_range):
     return left_nm, right_nm, width_pm
 
 
-def peak_exam(pk, params):
+def exam_peak(pk: PeakInfo, params: Params):
     def in_between(x, crit):
         return x >= crit[0] and x <= crit[1]
     

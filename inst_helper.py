@@ -9,8 +9,17 @@ VISA_ADDRESS_TLS            = 'TCPIP0::100.65.2.45::inst0::INSTR'
 
 TLS_PASSWORD = 1234
 
-rm = pyvisa.ResourceManager()
+POWER_LIMIT = {"10" : 10e-3,
+             "0"  : 1.9999e-3,
+             "-10": 199.99e-6,
+             "-20": 19.999e-6,
+             "-30": 1.9999e-6,
+             "-40": 199.99e-9,
+             "-50": 19.999e-9,
+             "-60": 1.9999e-9,
+             "-70": 199.99e-12}
 
+rm = pyvisa.ResourceManager()
 
 def exceptionHandler(exception):
 

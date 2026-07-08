@@ -4,27 +4,20 @@ import time
 import numpy as np
 import logging
 
-from inst_helper import prep_inst, check_inst
+from inst_helper import prep_inst, check_inst, POWER_LIMIT
 from structs import Params
 
 log = logging.getLogger(__name__)
 
-power_limit = {"10": 10e-3,
-             "0"  : 1.9999e-3,
-             "-10": 199.99e-6,
-             "-20": 19.999e-6,
-             "-30": 1.9999e-6,
-             "-40": 199.99e-9,
-             "-50": 19.999e-9,
-             "-60": 1.9999e-9,
-             "-70": 199.99e-12}
 
 def run_sweep(pm, laser, params: Params, dryrun=False):
-    log.info("--- Running instruments ---")
+    """
+    Returns a list of np 1-d arrays with the order matching with param.channel. (e.g. [Ch.1, Ch.2, Ch.3, Ch.4])
+    """
+    log.info("--- Running instruments ---") 
     
     check_inst(pm, laser)
-    power_w_all_ch = []
-    power_dbm_all_ch = []
+
     tls_wl_start = params.wl_start - params.padding
     tls_wl_stop  = params.wl_stop  + params.padding
 
@@ -91,20 +84,22 @@ def run_sweep(pm, laser, params: Params, dryrun=False):
     log.info("[LASER] Sweep finished")
 
     # PM: read logged data
+    power_w_all = []
+    
     for i in params.channel:
         log.info(f"[PM] Ch.{i}: Read logged measurements")
         pm.write(f":SENSE{i}:FUNC:RES?")
         time.sleep(2)
     
-        power_w_all_ch.append(pm.read_binary_values(container=np.ndarray))
-        log.info(f"[PM] Ch.{i}: Log count: {len(power_w_all_ch[-1])}")
+        power_w_all.append(pm.read_binary_values(container=np.ndarray))
+        log.info(f"[PM] Ch.{i}: Log count: {len(power_w_all[-1])}")
         pm.write(f":SENSE{i}:FUNC:STAT LOGG, STOP")
     
     check_inst(pm, laser)
     
-    upper_limit = power_limit[str(params.pm_range)]
+    upper_limit = POWER_LIMIT[str(params.pm_range)]
     
-    for i, arr_w in zip(params.channel, power_w_all_ch):
+    for i, arr_w in zip(params.channel, power_w_all):
         arr_w[arr_w > upper_limit] = np.nan
         if np.all(np.isnan(arr_w)):
             log.warning(f"[PM] Ch.{i}: All measurements are overflown.")
@@ -113,13 +108,9 @@ def run_sweep(pm, laser, params: Params, dryrun=False):
     
         if np.any(arr_w <= 0):
             log.warning(f"[PM] Ch.{i}: Some measurements are less than or equal to 0.")
-        arr_w[arr_w <= 0] = np.nan
-        
-        arr_dbm  = 10 * np.log10(arr_w.astype(np.float64) * 1000)  # convert: W -> dBm
-        arr_dbm *= -1                                              # power loss 
-        power_dbm_all_ch.append(arr_dbm)
+            arr_w[arr_w <= 0] = np.nan
     
-    return power_dbm_all_ch
+    return power_w_all
 
 if __name__ == "__main__":
     pm, laser = prep_inst()

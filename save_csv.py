@@ -8,17 +8,19 @@ import json
 from dataclasses import asdict
 import logging
 
-from structs import Params, PeakInfo
+from structs import Params, PeakInfo, Dataset
+from plot_helper import gen_xaxis
 from datapath import data_path
 
 log = logging.getLogger(__name__)
 
-COL_X   = "Wavelength (nm)"
-COL_CH  = "Ch."
-COL_REF = "Ref_" + COL_CH
-RAW_DIR = "Raw Data"
+COL_X    = "Wavelength_nm"
+COL_CH   = "Ch"
+COL_REF  = "Ref_" + COL_CH
+COL_SCAN = "Scan"
+RAW_DIR  = "Raw Data"
 
-def save_csv_raw(data, x, params:Params=None, ref=None, file_path=None):
+def save_csv_raw(raw_w: Dataset, params: Params, file_path=None):
     if file_path is None:
         initial_dir = str(data_path(RAW_DIR))
 
@@ -36,13 +38,19 @@ def save_csv_raw(data, x, params:Params=None, ref=None, file_path=None):
         log.warning("Raw data save cancelled.\n")
         return
     
-    df = pd.DataFrame({COL_X:x})
-    for ch, power in zip(params.channel, data):
-        df[COL_CH+str(ch)] = power
+    wav_range, _, _ = gen_xaxis(params)
+    df = pd.DataFrame({COL_X:wav_range})
     
-    if params.reference and ref:
-        for ch, ref_power in zip(params.channel, ref):
-            df[COL_REF+str(ch)] = ref_power
+    for ch, power in zip(params.channel, raw_w.data):
+        df[f'{COL_CH}{ch}_{raw_w.unit}'] = power
+    
+    if params.reference:
+        for ch, ref_power in zip(params.channel, raw_w.ref):
+            df[f'{COL_REF}{ch}_{raw_w.unit}'] = ref_power
+            
+    for s_idx, scan in enumerate(raw_w.scans, start=1):
+        for ch, spectrum in zip(params.channel, scan):
+            df[f'{COL_SCAN}{s_idx}_{COL_CH}{ch}_{raw_w.unit}'] = spectrum
     
     with open(file_path, "w", newline="") as f:
         f.write("# " + json.dumps(asdict(params) if params is not None else {}) + "\n")
@@ -59,7 +67,7 @@ def save_csv_peak_row(label, wl, depth, fwhm, file_path, temperature=None, loss=
     written only when the target file does not yet exist.
     """
     peak_dict = {
-        "Date"           : [date if date is not None else datetime.now().strftime("%m/%d/%Y")],
+        "Date"           : [date if date else datetime.now().strftime("%m/%d/%Y")],
         "Wavelength (nm)": [round(wl, 6)],
         "Label (SN)"     : [label],
         "I.L."           : [loss],

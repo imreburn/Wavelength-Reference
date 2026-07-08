@@ -13,10 +13,10 @@ import logging
 
 log = logging.getLogger(__name__)
 
-from structs import PeakInfo, Params
-from analyze_data import peak_detection, find_bandwidth, peak_exam
-from save_csv import save_csv_raw, save_csv_peak_row, COL_X, COL_CH, COL_REF, RAW_DIR
-from plot_helper import lttb, lttb_multi
+from structs import PeakInfo, Params, Dataset
+from analyze_data import peak_detection, find_bandwidth, exam_peak
+from save_csv import save_csv_raw, save_csv_peak_row, COL_CH, COL_REF, COL_SCAN, RAW_DIR
+from plot_helper import lttb, lttb_multi, pre_process
 from datapath import data_path
 from filters import FILTER_LABELS, FILTER_PARAMS, apply_filter, FilterError
 
@@ -26,7 +26,7 @@ _last_peak_file   = ''
 _last_peak_label  = ''
 _last_temperature = None
 
-def display_plot(data, params: Params = None, *, ref=None, overlays=None, title="Absorption Spectrum", port=8050):
+def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum"):
     """
     Parameters
     ----------
@@ -60,36 +60,17 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None, title=
     the user closes the window. It must be called from the main thread
     (a pywebview requirement).
     """
-    wav_stop_tmp = params.wl_start - params.padding + (params.step_pm * 1e-3) * (params.num_data - 1)
-    wav_range    = np.linspace(params.wl_start - params.padding, wav_stop_tmp, params.num_data).round(7)
-
-    i_lo = np.searchsorted(wav_range, params.wl_start - params.step_pm * 1e-3, side='left')
-    i_hi = np.searchsorted(wav_range, params.wl_stop  + params.step_pm * 1e-3, side='right')
-    
-    wl  = wav_range[i_lo:i_hi]
-
-    # data / ref / overlays now arrive per channel, ordered like params.channel:
-    #   data     : list of channel arrays
-    #   ref      : list of channel arrays (or None)
-    #   overlays : list of scans, each a list of channel arrays
-    # The full-resolution `data`/`ref` lists are kept for the raw-data save; the
-    # sliced copies below (aligned with `wl`) drive plotting and analysis.
-    channels = tuple(params.channel) if params.channel else tuple(range(1, len(data) + 1))
-    data_s = [np.asarray(d)[i_lo:i_hi] for d in data]
-    main_s = data_s.copy()
-    pow_unit = " (dBm)"
-    if params.reference and ref:
-        ref_s  = [np.asarray(r)[i_lo:i_hi] for r in ref]
-        main_s = [d - r for d, r in zip(data_s, ref_s)]
-        pow_unit = " (dB)"
-    
-    dbm = main_s[0]                        
-    
-    overlays = list(overlays or [])
-    # Overlays are the individual dynamic-range scans; only meaningful with >1.
-    overlays_s = ([[np.asarray(c)[i_lo:i_hi] for c in scan] for scan in overlays] if len(overlays) > 1 else [])
+    wl, watt_s, dbm_s = pre_process(raw_w, params)
     d_x = round(wl[1] - wl[0], 7)
+    channels = tuple(params.channel)
+
+    if params.reference:
+        mainplots = dbm_s.diff
+    else:
+        mainplots = dbm_s.data
     
+    dbm = mainplots[0]
+    overlays = dbm_s.scans if len(dbm_s.scans) > 1 else []
     peak_df = pd.DataFrame()
 
     # ------------------------------------------------------------------
@@ -127,7 +108,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None, title=
     # fail to repaint, leaving a blank/stale curve after a zoom. At
     # <=MAX_DISPLAY points SVG is fine.
     initial_fig.add_scatter(
-        x=wl_init, y=dbm_init, mode='lines', name=f'{COL_CH}{channels[0]}{pow_unit}',
+        x=wl_init, y=dbm_init, mode='lines', name=f'{COL_CH}{channels[0]}_{dbm_s.unit}',
         line=dict(color=_next_color(), width=2),
         hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>',
     )
@@ -168,9 +149,8 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None, title=
     )
     
     pk = peak_detection(wl, dbm)
-    exam_out, exam_msg, exam_idx = peak_exam(pk, params)
+    exam_out, exam_msg, exam_idx = exam_peak(pk, params)
     if pk is not None:
-
         # data[3..9] — peak annotation traces (shifted +1 due to mode-2 trace)
         initial_fig.add_scatter(x=pk.peaks.wl, y=dbm[pk.peaks.idx], mode='markers+text', name='Peaks', marker=dict(size=8, color='#E63946', symbol='circle', line=_border))
         
@@ -207,13 +187,14 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None, title=
     # Remaining channels (channel 1 is data[0] above). Appended AFTER the
     # fixed-index marker/peak traces so data[1..11] stay put. Solid line,
     # one color per channel.
-    # ------------------------------------------------------------------
-    for k, (ch, d_arr) in enumerate(zip(channels, main_s)):
+    # ------------------------------------------------------------------    
+    for k, (ch, d_arr) in enumerate(zip(channels, mainplots)):
         if k == 0:
             continue
         wl_d, d_d = lttb(wl, d_arr, MAX_DISPLAY)
         initial_fig.add_scatter(
-            x=wl_d, y=d_d, mode='lines', name=f'{COL_CH}{ch}{pow_unit}',
+            x=wl_d, y=d_d, mode='lines', name=f'{COL_CH}{ch}_{dbm_s.unit
+            }',
             line=dict(color=_next_color(), width=2),
             hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>',
         )
@@ -224,28 +205,28 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None, title=
     # on channel 1 only; a dashed reference line is drawn for every channel.
     # ------------------------------------------------------------------
     il_idx = None  # trace index of the I.L. marker (None when no reference)
-    if params.reference and ref:
-        gmin_idx = int(np.nanargmin(main_s[0]))
+    if params.reference:
+        gmin_idx = int(np.nanargmin(dbm))
         gmin_x, gmin_y = float(wl[gmin_idx]), float(dbm[gmin_idx])
         initial_fig.add_scatter(
             x=[gmin_x], y=[gmin_y], mode='markers+text', name='I.L.',
             marker=dict(symbol='star', size=9, color='#C0392B', line=_border),
-            text=[f"<b>IL: {main_s[0][gmin_idx]:.5f}</b>"], textposition='bottom center',
+            text=[f"<b>IL: {gmin_y:.5f}</b>"], textposition='bottom center',
             textfont=dict(size=14, color='#C0392B'),
             hovertemplate='%{x:.7f}<br>%{y:.5f}<extra>I.L.</extra>',
         )
         il_idx = len(initial_fig.data) - 1
-        for k, (ch, r_arr, d_arr) in enumerate(zip(channels, ref_s, data_s)):
+        for k, (ch, r_arr, d_arr) in enumerate(zip(channels, dbm_s.ref, dbm_s.data)):
             wl_d, r_d = lttb(wl, r_arr, MAX_DISPLAY)
             wl_d, d_d = lttb(wl, d_arr, MAX_DISPLAY)
             initial_fig.add_scatter(
-                x=wl_d, y=r_d, mode='lines', name=f'{COL_REF}{ch} (dBm)',
+                x=wl_d, y=r_d, mode='lines', name=f'{COL_REF}{ch}_dBm',
                 line=dict(color=_next_color(), width=2),
                 hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>', visible='legendonly',
             )
             ref_traces.append((len(initial_fig.data) - 1, r_arr))
             initial_fig.add_scatter(
-                x=wl_d, y=d_d, mode='lines', name=f'Raw_{COL_CH}{ch} (dBm)',
+                x=wl_d, y=d_d, mode='lines', name=f'Raw_{COL_CH}{ch}_dBm',
                 line=dict(color=_next_color(), width=2),
                 hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>', visible='legendonly',
             )
@@ -255,11 +236,11 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None, title=
     # Overlay scans (display-only, legend-only by default). One dotted line
     # per (scan, channel). Appended last so the fixed indices above stay put.
     # ------------------------------------------------------------------
-    for s, scan in enumerate(overlays_s):
+    for s, scan in enumerate(overlays, start=1):
         for k, (ch, c_arr) in enumerate(zip(channels, scan)):
             wl_d, o_d = lttb(wl, c_arr, MAX_DISPLAY)
             initial_fig.add_scatter(
-                x=wl_d, y=o_d, mode='lines', name=f'{COL_CH}{ch}(Scan {s + 1}) (dBm)',
+                x=wl_d, y=o_d, mode='lines', name=f'{COL_SCAN}{s}_{COL_CH}{ch}_dBm',
                 line=dict(color=_next_color(), width=2),
                 hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>',
                 visible='legendonly',
@@ -551,7 +532,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None, title=
         return '' if v is None else f'{float(v):.{nd}f}'
 
     # Insertion loss for the global minimum, same expression used at save time.
-    _il_value = round(main_s[0][gmin_idx], 5) if params.reference and ref_s else None
+    _il_value = round(dbm_s.data[0][gmin_idx], 5) if params.reference else None
 
     # Initial read-only stats for the default (first) peak selection.
     _init_wl, _init_depth, _init_width = _peak_stats(peak_options[0]['value'], None, None)
@@ -756,7 +737,7 @@ def display_plot(data, params: Params = None, *, ref=None, overlays=None, title=
         file_path = result[0] if isinstance(result, (list, tuple)) else result
         # data/ref are the full-resolution per-channel lists; save_csv_raw pairs
         # them with params.channel to label columns Ch.<n> / Ch.<n>(Ref).
-        save_csv_raw(data, wav_range, params=params, ref=ref, file_path=file_path)
+        save_csv_raw(raw_w, params=params, file_path=file_path)
         return "Raw data saved."
 
     @app.callback(
