@@ -4,16 +4,22 @@
 
 ### Added
 
-- "Plot in Watt..." button is on the top bar of the figure window. New window pops up when clicking the button, plotting all spectra in Watt.([#58](https://github.com/imreburn/Wavelength-Reference/issues/58))
+- "Plot in Watt..." button has been added to the top bar of the figure window. A new window pops up when clicking the button, plotting all spectra in Watt. ([#58](https://github.com/imreburn/Wavelength-Reference/issues/58))
+- A straight line is drawn between each pair of Delta markers. The mouse cursor can be snapped to this line so that users can place another Delta marker along it. **Caution:** Placing distant markers may affect performance, as these lines — containing points spaced by the step size — are not downsampled. ([#63](https://github.com/imreburn/Wavelength-Reference/issues/63))
+- "Peak table" checkbox has been added under the "Show markers/table" label on the right sidebar. Unchecking it hides the peak table and pass/fail criteria message if they exist.
 
 ### Changed
 
-- The power unit of the saved raw data changes from dBm(or dB) to Watt.
-- If the fields of "Pass/Fail Criteria" are left empty, 0 is assigned instead of saying an error message.([#64](https://github.com/imreburn/Wavelength-Reference/issues/64))
+- The power unit of the saved raw data changes from dBm (or dB) to Watt. ([#58](https://github.com/imreburn/Wavelength-Reference/issues/58))
+- If the fields of "Pass/Fail Criteria" are left empty, 0 is assigned instead of showing an error message. ([#64](https://github.com/imreburn/Wavelength-Reference/issues/64))
+- The delta marker table is placed first below the spectrum. ([#69](https://github.com/imreburn/Wavelength-Reference/issues/69))
+- The custom peak table is shown only if the Bandwidth marker exists.
+- When a Bandwidth marker is placed, the (x, y) position is shown with the marker. The width is also shown next to the offset marker.
 
 ### Fixed
 
-- If a custom peak is selected from the "Save peak info..." modal, and either it is saved or cancelled, and the custom peak changed, the old values are still displayed until users select another peak and select custom peak again.([#66](https://github.com/imreburn/Wavelength-Reference/issues/66))
+- Fixed stale values persisting after a custom peak is saved or cancelled in the "Save peak info..." modal and then changed; previously the old values remained until the user reselected another peak and the custom peak again. ([#66](https://github.com/imreburn/Wavelength-Reference/issues/66))
+- Fixed an issue where some errors shown in the console were not recorded in the log file. ([#67](https://github.com/imreburn/Wavelength-Reference/issues/67))
 
 ## [v1.1.7] - 2026-07-07
 

@@ -1,5 +1,6 @@
 import logging
 import os
+import threading
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -53,5 +54,23 @@ def setup_logging(app_name, level=logging.INFO, max_files=20, max_bytes=10 * 102
     # Werkzeug's dev server logs one INFO line per HTTP request (static assets,
     # callbacks, etc.). Quiet it to WARNING so only real problems (4xx/5xx) show.
     logging.getLogger("werkzeug").setLevel(logging.WARNING)
+
+    # An exception that escapes a non-main thread's target (e.g. the werkzeug
+    # serve_forever loop outside a request, or any library-spawned thread) is
+    # sent to threading.excepthook, which by default only prints to stderr — so
+    # it reaches the console but not the log file. Route it through logging so it
+    # lands in both. NOTE: this only catches exceptions that fully escape a
+    # thread; errors swallowed inside a framework's own event loop (Tk callbacks,
+    # Dash callbacks) never get here and still need their own handlers.
+    def _log_thread_exception(args):
+        if args.exc_type is SystemExit:
+            return
+        logging.getLogger(app_name).error(
+            "Uncaught exception in thread %s",
+            args.thread.name if args.thread else "?",
+            exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+        )
+
+    threading.excepthook = _log_thread_exception
 
     return logging.getLogger(app_name)

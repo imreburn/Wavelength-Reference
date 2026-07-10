@@ -179,7 +179,7 @@ def exam_peak(pk: PeakInfo, params: Params):
         if in_between(pk.peaks.wl[i], crit_loc):
             peak_found = True
             if pk.peaks.max_depths[i] > peak_dep:
-                peak_idx = i
+                peak_idx = i + 1
                 peak_loc = pk.peaks.wl[i]
                 peak_dep = pk.peaks.max_depths[i]
                 peak_wid = pk.max_fwhm.width[i]
@@ -188,16 +188,17 @@ def exam_peak(pk: PeakInfo, params: Params):
         return "Fail", f"No peak found in {crit_loc}", None
     
     error_msg = []
+    peak_msg = f'Peak{peak_idx}@{peak_loc:.3f}:'
     if not in_between(peak_dep, crit_dep) and sum(crit_dep) != 0:
-        error_msg.append(f"Peak@{peak_loc:.3f}: depth({peak_dep:.5f}) not in {crit_dep}")
+        error_msg.append(f" depth({peak_dep:.5f}) not in {crit_dep},")
         
     if not in_between(peak_wid, crit_wid) and sum(crit_wid) != 0:
-        error_msg.append(f"Peak@{peak_loc:.3f}: width({peak_wid:.3f}) not in {crit_wid}")
+        error_msg.append(f" width({peak_wid:.3f}) not in {crit_wid}")
         
     if error_msg != []:
-        return "Fail", ", ".join(error_msg), peak_idx
+        return "Fail", ", ".join(peak_msg, error_msg), peak_idx
     
-    return "Pass", f"Peak@{peak_loc:.3f} is in: location {crit_loc}, depth {crit_dep}, width {crit_wid}", peak_idx
+    return "Pass", peak_msg+f" within location {crit_loc}, depth {crit_dep}, width {crit_wid}", peak_idx
         
 
 if __name__ == "__main__":

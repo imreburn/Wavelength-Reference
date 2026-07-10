@@ -132,9 +132,9 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     )
     # data[2] — mode-2 single marker (always replaced)
     initial_fig.add_scatter(
-        x=[], y=[], mode='markers', name='Bandwidth',
+        x=[], y=[], mode='markers+text', name='Bandwidth',
         marker=dict(symbol='x', size=11, color='#E8A020', line=_border),
-        text=[], textposition='top left',
+        text=[], textposition='bottom right',
     )
     # data[3] — mode-2 left offset marker
     initial_fig.add_scatter(
@@ -144,9 +144,9 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     )
     # data[4] — mode-2 right offset marker
     initial_fig.add_scatter(
-        x=[], y=[], mode='markers', name='Bandwidth:Right',
+        x=[], y=[], mode='markers+text', name='Bandwidth:Right',
         marker=dict(symbol='triangle-left', size=10, color='#50C878', line=_border),
-        text=[], textposition='top center',
+        text=[], textposition='bottom right',
     )
     
     pk = peak_detection(wl, dbm)
@@ -282,7 +282,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         showlegend=True,
         height=600,
         width=1250,
-        margin=dict(t=30, b=40),
+        margin=dict(t=30, b=5),
         uirevision='constant',
     )
 
@@ -301,7 +301,15 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     # to auto-Run the next sweep. NOT part of Params (which stays run-only).
     _repeat = {'flag': False}
 
-    app = dash.Dash(__name__)
+    # Dash callbacks run on the Flask server thread; an unhandled exception
+    # there is caught by Dash and would otherwise surface only as an HTTP 500 in
+    # the browser/console — it never propagates back through webview.start() to
+    # main.py's try/except, so it would miss the log file. Route it through our
+    # logger, the same fix as config_window's report_callback_exception override.
+    def _log_dash_error(err):
+        log.error("Dash callback error", exc_info=err)
+
+    app = dash.Dash(__name__, on_error=_log_dash_error)
 
     # Block the right mouse button over the plot. Plotly has no config flag to
     # disable right-drag panning, and that pan is what drops the y-axis
@@ -356,7 +364,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             html.Div("0 = no downsampling (may be slow)", style={'fontSize': '11px', 'color': '#888', 'marginTop': '2px'}),
         ]),
         html.Details([
-            html.Summary("Show markers", style={'fontWeight': 'bold', 'cursor': 'pointer', 'marginBottom': '6px'}),
+            html.Summary("Show markers/table", style={'fontWeight': 'bold', 'cursor': 'pointer', 'marginBottom': '6px'}),
             dcc.Checklist(
                 id='fwhm-all',
                 options=[{'label': 'all', 'value': 'all'}],
@@ -370,8 +378,9 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
                     {'label': 'peaks', 'value': 'peaks'},
                     {'label': 'FWHM_max',  'value': 'max'},
                     {'label': 'FWHM_avg',  'value': 'avg'},
+                    {'label': 'peak table', 'value': 'table'},
                 ] + ([{'label': 'I.L.', 'value': 'il'}] if il_idx is not None else []),
-                value=['peaks', 'max', 'avg'] + (['il'] if il_idx is not None else []),
+                value=['peaks', 'max', 'avg', 'table'] + (['il'] if il_idx is not None else []),
                 style={'marginBottom': '4px', 'marginLeft': '16px'},
                 labelStyle={'display': 'block'},
             ),
@@ -403,7 +412,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
                 ),
                 html.Div(id='mode2-marker-info',
                          style={'display': 'none'}),
-                html.Label("Bandwidth amplitude", style={'fontSize': '11px', 'color': '#888', 'marginTop': '12px', 'marginBottom': '4px', 'display': 'block'}),
+                html.Label("Bandwidth amplitude (dB)", style={'fontSize': '11px', 'color': '#888', 'marginTop': '12px', 'marginBottom': '4px', 'display': 'block'}),
                 dcc.Input(
                     id='mode2-offset-input',
                     type='number', step='any',
@@ -483,18 +492,16 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     if pk is not None:
         # Put the highlighted peak (max Depth_max, see line ~329) at the top.
         max_peak = int(peak_df.loc[peak_df['Depth_max'].idxmax(), 'Peak'])
-        chosen_peak = None
-        if exam_idx is not None:
-            chosen_peak = exam_idx + 1
-            ordered_peaks = [chosen_peak] + ([max_peak] if max_peak != chosen_peak else [] ) + [int(p) for p in peak_df['Peak'] if int(p) not in [chosen_peak, max_peak]]
-            peak_df.loc[peak_df["Peak"] == chosen_peak, "Note"] += "(criteria)"
+        if not exam_idx:
+            ordered_peaks = [exam_idx] + ([max_peak] if max_peak != exam_idx else [] ) + [int(p) for p in peak_df['Peak'] if int(p) not in [exam_idx, max_peak]]
+            peak_df.loc[peak_df["Peak"] == exam_idx, "Note"] += "(criteria)"
         else:
             ordered_peaks = [max_peak] + [int(p) for p in peak_df['Peak'] if int(p) != max_peak]
         
         peak_options = [{'label': f'Peak {p}', 'value': f'peak:{p}'} for p in ordered_peaks]
         for e in peak_options:
             peak_num = [int(x) for x in e['label'].split() if x.isdigit()]
-            if chosen_peak is not None and peak_num[0] == chosen_peak:
+            if not exam_idx and peak_num[0] == exam_idx:
                     e['label'] += " (criteria) "
             if peak_num[0] == max_peak:
                 e['label'] += " (max depth)"
@@ -665,12 +672,12 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         exam_div = html.Div(
             [html.Span("Pass, ", style={'fontWeight': 'bold'})]
             + ([html.Span(f"{exam_msg}")] if exam_msg else []),
-            style={'color': 'green', 'fontSize': '20px', 'margin': '8px 0', 'fontFamily': 'system-ui, sans-serif'})
+            style={'color': 'green', 'fontSize': '18px', 'margin': '5px 0', 'fontFamily': 'system-ui, sans-serif'})
     elif exam_out == "Fail":
         exam_div = html.Div(
             [html.Span("Fail, ", style={'fontWeight': 'bold'})]
             + ([html.Span(f"{exam_msg}")] if exam_msg else []),
-            style={'color': 'red', 'fontSize': '20px', 'margin': '8px 0', 'fontFamily': 'system-ui, sans-serif'})
+            style={'color': 'red', 'fontSize': '18px', 'margin': '5px 0', 'fontFamily': 'system-ui, sans-serif'})
     else:
         exam_div = None
 
@@ -679,8 +686,8 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         html.Div([
             html.Div([
                 dcc.Graph(id='spectrum', figure=initial_fig, config={'scrollZoom':True}),
-                exam_div,
-                dash_table.DataTable(
+                html.Div(id='marker-info', style={'marginTop': '5px'}),
+                html.Div(id='peak-table-container', children=[exam_div, dash_table.DataTable(
                     data=peak_df.to_dict('records'),
                     # Display "Peak No." in the header while keeping the column id
                     # 'Peak' (which peak_df lookups and the width rules depend on).
@@ -701,20 +708,21 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
                         'backgroundColor': '#ADD8E6',
                         'fontWeight': 'bold',
                     }] if exam_idx is not None else [])) if pk is not None else [],
-                ) if pk is not None else None,
-                dash_table.DataTable(
-                    id='custom-table',
-                    columns=[{'name': 'Peak No.' if c == 'Peak' else c, 'id': c} for c in
-                             ['Channel', 'Peak', 'x', 'y', 'Depth', 'Bandwidth', 'base_x', 'base_y']],
-                    data=[{'Channel': channels[0], 'Peak': 'custom', 'x': '', 'y': '', 'Depth': '',
-                           'Bandwidth': '', 'base_x': '', 'base_y': ''}],
-                    style_cell={'fontFamily': '"Times New Roman", Times, serif', 'padding': '4px 8px', 'textAlign': 'center'},
-                    style_cell_conditional=custom_col_widths,
-                    style_as_list_view=True,
-                    style_header={'fontWeight': 'bold', 'backgroundColor': '#f0f0f0'},
-                    style_table={'marginBottom': '10px', 'width': 'fit-content'},
-                ),
-                html.Div(id='marker-info', style={'marginTop': '10px'}),
+                )]) if pk is not None else None,
+                html.Div(id='custom-table-container', style={'display': 'none'}, children=[
+                    dash_table.DataTable(
+                        id='custom-table',
+                        columns=[{'name': 'Peak No.' if c == 'Peak' else c, 'id': c} for c in
+                                 ['Channel', 'Peak', 'x', 'y', 'Depth', 'Bandwidth', 'base_x', 'base_y']],
+                        data=[{'Channel': channels[0], 'Peak': 'custom', 'x': '', 'y': '', 'Depth': '',
+                               'Bandwidth': '', 'base_x': '', 'base_y': ''}],
+                        style_cell={'fontFamily': '"Times New Roman", Times, serif', 'padding': '4px 8px', 'textAlign': 'center'},
+                        style_cell_conditional=custom_col_widths,
+                        style_as_list_view=True,
+                        style_header={'fontWeight': 'bold', 'backgroundColor': '#f0f0f0'},
+                        style_table={'marginBottom': '10px', 'width': 'fit-content'},
+                    ),
+                ]),
             ]),
             right_sidebar,
         ], style={'display': 'flex', 'alignItems': 'flex-start'}),
@@ -1110,8 +1118,12 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         # these points). Empty until there are at least two markers to join.
         lx, ly = [], []
         for i in range(len(markers) - 1):
-            t = np.linspace(0.0, 1.0, 100)
-            lx.extend((xs[i] + t * (xs[i + 1] - xs[i])).tolist())
+            seg_dx = xs[i + 1] - xs[i]
+            # One interpolated point every ~d_x (the native wavelength spacing)
+            # along the segment's x-span, so snap resolution follows the data.
+            n = max(2, int(round(abs(seg_dx) / d_x)) + 1)
+            t = np.linspace(0.0, 1.0, n)
+            lx.extend((xs[i] + t * seg_dx).tolist())
             ly.extend((ys[i] + t * (ys[i + 1] - ys[i])).tolist())
         patched['data'][delta_line_idx]['x'] = lx
         patched['data'][delta_line_idx]['y'] = ly
@@ -1137,12 +1149,12 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             rows.append({
                 'Marker': f'M{i+1}',
                 'x': f"{m['x']:.6f}", 'y': f"{m['y']:.5f}",
+                'mid x': mid_x, 'mid y': mid_y,
                 '|Δx|': f"{abs(dl):.6f}", '|Δy|': f"{abs(dp):.5f}",
                 'slope': slope_str,
-                'mid x': mid_x, 'mid y': mid_y,
             })
 
-        columns = ['Marker', 'x', 'y', '|Δx|', '|Δy|', 'slope', 'mid x', 'mid y',]
+        columns = ['Marker', 'x', 'y', 'mid x', 'mid y', '|Δx|', '|Δy|', 'slope']
         table = dash_table.DataTable(
             data=rows,
             columns=[{'name': c, 'id': c} for c in columns],
@@ -1193,7 +1205,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         x, y = float(wl[idx]), float(dbm[idx])
         patched['data'][2]['x'] = [x]
         patched['data'][2]['y'] = [y]
-        patched['data'][2]['text'] = ['M2']
+        patched['data'][2]['text'] = [f'({x:.6f}, {y:.5f})']
         if y_offset:
             search_range = int(search_range_pm/(d_x*1000))
             left_nm, right_nm, width_pm = find_bandwidth(wl, dbm, idx, y_offset, search_range)
@@ -1207,7 +1219,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             patched['data'][3]['text'] = ['L']
             patched['data'][4]['x'] = [float(right_nm)]
             patched['data'][4]['y'] = [max(dbm[i_right], y - y_offset)]
-            patched['data'][4]['text'] = ['R']
+            patched['data'][4]['text'] = [f'(width_pm: {width_pm:.3f})']
             
             width_info = f"width: {width_pm:.4f} pm\n"
         else:
@@ -1225,25 +1237,27 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
 
     @app.callback(
         Output('custom-table', 'data'),
+        Output('custom-table-container', 'style'),
         Input('mode2-info-store', 'data'),
         Input('markers-store', 'data'),
         prevent_initial_call=True,
     )
     def update_custom_table(m2, markers):
+        # Only show the custom table once a mode-2 marker (data[2]) exists.
+        if m2 is None:
+            return dash.no_update, {'display': 'none'}
         row = {'Channel': channels[0], 'Peak': 'custom', 'x': '', 'y': '', 'Depth': '',
                'Bandwidth': '', 'base_x': '', 'base_y': ''}
-        if m2 is not None:
-            row['x'] = f"{m2['x']:.6f}"
-            row['y'] = f"{m2['y']:.5f}"
-            if m2.get('width_pm') is not None:
-                row['Bandwidth'] = f"{m2['width_pm']:.3f}"
+        row['x'] = f"{m2['x']:.6f}"
+        row['y'] = f"{m2['y']:.5f}"
+        if m2.get('width_pm') is not None:
+            row['Bandwidth'] = f"{m2['width_pm']:.3f}"
         if markers:
             base = markers[-1]
             row['base_x'] = f"{base['x']:.6f}"
             row['base_y'] = f"{base['y']:.5f}"
-        if m2 is not None and markers:
             row['Depth'] = f"{m2['y'] - markers[-1]['y']:.5f}"
-        return [row]
+        return [row], {'display': 'block'}
 
     def _resample_curves(max_display, x0=None, x1=None):
         """Patch every spectrum/reference/overlay line to <=max_display points
@@ -1331,7 +1345,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         return _resample_curves(max_display)
 
     if pk is not None:
-        _ALL_MARKERS = ['peaks', 'max', 'avg'] + (['il'] if il_idx is not None else [])
+        _ALL_MARKERS = ['peaks', 'max', 'avg', 'table'] + (['il'] if il_idx is not None else [])
 
         @app.callback(
             Output('fwhm-dropdown', 'value'),
@@ -1370,6 +1384,14 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             if il_idx is not None:
                 patched['data'][il_idx]['visible'] = 'il' in value
             return patched
+
+        @app.callback(
+            Output('peak-table-container', 'style'),
+            Input('fwhm-dropdown', 'value'),
+            prevent_initial_call=True,
+        )
+        def toggle_peak_table(value):
+            return {} if 'table' in (value or []) else {'display': 'none'}
 
     # ------------------------------------------------------------------
     # Launch — Dash in a background thread, webview in main thread
