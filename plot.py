@@ -21,6 +21,15 @@ from plot_helper import lttb, lttb_multi, pre_process
 from datapath import data_path
 from filters import FILTER_LABELS, FILTER_PARAMS, apply_filter, FilterError
 
+# Shared styles for the three DataTables (peak, custom, watt export).
+# Row height is driven by the cell's vertical padding; keep it small for compact rows.
+TABLE_CELL_STYLE = {'fontFamily': '"Times New Roman", Times, serif',
+                    'fontSize': '15px', 'padding': '1px 8px', 'textAlign': 'right', 'height': '20px', 'lineHeight': '1'}
+TABLE_HEADER_STYLE = {'fontWeight': 'bold', 'backgroundColor': '#f0f0f0'}
+# Left indent shared by the three tables and the exam Pass/Fail line above them.
+TABLE_LEFT_MARGIN = '20px'
+TABLE_STYLE = {'marginBottom': '10px', 'marginLeft': TABLE_LEFT_MARGIN, 'width': 'fit-content'}
+
 # Remembered across display_plot() calls (i.e. across loop iterations) so the
 # "Choose a file" dropdown can pre-select the file used last time.
 _last_peak_file   = ''
@@ -154,20 +163,13 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     if pk is not None:
         # data[3..9] — peak annotation traces (shifted +1 due to mode-2 trace)
         initial_fig.add_scatter(x=pk.peaks.wl, y=dbm[pk.peaks.idx], mode='markers+text', name='Peaks', marker=dict(size=8, color='#E63946', symbol='circle', line=_border))
-        
         initial_fig.add_scatter(x=wl[pk.peaks.lt_idx], y=dbm[pk.peaks.lt_idx], mode='markers+text', name='Bases:Left', marker=dict(size=8, color='#2A9D8F', symbol='triangle-up', line=_border), text=[f"L:({x:.3f}, {y:.3f})" for x, y in zip(wl[pk.peaks.lt_idx], dbm[pk.peaks.lt_idx])], textposition='top right')
-
         initial_fig.add_scatter(x=wl[pk.peaks.rt_idx], y=dbm[pk.peaks.rt_idx], mode='markers+text', name='Bases:Right', marker=dict(size=8, color='#2A9D8F', symbol='triangle-down', line=_border), text=[f"R:({x:.3f}, {y:.3f})" for x, y in zip(wl[pk.peaks.rt_idx], dbm[pk.peaks.rt_idx])], textposition='top left')
-        
         initial_fig.add_scatter(x=pk.max_fwhm.lt, y=pk.max_fwhm.dbm, mode='markers', name="FWHM_max:Left", visible=True, marker=dict(size=8, color='#F4A261', symbol='square', line=_border))
-        
         initial_fig.add_scatter(x=pk.max_fwhm.rt, y=pk.max_fwhm.dbm, mode='markers', name="FWHM_max:Right", visible=True, marker=dict(size=8, color='#F4A261', symbol='square', line=_border))
-        
         initial_fig.add_scatter(x=pk.avg_fwhm.lt, y=pk.avg_fwhm.dbm, mode='markers', name="FWHM_avg:Left", visible=True, marker=dict(size=8, color='#457B9D', symbol='diamond', line=_border))
-        
         initial_fig.add_scatter(x=pk.avg_fwhm.rt, y=pk.avg_fwhm.dbm, mode='markers', name="FWHM_avg:Right", visible=True, marker=dict(size=8, color='#457B9D', symbol='diamond', line=_border))
 
-        
         peak_dict = {
             "x"           : np.round(pk.peaks.wl, decimals=6),
             "y"           : np.round(dbm[pk.peaks.idx], decimals=5),
@@ -180,9 +182,9 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         peak_df = pd.DataFrame(peak_dict)
         peak_df.insert(0, "Peak", [i+1 for i in range(len(peak_df))])
         peak_df.insert(0, "Channel", [channels[0] for _ in range(len(peak_df))])
-        peak_df["Note"] = ""
-        peak_df.loc[peak_df["Depth_max"].idxmax(), "Note"] += "(max depth)"
-
+        # peak_df["Category"] = ""
+        peak_df.insert(2, "Category", "")
+        peak_df.loc[peak_df["Depth_max"].idxmax(), "Category"] += "(max depth)"
 
     # ------------------------------------------------------------------
     # Remaining channels (channel 1 is data[0] above). Appended AFTER the
@@ -270,19 +272,20 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     # a Delta marker anywhere along the connector, not only at an existing marker.
     initial_fig.add_scatter(
         x=[], y=[], mode='lines', name='Delta:line', showlegend=False,
-        line=dict(color='rgba(216,90,48,0.35)', width=1),
+        line=dict(color='rgba(216,90,48,0.35)', width=1.5),
         hovertemplate='%{x:.7f}<br>%{y:.5f}',
     )
     delta_line_idx = len(initial_fig.data) - 1
 
     initial_fig.update_layout(
-        xaxis_title='Wavelength (nm)',
-        yaxis_title='Power (dBm or dB)',
+        xaxis_title=dict(text='<b>Wavelength (nm)</b>', font=dict(size=12), standoff=5),
+        yaxis_title=dict(text='<b>Power (dBm or dB)</b>', font=dict(size=12), standoff=5),
         hovermode='closest',
         showlegend=True,
-        height=600,
-        width=1250,
-        margin=dict(t=30, b=5),
+        legend=dict(x=1.0, xanchor='left'),
+        height=550,
+        width=1300,
+        margin=dict(l=50, t=30, b=5),
         uirevision='constant',
     )
 
@@ -473,18 +476,6 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     ], style={'display': 'flex', 'alignItems': 'center', 'gap': '4px',
               'padding': '3px 16px', 'backgroundColor': '#2c3e50'})
 
-    # Shared widths for the first five columns so the peak table and the
-    # custom table line up. The two tables use different ids for cols 4-5
-    # ("Depth (max)"/"FWHM (max)" vs "Depth"/"Width"), so map per table.
-    FIRST5_WIDTHS = ['70px', '110px', '100px', '100px', '100px']
-
-    def _col_widths(col_ids):
-        return [{'if': {'column_id': c}, 'width': w, 'minWidth': w, 'maxWidth': w}
-                for c, w in zip(col_ids, FIRST5_WIDTHS)]
-
-    peak_col_widths   = _col_widths(['Peak', 'x', 'y', 'Depth (max)', 'FWHM (max)'])
-    custom_col_widths = _col_widths(['Peak', 'x', 'y', 'Depth', 'Bandwidth'])
-
     # ------------------------------------------------------------------
     # "Save peak info" modal — choose a detected peak (or the custom one)
     # and enter a label, then append a row to the fixed Peak Analyses CSV.
@@ -492,16 +483,15 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     if pk is not None:
         # Put the highlighted peak (max Depth_max, see line ~329) at the top.
         max_peak = int(peak_df.loc[peak_df['Depth_max'].idxmax(), 'Peak'])
-        if not exam_idx:
+        if exam_idx is not None:
             ordered_peaks = [exam_idx] + ([max_peak] if max_peak != exam_idx else [] ) + [int(p) for p in peak_df['Peak'] if int(p) not in [exam_idx, max_peak]]
-            peak_df.loc[peak_df["Peak"] == exam_idx, "Note"] += "(criteria)"
+            peak_df.loc[peak_df["Peak"] == exam_idx, "Category"] += "(criteria)"
         else:
             ordered_peaks = [max_peak] + [int(p) for p in peak_df['Peak'] if int(p) != max_peak]
-        
         peak_options = [{'label': f'Peak {p}', 'value': f'peak:{p}'} for p in ordered_peaks]
         for e in peak_options:
             peak_num = [int(x) for x in e['label'].split() if x.isdigit()]
-            if not exam_idx and peak_num[0] == exam_idx:
+            if exam_idx is not None and peak_num[0] == exam_idx:
                     e['label'] += " (criteria) "
             if peak_num[0] == max_peak:
                 e['label'] += " (max depth)"
@@ -576,7 +566,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             html.Label('Wavelength (nm)', style=_stat_label_style),
             dcc.Input(id='peak-wavelength', type='text', readOnly=True,
                       value=_fmt_stat(_init_wl, 6), style=_stat_input_style),
-            html.Label('Depth', style=_stat_label_style),
+            html.Label('Depth (dB)', style=_stat_label_style),
             dcc.Input(id='peak-depth', type='text', readOnly=True,
                       value=_fmt_stat(_init_depth, 5), style=_stat_input_style),
             html.Label('Width (pm)', style=_stat_label_style),
@@ -672,12 +662,12 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         exam_div = html.Div(
             [html.Span("Pass, ", style={'fontWeight': 'bold'})]
             + ([html.Span(f"{exam_msg}")] if exam_msg else []),
-            style={'color': 'green', 'fontSize': '18px', 'margin': '5px 0', 'fontFamily': 'system-ui, sans-serif'})
+            style={'color': 'green', 'fontSize': '18px', 'margin': '5px 0', 'marginLeft': TABLE_LEFT_MARGIN, 'fontFamily': 'system-ui, sans-serif'})
     elif exam_out == "Fail":
         exam_div = html.Div(
             [html.Span("Fail, ", style={'fontWeight': 'bold'})]
             + ([html.Span(f"{exam_msg}")] if exam_msg else []),
-            style={'color': 'red', 'fontSize': '18px', 'margin': '5px 0', 'fontFamily': 'system-ui, sans-serif'})
+            style={'color': 'red', 'fontSize': '18px', 'margin': '5px 0', 'marginLeft': TABLE_LEFT_MARGIN, 'fontFamily': 'system-ui, sans-serif'})
     else:
         exam_div = None
 
@@ -687,28 +677,6 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             html.Div([
                 dcc.Graph(id='spectrum', figure=initial_fig, config={'scrollZoom':True}),
                 html.Div(id='marker-info', style={'marginTop': '5px'}),
-                html.Div(id='peak-table-container', children=[exam_div, dash_table.DataTable(
-                    data=peak_df.to_dict('records'),
-                    # Display "Peak No." in the header while keeping the column id
-                    # 'Peak' (which peak_df lookups and the width rules depend on).
-                    columns=[{'name': 'Peak No.' if c == 'Peak' else c, 'id': c} for c in peak_df.columns],
-                    style_cell={'fontFamily': '"Times New Roman", Times, serif', 'padding': '4px 8px', 'textAlign': 'center'},
-                    style_cell_conditional=peak_col_widths,
-                    style_as_list_view=True,
-                    style_header={'fontWeight': 'bold', 'backgroundColor': '#f0f0f0'},
-                    style_table={'marginBottom': '10px', 'width': 'fit-content'},
-                    style_data_conditional=([{
-                        'if': {'filter_query': '{{Depth_max}} >= {}'.format(peak_df['Depth_max'].max())},
-                        'backgroundColor': '#FFF3B0',
-                        'fontWeight': 'bold',
-                    }] + ([{
-                        # exam_idx starts at 0, Peak starts at 1. Listed after the
-                        # max-depth rule so it takes precedence on overlap.
-                        'if': {'filter_query': '{{Peak}} = {}'.format(exam_idx + 1)},
-                        'backgroundColor': '#ADD8E6',
-                        'fontWeight': 'bold',
-                    }] if exam_idx is not None else [])) if pk is not None else [],
-                )]) if pk is not None else None,
                 html.Div(id='custom-table-container', style={'display': 'none'}, children=[
                     dash_table.DataTable(
                         id='custom-table',
@@ -716,13 +684,32 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
                                  ['Channel', 'Peak', 'x', 'y', 'Depth', 'Bandwidth', 'base_x', 'base_y']],
                         data=[{'Channel': channels[0], 'Peak': 'custom', 'x': '', 'y': '', 'Depth': '',
                                'Bandwidth': '', 'base_x': '', 'base_y': ''}],
-                        style_cell={'fontFamily': '"Times New Roman", Times, serif', 'padding': '4px 8px', 'textAlign': 'center'},
-                        style_cell_conditional=custom_col_widths,
+                        style_cell=TABLE_CELL_STYLE,
                         style_as_list_view=True,
-                        style_header={'fontWeight': 'bold', 'backgroundColor': '#f0f0f0'},
-                        style_table={'marginBottom': '10px', 'width': 'fit-content'},
+                        style_header=TABLE_HEADER_STYLE,
+                        style_table=TABLE_STYLE,
                     ),
                 ]),
+                html.Div(id='peak-table-container', children=[exam_div, dash_table.DataTable(
+                    data=peak_df.to_dict('records'),
+                    # Display "Peak No." in the header while keeping the column id
+                    # 'Peak' (which peak_df lookups and the width rules depend on).
+                    columns=[{'name': 'Peak No.' if c == 'Peak' else c, 'id': c} for c in peak_df.columns],
+                    style_cell=TABLE_CELL_STYLE,
+                    style_as_list_view=True,
+                    style_header=TABLE_HEADER_STYLE,
+                    style_table=TABLE_STYLE,
+                    style_data_conditional=([{
+                        'if': {'filter_query': '{{Depth_max}} >= {}'.format(peak_df['Depth_max'].max())},
+                        'backgroundColor': '#FFF3B0',
+                        # 'fontWeight': 'bold',
+                    }] + ([{
+                        # Listed after the max-depth rule so it takes precedence on overlap.
+                        'if': {'filter_query': '{{Peak}} = {}'.format(exam_idx)},
+                        'backgroundColor': '#ADD8E6',
+                        # 'fontWeight': 'bold',
+                    }] if exam_idx is not None else [])) if pk is not None else [],
+                )]) if pk is not None else None,
             ]),
             right_sidebar,
         ], style={'display': 'flex', 'alignItems': 'flex-start'}),
@@ -808,10 +795,11 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
                     _line(c_arr, f'{COL_SCAN}{s}_{COL_CH}{ch}_{watt_s.unit}', visible='legendonly')
 
         fig.update_layout(
-            xaxis_title='Wavelength (nm)',
-            yaxis_title=f'Power ({watt_s.unit})',
+            xaxis_title=dict(text='<b>Wavelength (nm)</b>', font=dict(size=12), standoff=5),
+            yaxis_title=dict(text=f'<b>Power ({watt_s.unit})</b>', font=dict(size=12)),
             hovermode='closest', showlegend=True,
-            height=600, width=1250, margin=dict(t=30, b=40),
+            legend=dict(x=1.0, xanchor='left'),
+            height=750, width=1450, margin=dict(l=55, t=30, b=40),
         )
         fig.update_xaxes(tickformat='.3f', hoverformat='.5f', showspikes=True,
                          spikecolor='gray', spikemode='across', spikethickness=1)
@@ -1141,7 +1129,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             prev = markers[i - 1] if i > 0 else {'x': 0.0, 'y': 0.0}
             dl = m['x'] - prev['x']
             dp = m['y'] - prev['y']
-            slope_str = "∞ (vertical)" if dl == 0 else f"{(dp / dl)*-1:+.5f}"
+            slope_str = "∞ (vertical)" if dl == 0 else f"{(dp / dl)*-1:+.1f}"
             # Midpoint (average) with the previous marker; blank for the first,
             # which has no previous marker to average against.
             mid_x = f"{(m['x'] + prev['x']) / 2:.6f}"
@@ -1158,11 +1146,10 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         table = dash_table.DataTable(
             data=rows,
             columns=[{'name': c, 'id': c} for c in columns],
-            style_cell={'fontFamily': '"Times New Roman", Times, serif',
-                        'padding': '4px 8px', 'textAlign': 'center'},
+            style_cell=TABLE_CELL_STYLE,
             style_as_list_view=True,
-            style_header={'fontWeight': 'bold', 'backgroundColor': '#f0f0f0'},
-            style_table={'marginBottom': '10px', 'width': 'fit-content'},
+            style_header=TABLE_HEADER_STYLE,
+            style_table=TABLE_STYLE,
         )
         return patched, table
     

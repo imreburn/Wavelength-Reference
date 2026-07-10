@@ -198,7 +198,7 @@ def exam_peak(pk: PeakInfo, params: Params):
     if error_msg != []:
         return "Fail", ", ".join(peak_msg, error_msg), peak_idx
     
-    return "Pass", peak_msg+f" within location {crit_loc}, depth {crit_dep}, width {crit_wid}", peak_idx
+    return "Pass", peak_msg+f" within location {crit_loc}"+(f", depth {crit_dep}" if sum(crit_dep) > 0 else "") + (f", width {crit_wid}" if sum(crit_wid) > 0 else ""), peak_idx
         
 
 if __name__ == "__main__":
