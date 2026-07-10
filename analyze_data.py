@@ -190,13 +190,13 @@ def exam_peak(pk: PeakInfo, params: Params):
     error_msg = []
     peak_msg = f'Peak{peak_idx}@{peak_loc:.3f}:'
     if not in_between(peak_dep, crit_dep) and sum(crit_dep) != 0:
-        error_msg.append(f" depth({peak_dep:.5f}) not in {crit_dep},")
+        error_msg.append(f" depth ({peak_dep:.3f}) outside {crit_dep}")
         
     if not in_between(peak_wid, crit_wid) and sum(crit_wid) != 0:
-        error_msg.append(f" width({peak_wid:.3f}) not in {crit_wid}")
+        error_msg.append(f" width ({peak_wid:.3f}) outside {crit_wid}")
         
     if error_msg != []:
-        return "Fail", ", ".join(peak_msg, error_msg), peak_idx
+        return "Fail", peak_msg + ",".join(error_msg), peak_idx
     
     return "Pass", peak_msg+f" within location {crit_loc}"+(f", depth {crit_dep}" if sum(crit_dep) > 0 else "") + (f", width {crit_wid}" if sum(crit_wid) > 0 else ""), peak_idx
         

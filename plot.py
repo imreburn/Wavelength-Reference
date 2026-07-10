@@ -21,14 +21,18 @@ from plot_helper import lttb, lttb_multi, pre_process
 from datapath import data_path
 from filters import FILTER_LABELS, FILTER_PARAMS, apply_filter, FilterError
 
-# Shared styles for the three DataTables (peak, custom, watt export).
+# Shared styles for the three DataTables (peak, custom, delta markers).
 # Row height is driven by the cell's vertical padding; keep it small for compact rows.
 TABLE_CELL_STYLE = {'fontFamily': '"Times New Roman", Times, serif',
                     'fontSize': '15px', 'padding': '1px 8px', 'textAlign': 'right', 'height': '20px', 'lineHeight': '1'}
 TABLE_HEADER_STYLE = {'fontWeight': 'bold', 'backgroundColor': '#f0f0f0'}
 # Left indent shared by the three tables and the exam Pass/Fail line above them.
-TABLE_LEFT_MARGIN = '20px'
+TABLE_LEFT_MARGIN = '10px'
 TABLE_STYLE = {'marginBottom': '10px', 'marginLeft': TABLE_LEFT_MARGIN, 'width': 'fit-content'}
+# Caption shown above each table. Sans-serif + muted so it frames the serif data.
+TABLE_TITLE_STYLE = {'fontFamily': 'system-ui, sans-serif', 'fontWeight': 'bold',
+                     'fontSize': '13px', 'color': '#555',
+                     'margin': '0 0 4px', 'marginLeft': TABLE_LEFT_MARGIN}
 
 # Remembered across display_plot() calls (i.e. across loop iterations) so the
 # "Choose a file" dropdown can pre-select the file used last time.
@@ -181,7 +185,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         
         peak_df = pd.DataFrame(peak_dict)
         peak_df.insert(0, "Peak", [i+1 for i in range(len(peak_df))])
-        peak_df.insert(0, "Channel", [channels[0] for _ in range(len(peak_df))])
+        peak_df.insert(0, "Ch", [channels[0] for _ in range(len(peak_df))])
         # peak_df["Category"] = ""
         peak_df.insert(2, "Category", "")
         peak_df.loc[peak_df["Depth_max"].idxmax(), "Category"] += "(max depth)"
@@ -676,21 +680,25 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         html.Div([
             html.Div([
                 dcc.Graph(id='spectrum', figure=initial_fig, config={'scrollZoom':True}),
-                html.Div(id='marker-info', style={'marginTop': '5px'}),
-                html.Div(id='custom-table-container', style={'display': 'none'}, children=[
-                    dash_table.DataTable(
-                        id='custom-table',
-                        columns=[{'name': 'Peak No.' if c == 'Peak' else c, 'id': c} for c in
-                                 ['Channel', 'Peak', 'x', 'y', 'Depth', 'Bandwidth', 'base_x', 'base_y']],
-                        data=[{'Channel': channels[0], 'Peak': 'custom', 'x': '', 'y': '', 'Depth': '',
-                               'Bandwidth': '', 'base_x': '', 'base_y': ''}],
-                        style_cell=TABLE_CELL_STYLE,
-                        style_as_list_view=True,
-                        style_header=TABLE_HEADER_STYLE,
-                        style_table=TABLE_STYLE,
-                    ),
-                ]),
-                html.Div(id='peak-table-container', children=[exam_div, dash_table.DataTable(
+                # Delta-markers table and the custom table sit side by side.
+                html.Div([
+                    html.Div(id='marker-info'),
+                    html.Div(id='custom-table-container', style={'display': 'none'}, children=[
+                        html.Div('Custom Peak', style=TABLE_TITLE_STYLE),
+                        dash_table.DataTable(
+                            id='custom-table',
+                            columns=[{'name': 'Peak No.' if c == 'Peak' else c, 'id': c} for c in
+                                     ['Ch', 'Peak', 'x', 'y', 'Depth', 'Bandwidth', 'base_x', 'base_y']],
+                            data=[{'Ch': channels[0], 'Peak': 'custom', 'x': '', 'y': '', 'Depth': '',
+                                   'Bandwidth': '', 'base_x': '', 'base_y': ''}],
+                            style_cell=TABLE_CELL_STYLE,
+                            style_as_list_view=True,
+                            style_header=TABLE_HEADER_STYLE,
+                            style_table=TABLE_STYLE,
+                        ),
+                    ]),
+                ], style={'display': 'flex', 'alignItems': 'flex-start', 'gap': '30px', 'marginTop': '5px'}),
+                html.Div(id='peak-table-container', children=[exam_div, html.Div('Peaks (auto-detected)', style=TABLE_TITLE_STYLE), dash_table.DataTable(
                     data=peak_df.to_dict('records'),
                     # Display "Peak No." in the header while keeping the column id
                     # 'Peak' (which peak_df lookups and the width rules depend on).
@@ -1144,14 +1152,14 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
 
         columns = ['Marker', 'x', 'y', 'mid x', 'mid y', '|Δx|', '|Δy|', 'slope']
         table = dash_table.DataTable(
-            data=rows,
+            data=rows[::-1],  # newest marker on top
             columns=[{'name': c, 'id': c} for c in columns],
             style_cell=TABLE_CELL_STYLE,
             style_as_list_view=True,
             style_header=TABLE_HEADER_STYLE,
             style_table=TABLE_STYLE,
         )
-        return patched, table
+        return patched, [html.Div('Delta Markers', style=TABLE_TITLE_STYLE), table]
     
     @app.callback(
         Output('mode2-slider', 'min'),
@@ -1233,8 +1241,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         # Only show the custom table once a mode-2 marker (data[2]) exists.
         if m2 is None:
             return dash.no_update, {'display': 'none'}
-        row = {'Channel': channels[0], 'Peak': 'custom', 'x': '', 'y': '', 'Depth': '',
-               'Bandwidth': '', 'base_x': '', 'base_y': ''}
+        row = {'Ch': channels[0], 'Peak': 'custom', 'x': '', 'y': '', 'Depth': '', 'Bandwidth': '', 'base_x': '', 'base_y': ''}
         row['x'] = f"{m2['x']:.6f}"
         row['y'] = f"{m2['y']:.5f}"
         if m2.get('width_pm') is not None:
