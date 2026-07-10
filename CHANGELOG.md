@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [v1.1.8] - 2026-07-10
 
 ### Added
 
@@ -10,11 +10,15 @@
 
 ### Changed
 
-- The power unit of the saved raw data changes from dBm (or dB) to Watt. ([#58](https://github.com/imreburn/Wavelength-Reference/issues/58))
+- The power unit of the saved raw data changes from dBm (or dB) to **Watt**. ([#58](https://github.com/imreburn/Wavelength-Reference/issues/58))
 - If the fields of "Pass/Fail Criteria" are left empty, 0 is assigned instead of showing an error message. ([#64](https://github.com/imreburn/Wavelength-Reference/issues/64))
 - The delta marker table is placed first below the spectrum. ([#69](https://github.com/imreburn/Wavelength-Reference/issues/69))
-- The custom peak table is shown only if the Bandwidth marker exists, above the peak table.
+- The newest marker is shown first in the delta marker table.
+- The custom peak table is shown only if the Bandwidth marker exists.
+- The custom peak table is shown right side of the delta marker table.
 - When a Bandwidth marker is placed, the (x, y) position is shown with the marker. The width is also shown next to the offset marker.
+- A title is displayed above each table.
+- The overall layout is tighter.  
 
 ### Fixed
 
