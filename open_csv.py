@@ -15,7 +15,7 @@ from datapath import data_path
 
 def plot_raw(filepath=None):
     log = setup_logging("PlotSweep")
-    log.info(f"Version: {APP_VERSION}")
+    log.info(f"Version_{APP_VERSION}")
 
     if not filepath:
         root = tk.Tk()

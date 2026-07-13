@@ -9,7 +9,7 @@ from constants import APP_VERSION
 import shutdown
 
 log = setup_logging("WavelengthSweep")
-log.info(f"Version: {APP_VERSION}")
+log.info(f"Version_{APP_VERSION}")
 
 try:
     pm, laser = prep_inst()

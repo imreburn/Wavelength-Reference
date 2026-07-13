@@ -21,9 +21,7 @@ def fast_exit(code=0):
     os._exit(code)
 
 def setup_logging(app_name, level=logging.INFO, max_files=20, max_bytes=10 * 1024 * 1024):
-    """Configure logging once. Writes to logs/<app_name>/<date>_<time>.log (a new
-    file per run) and the console. `app_name` keeps each program's logs in their
-    own folder and tags every line via the %(name)s field.
+    """Configure logging once. Writes to logs/<app_name>/<date>_<time>.log (a new file per run) and the console. `app_name` keeps each program's logs in their own folder and tags every line via the %(name)s field.
 
     `max_files` caps how many run logs are kept in the folder: the oldest are
     deleted at startup so at most `max_files` remain. `max_bytes` caps the size
@@ -35,7 +33,7 @@ def setup_logging(app_name, level=logging.INFO, max_files=20, max_bytes=10 * 102
     # Prune old runs (oldest first) so this run brings the total to max_files.
     existing = sorted(log_dir.glob("*.log"), key=lambda p: p.stat().st_mtime)
     keep = max(max_files - 1, 0)
-    for old in existing[:len(existing) - keep]:
+    for old in existing[:max(len(existing) - keep, 0)]:
         old.unlink()
 
     log_file = log_dir / f"{datetime.now():%Y-%m-%d_%H-%M-%S}.log"
@@ -60,8 +58,9 @@ def setup_logging(app_name, level=logging.INFO, max_files=20, max_bytes=10 * 102
     # sent to threading.excepthook, which by default only prints to stderr — so
     # it reaches the console but not the log file. Route it through logging so it
     # lands in both. NOTE: this only catches exceptions that fully escape a
-    # thread; errors swallowed inside a framework's own event loop (Tk callbacks,
-    # Dash callbacks) never get here and still need their own handlers.
+    # thread; errors swallowed inside a framework's own event loop
+    # (Tk callbacks, Dash callbacks) never get here and still need their own
+    # handlers.
     def _log_thread_exception(args):
         if args.exc_type is SystemExit:
             return

@@ -4,11 +4,11 @@
 
 ### Added
 
-- The program automatically exits if the laptop lid is closed or the program is left idle more than 30 minutes.
+- The program exits automatically if the laptop lid is closed for more than 30 seconds or the program is left idle more than 30 minutes. ([#55](https://github.com/imreburn/Wavelength-Reference/issues/55))
 
 ### Changed
 
-- When unchecking markers from the list "Show markers/table", the visibility is set as 'legendonly' instead of 'off'.
+- When unchecking markers from the list "Show markers/table", the visibility is set as `legendonly` instead of 'off'.
 
 ## [v1.1.8] - 2026-07-10
 

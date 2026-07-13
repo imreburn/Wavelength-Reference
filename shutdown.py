@@ -44,7 +44,7 @@ _WATCHDOG_TICK_S = 2
 # with no mouse/keyboard activity so an abandoned session releases the
 # instruments. IDLE_MS is the same duration for the plot's browser-side check;
 # IDLE_POLL_MS is how often each window re-checks.
-IDLE_SECONDS = 60
+IDLE_SECONDS = 1800
 IDLE_MS = IDLE_SECONDS * 1000
 IDLE_POLL_MS = 10000
 
