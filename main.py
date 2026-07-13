@@ -5,11 +5,16 @@ from analyze_data import combine_scans
 from plot import display_plot
 from logger import setup_logging, fast_exit
 from structs import Dataset
+import shutdown
 
 log = setup_logging("WavelengthSweep")
 
 try:
     pm, laser = prep_inst()
+    # Exit on laptop-close/system-sleep: the VISA sessions go stale on wake, so
+    # a daemon thread hard-exits rather than leaving them held. (Idle-timeout,
+    # handled per-window below, is a separate, graceful path.)
+    shutdown.start_sleep_watchdog()
     ref_data = []
     auto_run = False  # set by Repeat on the previous plot; auto-Runs this loop
 
@@ -35,7 +40,11 @@ try:
             ref_data = raw_w.data.copy()
         
         auto_run = display_plot(raw_w, params=params)
-    
+        # The plot window sets this on idle timeout; its normal close would
+        # otherwise loop back to the config window instead of exiting.
+        if shutdown.requested():
+            break
+
     close_inst(pm, laser)
 
 except Exception:

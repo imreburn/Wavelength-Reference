@@ -1,5 +1,6 @@
 from datetime import datetime
 import math
+import time
 import tkinter as tk
 from tkinter import ttk
 import logging
@@ -12,6 +13,7 @@ import dpi_awareness  # noqa: F401
 log = logging.getLogger(__name__)
 
 from inst_helper import prep_inst, check_inst
+from shutdown import IDLE_SECONDS, IDLE_POLL_MS
 from structs import Params
 from config_helper import (
     FIELD_LABELS, DEFAULTS, SWEEP_SPEED_OPTIONS, PADDING,
@@ -675,6 +677,29 @@ def get_inputs(pm=None, laser=None, auto_run=False):
     # re-run; a fresh session (no _last) can't auto-run.
     if auto_run and "fields" in _last:
         root.after(500, on_run)
+
+    # ---- Idle timeout ----------------------------------------------------
+    # Close after IDLE_SECONDS with no keyboard/button activity. On expiry reuse
+    # on_close(), so get_inputs() returns None and main.py breaks the loop and
+    # runs close_inst (laser off). Reset on key/button (mouse motion alone isn't
+    # activity on a form); bind_all also covers the Read Power Toplevel.
+    _idle_deadline = {"t": time.time() + IDLE_SECONDS}
+
+    def _reset_idle(_e=None):
+        _idle_deadline["t"] = time.time() + IDLE_SECONDS
+
+    def _check_idle():
+        if not root.winfo_exists():
+            return
+        if time.time() >= _idle_deadline["t"]:
+            log.info("Idle timeout — closing configuration window.")
+            on_close()
+            return
+        root.after(IDLE_POLL_MS, _check_idle)
+
+    root.bind_all("<Key>", _reset_idle, add="+")
+    root.bind_all("<Button>", _reset_idle, add="+")
+    root.after(IDLE_POLL_MS, _check_idle)
 
     # Grab keyboard focus so Enter works without clicking the window first
     # (on reopen, focus tends to stay on the console).

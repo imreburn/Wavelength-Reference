@@ -14,6 +14,7 @@ import logging
 
 log = logging.getLogger(__name__)
 
+import shutdown
 from structs import PeakInfo, Params, Dataset
 from analyze_data import peak_detection, find_bandwidth, exam_peak
 from save_csv import save_csv_raw, save_csv_peak_row, COL_CH, COL_REF, COL_SCAN, RAW_DIR
@@ -701,6 +702,9 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         dcc.Store(id='markers-store', data=[]),
         dcc.Store(id='mode2-anchor-store', data=None),
         dcc.Store(id='mode2-info-store', data=None),
+        dcc.Store(id='idle-store', data=None),
+        dcc.Interval(id='idle-check', interval=shutdown.IDLE_POLL_MS, n_intervals=0),
+        html.Div(id='idle-shutdown-dummy', style={'display': 'none'}),
         peak_modal,
         filter_modal,
     ])
@@ -867,6 +871,48 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         Output('save-peak-btn', 'title'),
         Input('save-peak-btn', 'n_clicks'),
     )
+
+    # Idle auto-close: track activity browser-side and, after IDLE_MS with none,
+    # ask the server to close the window (once, via the _idleFired latch). Unlike
+    # the config window (whose close already exits), a normal plot close loops
+    # back to config — so the paired server callback sets the shared shutdown
+    # flag to break main.py's loop. Capture-phase listeners so typing counts too.
+    app.clientside_callback(
+        """
+        function(n) {
+            if (!window._idleActivityBound) {
+                window._idleActivityBound = true;
+                window._lastActivity = Date.now();
+                ['mousemove', 'keydown', 'click'].forEach(function(ev) {
+                    document.addEventListener(ev, function() {
+                        window._lastActivity = Date.now();
+                    }, true);
+                });
+            }
+            if (Date.now() - window._lastActivity > __IDLE_MS__) {
+                if (window._idleFired) return window.dash_clientside.no_update;
+                window._idleFired = true;
+                return Date.now();
+            }
+            return window.dash_clientside.no_update;
+        }
+        """.replace('__IDLE_MS__', str(shutdown.IDLE_MS)),
+        Output('idle-store', 'data'),
+        Input('idle-check', 'n_intervals'),
+    )
+
+    @app.callback(
+        Output('idle-shutdown-dummy', 'children'),
+        Input('idle-store', 'data'),
+        prevent_initial_call=True,
+    )
+    def on_idle_timeout(_ts):
+        log.info("Idle timeout — closing plot window.")
+        shutdown.request()
+        window = _window_holder.get('window')
+        if window is not None:
+            window.destroy()
+        return ''
 
     @app.callback(
         Output('peak-modal', 'style'),
