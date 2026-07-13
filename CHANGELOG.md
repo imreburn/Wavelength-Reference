@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unrelease]
+
+### Changed
+
+- When unchecking markers from the list "Show markers/table", the visibility is set as 'legendonly' instead of 'off'.
+
 ## [v1.1.8] - 2026-07-10
 
 ### Added

@@ -10,7 +10,7 @@ import numpy as np
 from scipy.signal import find_peaks, peak_widths
 import logging
 
-from structs import PeakInfo, Peaks, PeakFwhm, MaxPeak, Params
+from structs import PeakInfo, Peaks, PeakFwhm, Params
 from constants import POWER_LIMIT
 
 log = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ def combine_scans(scans, params: Params):
     return combined
 
 
-def peak_detection(x, y):
+def peak_detection(x, y, tune=None):
     # scipy's peak_widths requires float64 buffers; PM data is read as float32
     # y = np.asarray(data[1], dtype=np.float64)
 
@@ -59,24 +59,24 @@ def peak_detection(x, y):
         return None
 
     # Prominence takes the shorter peak depth by definition
-    min_peak_heights = peak_properties['prominences']
+    min_peak_depths = peak_properties['prominences']
     left_bases_is    = peak_properties['left_bases']
     right_bases_is   = peak_properties['right_bases']
     
     # Find peak depths - Max
-    max_peak_heights = np.array([max(p-l, p-r) for p, l, r in zip(y[peak_indices], y[left_bases_is], y[right_bases_is])])
+    max_peak_depths = np.array([max(p-l, p-r) for p, l, r in zip(y[peak_indices], y[left_bases_is], y[right_bases_is])])
     
     # Find peak depths - Averaged
-    avg_peak_heights = np.array([round(p-(l+r)/2, 7) for p, l, r in zip(y[peak_indices], y[left_bases_is], y[right_bases_is])])
+    avg_peak_depths = np.array([round(p-(l+r)/2, 7) for p, l, r in zip(y[peak_indices], y[left_bases_is], y[right_bases_is])])
 
     # Find FWHM in two ways
     # left_ips, right_ips are fractional indices (interpolated positions)
     
     # Max
-    max_widths, max_fwhm_dbm, max_l_ips, max_r_ips = peak_widths(y, peak_indices, rel_height=0.5, prominence_data=(max_peak_heights, left_bases_is, right_bases_is))
+    max_widths, max_fwhm_dbm, max_l_ips, max_r_ips = peak_widths(y, peak_indices, rel_height=0.5, prominence_data=(max_peak_depths, left_bases_is, right_bases_is))
     
     # Averaged base
-    avg_widths, avg_fwhm_dbm, avg_l_ips, avg_r_ips = peak_widths(y, peak_indices, rel_height=0.5, prominence_data=(avg_peak_heights, left_bases_is, right_bases_is))
+    avg_widths, avg_fwhm_dbm, avg_l_ips, avg_r_ips = peak_widths(y, peak_indices, rel_height=0.5, prominence_data=(avg_peak_depths, left_bases_is, right_bases_is))
 
     # Convert fractional indices in x-axis
     max_fwhm_left_nm  = [x[int(ip)] + (ip % 1.0) * d_x for ip in max_l_ips]
@@ -90,7 +90,7 @@ def peak_detection(x, y):
     # Peak locations in nm
     peak_nm    = np.array(x[peak_indices])
     # Get the index of the highest peak
-    max_peak_n = np.argmax(max_peak_heights)
+    max_peak_n = np.argmax(max_peak_depths)
 
     return PeakInfo(
         peaks=Peaks(
@@ -98,8 +98,8 @@ def peak_detection(x, y):
             wl         = peak_nm,
             lt_idx     = left_bases_is,
             rt_idx     = right_bases_is,
-            max_depths = max_peak_heights,
-            avg_depths = avg_peak_heights,
+            max_depths = max_peak_depths,
+            avg_depths = avg_peak_depths,
         ),
         max_fwhm=PeakFwhm(
             lt    = max_fwhm_left_nm,
@@ -112,11 +112,6 @@ def peak_detection(x, y):
             rt    = avg_fwhm_right_nm,
             width = avg_fwhm_pm,
             dbm   = avg_fwhm_dbm,
-        ),
-        csv=MaxPeak(
-            wl    = peak_nm[max_peak_n],
-            depth = max_peak_heights[max_peak_n],
-            fwhm  = max_fwhm_pm[max_peak_n],
         ),
     )
 

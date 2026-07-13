@@ -44,29 +44,6 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     """
     Parameters
     ----------
-    data : list of arrays
-        One power array (dBm) per channel, ordered to match
-        ``params.channel``. The wavelength 
-        axis is reconstructed from
-        ``params`` (it is shared by every channel). All peak/marker
-        analysis and insertion loss run on the FIRST channel only
-        (``data[0]`` / ``params.channel[0]``); the rest are drawn for
-        display. Lines are labelled ``Ch.<n>``.
-    ref : list of arrays, optional
-        Reference sweep, one array per channel (same order as ``data``).
-        Drawn as dashed ``Ch.<n>(Ref)`` lines; insertion loss uses
-        channel 0 only.
-    overlays : list of lists, optional
-        The individual dynamic-range scans — a list of scans, each a list
-        of per-channel arrays. Drawn (display-only, legend-only) as dotted
-        ``Ch.<n>(Scan <i>)`` lines; only shown when there is more than one
-        scan.
-    width, height : int, optional
-        Initial dimensions of the desktop window in pixels.
-    port : int, optional
-        Deprecated / ignored. The Dash server now binds an OS-assigned
-        ephemeral port on each call to avoid stale-server races; kept only
-        for backward-compatible call sites.
 
     Notes
     -----
@@ -1363,9 +1340,9 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         )
         def update_fwhm_visibility(value):
             value = value or []
-            show_peaks = 'peaks' in value
-            show_max = 'max' in value
-            show_avg = 'avg' in value
+            show_peaks = 'peaks' in value if 'peaks' in value else 'legendonly'
+            show_max = 'max' in value if 'max' in value else 'legendonly'
+            show_avg = 'avg' in value if 'avg' in value else 'legendonly'
             patched = Patch()
             # Indices shifted +3 (data[2..4] are mode-2 traces)
             patched['data'][5]['visible'] = show_peaks   # Peaks
@@ -1376,7 +1353,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             patched['data'][10]['visible'] = show_avg
             patched['data'][11]['visible'] = show_avg
             if il_idx is not None:
-                patched['data'][il_idx]['visible'] = 'il' in value
+                patched['data'][il_idx]['visible'] = 'il' in value if 'il' in value else 'legendonly'
             return patched
 
         @app.callback(

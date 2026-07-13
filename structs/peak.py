@@ -18,14 +18,8 @@ class Peaks:
     avg_depths: np.ndarray
 
 @dataclass
-class MaxPeak:
-    wl   : float
-    depth: float
-    fwhm : float
-
-@dataclass
 class PeakInfo:
     peaks   : Peaks
     max_fwhm: PeakFwhm
     avg_fwhm: PeakFwhm
-    csv     : MaxPeak
+    
