@@ -5,9 +5,11 @@ from analyze_data import combine_scans
 from plot import display_plot
 from logger import setup_logging, fast_exit
 from structs import Dataset
+from constants import APP_VERSION
 import shutdown
 
 log = setup_logging("WavelengthSweep")
+log.info(f"Version: {APP_VERSION}")
 
 try:
     pm, laser = prep_inst()

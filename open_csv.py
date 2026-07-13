@@ -5,6 +5,7 @@ from tkinter import filedialog
 import pandas as pd
 import json
 
+from constants import APP_VERSION
 from plot import display_plot
 from structs import Params, Dataset
 from save_csv import (COL_CH, COL_REF, COL_SCAN)
@@ -14,6 +15,7 @@ from datapath import data_path
 
 def plot_raw(filepath=None):
     log = setup_logging("PlotSweep")
+    log.info(f"Version: {APP_VERSION}")
 
     if not filepath:
         root = tk.Tk()

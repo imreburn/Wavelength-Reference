@@ -1,6 +1,10 @@
 # Changelog
 
-## [Unrelease]
+## [v1.1.9] - 2026-07-13
+
+### Added
+
+- The program automatically exits if the laptop lid is closed or the program is left idle more than 30 minutes.
 
 ### Changed
 

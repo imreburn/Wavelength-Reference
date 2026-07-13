@@ -6,6 +6,9 @@ libraries (e.g. pyvisa) or other project modules, so that analysis/plotting code
 can import these values without any instrument backend present.
 """
 
+# Application version (keep in sync with CHANGELOG.md)
+APP_VERSION = "1.1.9"
+
 # Instrument VISA addresses
 VISA_ADDRESS_POWER_METER    = 'USB0::0x0957::0x3718::DE53500131::0::INSTR'
 VISA_ADDRESS_TLS            = 'TCPIP0::100.65.2.45::inst0::INSTR'

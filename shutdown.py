@@ -23,14 +23,7 @@ from logger import fast_exit
 
 log = logging.getLogger(__name__)
 
-# Windows-only app. QueryUnbiasedInterruptTime returns system uptime EXCLUDING
-# time spent asleep or hibernating (100 ns units). We do not use time.monotonic()
-# here: on Windows it is QueryPerformanceCounter(), whose behavior across sleep is
-# hardware/firmware-dependent (halts on some machines, keeps counting on TSC-based
-# ones and in Modern Standby). QueryUnbiasedInterruptTime is contractually defined
-# to exclude sleep on all hardware, which is exactly the signal we need.
 _kernel32 = ctypes.windll.kernel32
-
 
 def _sleep_free_clock():
     """Seconds of system uptime, excluding time spent asleep/hibernating."""
@@ -51,12 +44,11 @@ _WATCHDOG_TICK_S = 2
 # with no mouse/keyboard activity so an abandoned session releases the
 # instruments. IDLE_MS is the same duration for the plot's browser-side check;
 # IDLE_POLL_MS is how often each window re-checks.
-IDLE_SECONDS = 1800
+IDLE_SECONDS = 60
 IDLE_MS = IDLE_SECONDS * 1000
 IDLE_POLL_MS = 10000
 
 _idle_shutdown = threading.Event()
-
 
 def request():
     """Ask main.py to end the run loop (used by the plot window's idle timeout)."""

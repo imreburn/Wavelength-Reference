@@ -877,28 +877,36 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     # the config window (whose close already exits), a normal plot close loops
     # back to config — so the paired server callback sets the shared shutdown
     # flag to break main.py's loop. Capture-phase listeners so typing counts too.
+    #
+    # prevent_initial_call keeps this off the initial render: on load the store
+    # must not be written, or the downstream callback fires immediately (its own
+    # prevent_initial_call does NOT protect it from an upstream write during load,
+    # e.g. a clientside no_update that serializes to null). Runs from the first
+    # Interval tick on, where the init block sets _lastActivity fresh.
     app.clientside_callback(
         """
         function(n) {
+            var now = Date.now();
             if (!window._idleActivityBound) {
                 window._idleActivityBound = true;
-                window._lastActivity = Date.now();
-                ['mousemove', 'keydown', 'click'].forEach(function(ev) {
+                window._lastActivity = now;
+                ['mousemove', 'mousedown', 'keydown', 'click', 'wheel', 'touchstart'].forEach(function(ev) {
                     document.addEventListener(ev, function() {
                         window._lastActivity = Date.now();
                     }, true);
                 });
             }
-            if (Date.now() - window._lastActivity > __IDLE_MS__) {
-                if (window._idleFired) return window.dash_clientside.no_update;
+            var idle = now - window._lastActivity;
+            if (!window._idleFired && idle > __IDLE_MS__) {
                 window._idleFired = true;
-                return Date.now();
+                return idle;
             }
             return window.dash_clientside.no_update;
         }
         """.replace('__IDLE_MS__', str(shutdown.IDLE_MS)),
         Output('idle-store', 'data'),
         Input('idle-check', 'n_intervals'),
+        prevent_initial_call=True,
     )
 
     @app.callback(
@@ -906,8 +914,14 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         Input('idle-store', 'data'),
         prevent_initial_call=True,
     )
-    def on_idle_timeout(_ts):
-        log.info("Idle timeout — closing plot window.")
+    def on_idle_timeout(idle_ms):
+        # Act only on a real measured idle duration. A spurious/empty update (a
+        # clientside no_update that serializes as null, or an initial-render
+        # write) arrives as falsy and must be ignored — otherwise the window
+        # closes the moment it opens.
+        if not idle_ms:
+            return dash.no_update
+        log.info("Idle timeout (%.0f s idle) — closing plot window.", idle_ms / 1000)
         shutdown.request()
         window = _window_holder.get('window')
         if window is not None:
