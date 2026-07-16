@@ -40,7 +40,7 @@ def data_dir():
                 return dir_path
     except OSError:
         pass
-    log.info("data_dir.txt cannot be read or the parent folder does not exist. Use the default path: %s", str(_DATAPATH_FILE.parent))
+    log.info("data_dir.txt cannot be read or %s does not exist. Use the default path: %s", str(dir_path.parent), str(_DATAPATH_FILE.parent))
     return _DATAPATH_FILE.parent
 
 

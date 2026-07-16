@@ -29,11 +29,11 @@ CHANNEL_DEFAULT = "1"  # space-separated channel list, as stored in a preset
 
 # Pass/Fail criteria: each label has a min and a max float field, defaulting to 0;
 # negative values are rejected. Each label maps to its (min, max) Params attributes.
-PASSFAIL_LABELS  = ["Peak Wavelength (nm)", "Peak Depth", "Peak Width"]
+PASSFAIL_LABELS  = ["Peak Wavelength (nm)", "Peak Depth (dB)", "Peak Width (pm)"]
 PASSFAIL_KEYS    = {
     "Peak Wavelength (nm)": ("wl_min", "wl_max"),
-    "Peak Depth":           ("depth_min", "depth_max"),
-    "Peak Width":           ("width_min", "width_max"),
+    "Peak Depth (dB)"     : ("depth_min", "depth_max"),
+    "Peak Width (pm)"     : ("width_min", "width_max"),
 }
 PASSFAIL_BOUNDS  = ("min", "max")
 PASSFAIL_DEFAULT = "0"

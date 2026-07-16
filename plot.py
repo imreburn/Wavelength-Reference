@@ -439,14 +439,15 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         'background': 'transparent', 'color': '#fff', 'cursor': 'pointer',
         'fontFamily': 'system-ui, sans-serif',
     }
-    NAV_INFO_STYLE = {'fontSize': '11px', 'color': '#cfe0ff',
-                      'alignSelf': 'center', 'marginRight': '8px'}
+    # The callbacks still return their status strings into these divs; the divs
+    # are just not rendered.
+    NAV_INFO_STYLE = {'display': 'none'}
     top_navbar = html.Nav([
-        html.Button('Save raw data...', id='save-raw-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        html.Button('Save Raw data...', id='save-raw-btn', n_clicks=0, style=NAV_BTN_STYLE),
         html.Div(id='save-raw-info', style=NAV_INFO_STYLE),
-        html.Button('Save peak info... (p)', id='save-peak-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        html.Button(['Save ', html.U('P'), 'eak info...'], id='save-peak-btn', n_clicks=0, style=NAV_BTN_STYLE),
         html.Div(id='save-peak-info', style=NAV_INFO_STYLE),
-        html.Button('Smooth data...', id='apply-filter-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        html.Button('Apply a filter...', id='apply-filter-btn', n_clicks=0, style=NAV_BTN_STYLE),
         html.Button('Plot in Watt...', id='plot-watt-btn', n_clicks=0, style=NAV_BTN_STYLE),
         html.Div(id='plot-watt-info', style=NAV_INFO_STYLE),
         # Repeat: close this plot window and auto-Run the next sweep with the same parameters. Also bound to the Enter key (see the clientside callback below).
@@ -555,7 +556,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             dcc.Input(id='peak-width', type='text', readOnly=True,
                       value=_fmt_stat(_init_width, 3), style=_stat_input_style),
             html.Label('Insertion Loss (I.L.)', style=_stat_label_style),
-            dcc.Input(id='peak-loss', type='text', value=_il_value, readOnly=True, style=_stat_input_style),
+            dcc.Input(id='peak-loss', type='text', value=_il_value, readOnly=True, placeholder="Optional", style=_stat_input_style),
             html.Label('Label (SN)', style={'fontWeight': 'bold', 'display': 'block',
                                        'marginBottom': '4px'}),
             dcc.Input(id='peak-label', type='text', value=_last_peak_label, debounce=False, placeholder="Required",

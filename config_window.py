@@ -663,7 +663,9 @@ def get_inputs(pm=None, laser=None, auto_run=False):
     inst_frame.grid(row=RUNBTN_ROW, column=0, columnspan=2, pady=10)
     run_btn = tk.Button(inst_frame, text="Run (Enter)", command=on_run, width=10, state="disabled")
     run_btn.pack(side="left", padx=5)
-    read_pm_btn = tk.Button(inst_frame, text="Read Power...(p)", command=on_read_power, state="disabled")
+    read_pm_btn = tk.Button(
+        inst_frame, text="Read Power...", underline=5, command=on_read_power, state="disabled"
+    )
     read_pm_btn.pack(side="left", padx=5)
 
     # ---- Reference -------------------------------------------------------
