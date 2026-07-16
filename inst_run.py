@@ -97,6 +97,7 @@ def run_sweep(pm, laser, params: Params, dryrun=False):
         pm.write(f":SENSE{i}:FUNC:STAT LOGG, STOP")
     
     check_inst(pm, laser)
+    # Safety: turn off laser after each run
     laser.write(":SOURCE0:POW:STATE 0")
     
     upper_limit = POWER_LIMIT[str(params.pm_range)]

@@ -366,6 +366,8 @@ def get_inputs(pm=None, laser=None, auto_run=False):
             job["id"] = top.after(50, refresh)
 
         def on_top_close():
+            # Safety: turn off laser
+            laser.write(":SOURCE0:POW:STATE 0")
             _readout["close"] = None
             if job["id"] is not None:
                 try:

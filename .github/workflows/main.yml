@@ -72,4 +72,4 @@ jobs:
         with:
           files: dist/*.zip
           generate_release_notes: true   # auto-generates notes from commits
-          draft: true
+          draft: false

@@ -5,7 +5,7 @@
 ### Changed
 
 - The reference status message "Not Set" has been split into two messages. "Not Set / Available" means a reference spectrum is available but has not been set, and "Not Set / Not Available" means **no** reference spectrum is available — either because the program was just launched, or because the "Change" button was pressed, invalidating the saved reference spectrum.
-- The laser source is turned off after each run. ([#72](https://github.com/imreburn/Wavelength-Reference/issues/72))
+- The laser source is turned off whenever each run is finished or power readout window is closed. ([#72](https://github.com/imreburn/Wavelength-Reference/issues/72))
 
 ### Fixed
 
