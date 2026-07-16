@@ -1,15 +1,16 @@
 # Changelog
 
-## [Unreleased]
+## [v1.1.10] - 2026-07-16
 
 ### Changed
 
 - The reference status message "Not Set" has been split into two messages. "Not Set / Available" means a reference spectrum is available but has not been set, and "Not Set / Not Available" means **no** reference spectrum is available — either because the program was just launched, or because the "Change" button was pressed, invalidating the saved reference spectrum.
+- The laser source is turned off after each run. ([#72](https://github.com/imreburn/Wavelength-Reference/issues/72))
 
 ### Fixed
 
-- Fixed a bug where the refresh rate in the power readout window was slower than 20 Hz before the first run.
-- Fixed a bug where pressing a key unlocked the saved state if the cursor had been in an input field before the "Save" button was pressed.
+- Fixed a bug where the refresh rate in the power readout window was slower than 20 Hz before the first run. ([#73](https://github.com/imreburn/Wavelength-Reference/issues/73))
+- Fixed a bug where pressing a key unlocked the saved state if the cursor had been in an input field before the "Save" button was pressed. ([#74](https://github.com/imreburn/Wavelength-Reference/issues/74))
 
 ## [v1.1.9] - 2026-07-13
 

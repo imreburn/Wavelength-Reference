@@ -83,7 +83,7 @@ def run_sweep(pm, laser, params: Params, dryrun=False):
         time.sleep(1)
     
     log.info("[LASER] Sweep finished")
-
+    
     # PM: read logged data
     power_w_all = []
     
@@ -91,12 +91,13 @@ def run_sweep(pm, laser, params: Params, dryrun=False):
         log.info(f"[PM] Ch.{i}: Read logged measurements")
         pm.write(f":SENSE{i}:FUNC:RES?")
         time.sleep(2)
-    
+
         power_w_all.append(np.asarray(pm.read_binary_values(container=np.ndarray), dtype=np.float64))
         log.info(f"[PM] Ch.{i}: Log count: {len(power_w_all[-1])}")
         pm.write(f":SENSE{i}:FUNC:STAT LOGG, STOP")
     
     check_inst(pm, laser)
+    laser.write(":SOURCE0:POW:STATE 0")
     
     upper_limit = POWER_LIMIT[str(params.pm_range)]
     
