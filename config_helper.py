@@ -262,7 +262,12 @@ def validate_passfail(raw):
         if lo < 0 or hi < 0:
             return None, "Pass/Fail Criteria values must not be negative."
         if lo > hi:
-            return None, f"{label}: min must not exceed max."
+            if hi == 0:
+                hi = float("inf")
+            else:
+                return None, f"{label}: min must not exceed max."
+        if lo == 0 and hi == float("inf"):
+            hi = 0
         values[label] = (lo, hi)
     return values, None
 

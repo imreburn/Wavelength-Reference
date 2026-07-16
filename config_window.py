@@ -167,6 +167,14 @@ def get_inputs(pm=None, laser=None, auto_run=False):
             # Clear any red left over from a previous adjustment.
             entries[3].config(fg="black", disabledforeground=default_disabledfg)
 
+        # Blank fields become 0 and a 0 max becomes inf, so show what was actually saved.
+        for label, (mn, mx) in passfail_entries.items():
+            for entry, val in zip((mn, mx), pf_values[label]):
+                text = f"{val:g}"
+                if entry.get() != text:
+                    entry.delete(0, tk.END)
+                    entry.insert(0, text)
+
         result_label.config(text="Parameters saved. Review values, then click Run or press Enter. " + step_adjusted, fg="blue")
 
         saved["ok"] = True
@@ -561,7 +569,7 @@ def get_inputs(pm=None, laser=None, auto_run=False):
     HEADER3_ROW  = RUNBTN_ROW + 1
     REFBTN_ROW   = HEADER3_ROW + 2
     RESULT_ROW   = REFBTN_ROW + 1
-    # Pass/Fail Conditions sit in their own sub-frame in column 2 (to the right
+    # Pass/Fail Criteria sit in their own sub-frame in column 2 (to the right
     # of the Parameters section), so they don't consume rows in columns 0–1.
 
     # ---- Set Parameters --------------------------------------------------
@@ -622,13 +630,13 @@ def get_inputs(pm=None, laser=None, auto_run=False):
     tk.Label(frame, text="Averaging Time (μs)", anchor="e").grid(row=AVGTIME_ROW, column=0, sticky="e", pady=4, padx=(0, 8))
     tk.Label(frame, textvariable=avg_time, anchor="w").grid(row=AVGTIME_ROW, column=1, sticky="w", pady=4)
 
-    # ---- Pass/Fail Conditions (right column) ----------------------------
+    # ---- Pass/Fail Criteria (right column) ------------------------------
     # A self-contained sub-frame placed to the right of the Parameters section.
     # Each criterion has a min and max float entry placed side by side; values
     # are validated and saved (and stored in presets) alongside the parameters.
     pf_container = tk.Frame(frame)
     pf_container.grid(row=0, column=2, rowspan=AVGTIME_ROW + 1, sticky="n", padx=(40, 0))
-    section_header(pf_container, "Pass/Fail Conditions (Optional)", 0)
+    section_header(pf_container, "Pass/Fail Criteria (Optional)", 0)
     init_passfail = _last.get("passfail", {})
     passfail_entries = {}   # label -> (min_entry, max_entry)
     passfail_widgets = []   # flat list for lock/unlock
