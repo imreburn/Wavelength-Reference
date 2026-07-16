@@ -38,6 +38,14 @@ WINDOW_POS = (50, 10)
 _state = {"has_run": False, "reference": False, "pos": None}
 
 
+def _is_disabled(widget):
+    """True if `widget` is a disabled Tk widget. False for anything stateless."""
+    try:
+        return str(widget.cget("state")) == "disabled"
+    except (AttributeError, tk.TclError):
+        return False
+
+
 def section_header(frame, text, row):
     """Place a bold section title plus a horizontal separator line below it."""
     tk.Label(frame, text=text, font=("TkDefaultFont", 10, "bold"), anchor="w").grid(
@@ -59,6 +67,17 @@ def get_inputs(pm=None, laser=None, auto_run=False):
     # refresh loop before destroying it — otherwise queued callbacks fire against
     # the destroyed widget ("invalid command name ...refresh").
     _readout = {"close": None}
+    # Pending id of the idle-timeout poll below, so root teardown (Run/Close) can
+    # cancel it for the same reason. Without this the poll survives destroy() on
+    # Windows and fires against the deleted callback ("invalid command name
+    # ..._check_idle"); the exact route has not been pinned down, so the
+    # winfo_exists() guard in _check_idle stays as a second line of defence.
+    _idle_job = {"id": None}
+
+    def _cancel_idle():
+        if _idle_job["id"]:
+            root.after_cancel(_idle_job["id"])
+            _idle_job["id"] = None
 
     def set_locked(locked):
         """Lock/unlock the parameter fields and toggle Save/Change/Run accordingly."""
@@ -172,6 +191,11 @@ def get_inputs(pm=None, laser=None, auto_run=False):
         event = args[0] if args else None
         if getattr(event, "keysym", "") in ("Return", "KP_Enter"):
             return
+        # A disabled Entry keeps focus and still receives <Key> events (it just
+        # won't insert the character), so keys pressed while locked would
+        # otherwise look like an edit and unlock the saved state.
+        if _is_disabled(getattr(event, "widget", None)):
+            return
         entries[3].config(fg="black")
         # Invalidate save whenever any field is edited
         if saved["ok"]:
@@ -228,6 +252,7 @@ def get_inputs(pm=None, laser=None, auto_run=False):
         # pending `after` callbacks don't fire after root.destroy() kills it.
         if _readout["close"]:
             _readout["close"]()
+        _cancel_idle()
         result_label.config(text="Running...", fg="black")
         root.after(200, root.destroy)
 
@@ -251,8 +276,12 @@ def get_inputs(pm=None, laser=None, auto_run=False):
 
         for i in range(1, 5):
             pm.write(f":SENSE{i}:POW:WAVE {params.wl_stop:.3f} NM")
+            pm.write(f":SENSE{i}:POW:ATIME 25 MS")
             pm.write(f":INIT{i}:CONT 1")
             pm.write(f":SENSE{i}:POW:RANGE:AUTO 1")
+        
+        time.sleep(1)
+        check_inst(pm, laser)
 
         # Show the wavelength / TLS power the readout is being taken at.
         info = tk.Frame(top)
@@ -319,10 +348,11 @@ def get_inputs(pm=None, laser=None, auto_run=False):
                 except (ValueError, IndexError):
                     watt_vars[i].set("-")
                     continue
+ 
                 if p_w > 0.01:
                     watt_vars[i].set("overflown")
                     continue
-                # watt_vars[i].set(f"{p_w*1e6:.3e} \u03BCW")
+ 
                 watt_vars[i].set(prettyprint(p_w, 'W'))
                 if p_w > max_watts[i]:
                     max_watts[i] = p_w
@@ -356,8 +386,8 @@ def get_inputs(pm=None, laser=None, auto_run=False):
             row=99, column=0, columnspan=5, pady=10)
 
         # Track the initial delayed refresh so it can be cancelled if the window
-        # is closed within the first 2 seconds.
-        job["id"] = top.after(2000, refresh)
+        # is closed within the first 1 seconds.
+        job["id"] = top.after(1000, refresh)
 
     def on_save_preset():
         # Only reachable once parameters have passed Save's checks.
@@ -472,10 +502,12 @@ def get_inputs(pm=None, laser=None, auto_run=False):
             # A set reference can always be unset.
             ref_btn.config(text="Unset Reference", state="normal")
         else:
-            status_value.config(text="Not Set", fg="blue")
-            # Can only set a reference once there's a run to reference.
-            ref_btn.config(text="Set Reference",
-                           state="normal" if _state["has_run"] else "disabled")
+            if _state["has_run"]:    
+                status_value.config(text="Not Set / Available", fg="blue")
+                ref_btn.config(text="Set Reference", state="normal")
+            else:
+                status_value.config(text="Not Set / Not Available", fg="blue")
+                ref_btn.config(text="Set Reference", state="disabled")
 
     def on_toggle_ref():
         _state["reference"] = not _state["reference"]
@@ -505,6 +537,7 @@ def get_inputs(pm=None, laser=None, auto_run=False):
         # Cancel the readout refresh loop before destroying its parent window.
         if _readout["close"]:
             _readout["close"]()
+        _cancel_idle()
         root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", on_close)
@@ -650,11 +683,12 @@ def get_inputs(pm=None, laser=None, auto_run=False):
     root.bind("<Return>", lambda _e: on_run())
     root.bind("<KP_Enter>", lambda _e: on_run())
 
-    # 'p' triggers Read Power, but not
-    # while typing into an entry field where 'p' is a literal character.
+    # 'p' triggers Read Power from anywhere in this window, like Enter does for
+    # Run. Safe as a global shortcut because every field here is numeric, a
+    # checkbox or a dropdown, so 'p' is never wanted as a literal character.
+    # The one text field (new preset name) lives in a Toplevel, whose keys never
+    # reach a binding made on root.
     def on_read_power_key(_e):
-        if isinstance(root.focus_get(), tk.Entry):
-            return
         if str(read_pm_btn["state"]) == "disabled":
             return
         on_read_power()
@@ -689,17 +723,18 @@ def get_inputs(pm=None, laser=None, auto_run=False):
         _idle_deadline["t"] = time.time() + IDLE_SECONDS
 
     def _check_idle():
+        _idle_job["id"] = None
         if not root.winfo_exists():
             return
         if time.time() >= _idle_deadline["t"]:
             log.info("Idle timeout — closing configuration window.")
             on_close()
             return
-        root.after(IDLE_POLL_MS, _check_idle)
+        _idle_job["id"] = root.after(IDLE_POLL_MS, _check_idle)
 
     root.bind_all("<Key>", _reset_idle, add="+")
     root.bind_all("<Button>", _reset_idle, add="+")
-    root.after(IDLE_POLL_MS, _check_idle)
+    _idle_job["id"] = root.after(IDLE_POLL_MS, _check_idle)
 
     # Grab keyboard focus so Enter works without clicking the window first
     # (on reopen, focus tends to stay on the console).

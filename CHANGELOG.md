@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- The reference status message "Not Set" has been split into two messages. "Not Set / Available" means a reference spectrum is available but has not been set, and "Not Set / Not Available" means **no** reference spectrum is available — either because the program was just launched, or because the "Change" button was pressed, invalidating the saved reference spectrum.
+
+### Fixed
+
+- Fixed a bug where the refresh rate in the power readout window was slower than 20 Hz before the first run.
+- Fixed a bug where pressing a key unlocked the saved state if the cursor had been in an input field before the "Save" button was pressed.
+
 ## [v1.1.9] - 2026-07-13
 
 ### Added

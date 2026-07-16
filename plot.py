@@ -137,7 +137,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     initial_fig.add_scatter(
         x=[], y=[], mode='markers+text', name='Bandwidth:Right',
         marker=dict(symbol='triangle-left', size=10, color='#50C878', line=_border),
-        text=[], textposition='bottom right',
+        text=[], textposition='middle right',
     )
     
     pk = peak_detection(wl, dbm)
@@ -1251,7 +1251,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             patched['data'][3]['text'] = ['L']
             patched['data'][4]['x'] = [float(right_nm)]
             patched['data'][4]['y'] = [max(dbm[i_right], y - y_offset)]
-            patched['data'][4]['text'] = [f'(width_pm: {width_pm:.3f})']
+            patched['data'][4]['text'] = [f'(width: {width_pm:.3f} pm)']
             
             width_info = f"width: {width_pm:.4f} pm\n"
         else:

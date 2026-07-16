@@ -6,7 +6,7 @@ Two independent mechanisms feed the app's single exit:
    (laptop lid closed). On wake the VISA sessions to the instruments are stale,
    so there is nothing worth cleaning up: it hard-exits via fast_exit, skipping
    close_inst (whose check_inst queries would hang on a dead session). The OS
-   reclaims the USB/VISA session.
+   reclaims the USB/VISA session. Windows only; a no-op elsewhere.
 
 2. Idle flag — set by the plot window when it times out on inactivity. The
    plot's normal close loops back to the config window, so main.py checks this
@@ -16,6 +16,7 @@ Two independent mechanisms feed the app's single exit:
 
 import ctypes
 import logging
+import sys
 import threading
 import time
 
@@ -23,7 +24,13 @@ from logger import fast_exit
 
 log = logging.getLogger(__name__)
 
-_kernel32 = ctypes.windll.kernel32
+# The watchdog rests on a Win32 call, and the deployment target is Windows only.
+# Off Windows (a Mac dev machine) it stays unarmed so the rest of the app — the
+# idle timeout below included — can still be exercised.
+_IS_WINDOWS = sys.platform.startswith("win")
+
+if _IS_WINDOWS:
+    _kernel32 = ctypes.windll.kernel32
 
 def _sleep_free_clock():
     """Seconds of system uptime, excluding time spent asleep/hibernating."""
@@ -65,7 +72,12 @@ def start_sleep_watchdog():
 
     Runs even while the main thread is blocked in Tk's mainloop() or pywebview's
     start(), because those release the GIL during their native event loops.
+    No-op off Windows.
     """
+    if not _IS_WINDOWS:
+        log.info("Not on Windows — sleep watchdog disabled.")
+        return
+
     def _watch():
         last_wall = time.time()
         last_free = _sleep_free_clock()

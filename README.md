@@ -7,7 +7,7 @@
 
 ## Download & Install
 
-The latest version can be downloaded from **Releases** on the right side. It is compressed as a single `Sweeps-vx.x.x.zip` file. I would advise to download it to where it is not synced in a cloud. Instead, shortcuts can be created and placed in Desktop after extracting it (Please read the following instructions before extracting).
+The latest version can be downloaded from **Releases** on the right side. It is compressed as a single `Sweeps-vx.x.x.zip` file. I would advise to download it to where it is not synced in a cloud. Instead, shortcuts can be created and placed in Desktop after extracting it. Please read the following instructions before extracting.
 
 After downloading the `.zip`, **unblock it before extracting**:
 
@@ -43,7 +43,8 @@ All apps (`WavelengthSweep.exe`, `PlotSweep.exe`) live in the same folder and sh
 
 ### Data Location
 
-- The path to the data folder that stores presets, logs and data is written at `datapath.txt`, which must be placed at the same path as executables (not shortcuts).
+- `data_dir.txt` contains the path to the data folder, which stores presets, logs and data. Users may change the path. `data_dir.txt` must be located at the same path as the executables (not shortcuts).
+- `C:\Users\mikea\OneDrive\Desktop\DataSweep` is the default path.
 - Data folder may be placed in a cloud-synced location to access data.
 
 ---

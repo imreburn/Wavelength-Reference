@@ -1,13 +1,13 @@
 #### Load/Save/Delete Preset
 
-- The program attempts to read `preset.csv` from the path written in `datapath.txt` on startup.
+- The program attempts to read `preset.csv` from the **path** written in `data_dir.txt` on startup.
 - Once parameters are **saved** (in that, they passed checks), **Manage Presets...** button is activated. In the pop-up, users can replace an existing preset with the currently saved parameters, create a new preset with them, or delete an existing preset.
 
 ---
 
 #### Read Power in real-time
 
-- Once parameters are **saved**, **Read Power...** becomes active. In the pop-up, the current powers for all four channels are read and shown in two units(dBm and W), and updated at the rate of 20 Hz.
+- Once parameters are **saved**, **Read Power...** becomes active. Keyboard shortcut is **p**. In the pop-up, the current powers for all four channels are read and shown in two units(dBm and W), and updated at the rate of 20 Hz.
 - Power range setting is automatically adjusted by the power meter.
 - Parameters for source power and wavelength are referred from the saved parameters: **TLS Power (dBm), Stop Wavelength (nm)**, respectively.
 
