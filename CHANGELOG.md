@@ -1,14 +1,14 @@
 # Changelog
 
-## [v1.1.10] - 2026-07-16
+## [v1.1.10] - 2026-07-17
 
 ### Changed
 
-- The reference status message "Not Set" has been split into two messages. "Not Set / Available" means a reference spectrum is available but has not been set, and "Not Set / Not Available" means **no** reference spectrum is available — either because the program was just launched, or because the "Change" button was pressed, invalidating the saved reference spectrum.
+- The reference status message "Not Set" has been split into two messages. **"Not Set / Available"** means a reference spectrum is available but has not been set, and **"Not Set / Not Available"** means **no** reference spectrum is available — either because the program was just launched, or because the "Change" button was pressed, invalidating the saved reference spectrum.
 - The laser source is turned off when a run finishes or the power readout window is closed. ([#72](https://github.com/imreburn/Wavelength-Reference/issues/72))
-- Unit names are now shown next to the "Pass/Fail Criteria" fields in the config window.
-- The "Smooth data..." button has been relabeled "Apply a filter...".
-- Under "Pass/Fail Criteria", if a positive value is entered in the "min" field and the "max" field is left empty or set to "0", positive infinity is assigned to "max".
+- Units are now shown next to the "Pass/Fail Criteria" field names in the config window.
+- The "Smooth data..." button in the figure window has been relabeled "Apply a filter...".
+- Under "Pass/Fail Criteria", if a value > 0 is entered in the "min" field and the "max" field is left empty or set to "0", positive infinity is automatically re-assigned to "max".
 
 ### Fixed
 

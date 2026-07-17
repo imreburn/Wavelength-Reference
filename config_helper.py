@@ -253,8 +253,8 @@ def validate_passfail(raw):
     """
     values = {}
     for label, (lo_s, hi_s) in raw.items():
-        lo_s = lo_s.strip() or "0"
-        hi_s = hi_s.strip() or "0"
+        lo_s = lo_s.strip() or "0" if lo_s.strip() != "inf" else "0"
+        hi_s = hi_s.strip() or "0" if hi_s.strip() != "inf" else "0"
         try:
             lo, hi = float(lo_s), float(hi_s)
         except ValueError:
@@ -262,7 +262,7 @@ def validate_passfail(raw):
         if lo < 0 or hi < 0:
             return None, "Pass/Fail Criteria values must not be negative."
         if lo > 0 and hi == 0:
-            hi == float("inf")
+            hi = float("inf")
         if lo > hi:
             return None, f"{label}: min must not exceed max."
         values[label] = (lo, hi)
