@@ -28,6 +28,7 @@ class Params:
     
     time      : str             = field(default=None)
     date      : str             = field(default=None)
+    version   : str             = field(default=None)
     
     def __post_init__(self):
         # JSON has no tuple type, so a saved-then-reloaded Params returns

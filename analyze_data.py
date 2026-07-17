@@ -183,7 +183,7 @@ def exam_peak(pk: PeakInfo, params: Params):
         return "Fail", f"No peak found in {crit_loc}", None
     
     error_msg = []
-    peak_msg = f'Peak{peak_idx}@{peak_loc:.3f}:'
+    peak_msg = f'P{peak_idx}@{peak_loc:.3f}:'
     if not in_between(peak_dep, crit_dep) and sum(crit_dep) != 0:
         error_msg.append(f" depth ({peak_dep:.3f}) outside {crit_dep}")
         
@@ -193,7 +193,7 @@ def exam_peak(pk: PeakInfo, params: Params):
     if error_msg != []:
         return "Fail", peak_msg + ",".join(error_msg), peak_idx
     
-    return "Pass", peak_msg+f" within location {crit_loc}"+(f", depth {crit_dep}" if sum(crit_dep) > 0 else "") + (f", width {crit_wid}" if sum(crit_wid) > 0 else ""), peak_idx
+    return "Pass", peak_msg+f" within wavelength {crit_loc}"+(f", depth {crit_dep}" if sum(crit_dep) > 0 else "") + (f", width {crit_wid}" if sum(crit_wid) > 0 else ""), peak_idx
         
 
 if __name__ == "__main__":

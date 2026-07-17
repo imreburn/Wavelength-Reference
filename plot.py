@@ -102,7 +102,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     initial_fig.add_scatter(
         x=wl_init, y=dbm_init, mode='lines', name=f'{COL_CH}{channels[0]}_{dbm_s.unit}',
         line=dict(color=_next_color(), width=2),
-        hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>',
+        hovertemplate='%{x:.12~f}<br>%{y:.5~f}<extra></extra>',
     )
     # Trace-index bookkeeping for the resampler: (trace index, wl-aligned y).
     # data[0] is channel 1; the remaining channels, references and scans are
@@ -144,16 +144,16 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     exam_out, exam_msg, exam_idx = exam_peak(pk, params)
     if pk is not None:
         # data[3..9] — peak annotation traces (shifted +1 due to mode-2 trace)
-        initial_fig.add_scatter(x=pk.peaks.wl, y=dbm[pk.peaks.idx], mode='markers+text', name='Peaks', marker=dict(size=8, color='#E63946', symbol='circle', line=_border))
-        initial_fig.add_scatter(x=wl[pk.peaks.lt_idx], y=dbm[pk.peaks.lt_idx], mode='markers+text', name='Bases:Left', marker=dict(size=8, color='#2A9D8F', symbol='triangle-up', line=_border), text=[f"L:({x:.3f}, {y:.3f})" for x, y in zip(wl[pk.peaks.lt_idx], dbm[pk.peaks.lt_idx])], textposition='top right')
-        initial_fig.add_scatter(x=wl[pk.peaks.rt_idx], y=dbm[pk.peaks.rt_idx], mode='markers+text', name='Bases:Right', marker=dict(size=8, color='#2A9D8F', symbol='triangle-down', line=_border), text=[f"R:({x:.3f}, {y:.3f})" for x, y in zip(wl[pk.peaks.rt_idx], dbm[pk.peaks.rt_idx])], textposition='top left')
+        initial_fig.add_scatter(x=pk.peaks.wl, y=dbm[pk.peaks.idx], mode='markers+text', name='Peaks', marker=dict(size=8, color='#E63946', symbol='circle', line=_border), text=[f"P{i}" for i, _ in enumerate(pk.peaks.idx, start=1)], textposition='bottom center')
+        initial_fig.add_scatter(x=wl[pk.peaks.lt_idx], y=dbm[pk.peaks.lt_idx], mode='markers+text', name='Left bases', marker=dict(size=8, color='#2A9D8F', symbol='triangle-up', line=_border), text=[f"P{i}:L({e[0]:.3f}, {e[1]:.3f})" for i, e in enumerate(zip(wl[pk.peaks.lt_idx], dbm[pk.peaks.lt_idx]), start=1)], textposition='top right')
+        initial_fig.add_scatter(x=wl[pk.peaks.rt_idx], y=dbm[pk.peaks.rt_idx], mode='markers+text', name='Right bases', marker=dict(size=8, color='#2A9D8F', symbol='triangle-down', line=_border), text=[f"P{i}:R({e[0]:.3f}, {e[1]:.3f})" for i, e in enumerate(zip(wl[pk.peaks.rt_idx], dbm[pk.peaks.rt_idx]), start=1)], textposition='top left')
         initial_fig.add_scatter(x=pk.max_fwhm.lt, y=pk.max_fwhm.dbm, mode='markers', name="FWHM_max:Left", visible=True, marker=dict(size=8, color='#F4A261', symbol='square', line=_border))
         initial_fig.add_scatter(x=pk.max_fwhm.rt, y=pk.max_fwhm.dbm, mode='markers', name="FWHM_max:Right", visible=True, marker=dict(size=8, color='#F4A261', symbol='square', line=_border))
         initial_fig.add_scatter(x=pk.avg_fwhm.lt, y=pk.avg_fwhm.dbm, mode='markers', name="FWHM_avg:Left", visible=True, marker=dict(size=8, color='#457B9D', symbol='diamond', line=_border))
         initial_fig.add_scatter(x=pk.avg_fwhm.rt, y=pk.avg_fwhm.dbm, mode='markers', name="FWHM_avg:Right", visible=True, marker=dict(size=8, color='#457B9D', symbol='diamond', line=_border))
 
         peak_dict = {
-            "x"           : np.round(pk.peaks.wl, decimals=6),
+            "x"           : np.round(pk.peaks.wl, decimals=7),
             "y"           : np.round(dbm[pk.peaks.idx], decimals=5),
             "Depth_max"   : np.round(pk.peaks.max_depths, decimals=5),
             "FWHM_max"    : [round(w, 3) for w in pk.max_fwhm.width],
@@ -166,7 +166,11 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         peak_df.insert(0, "Ch", [channels[0] for _ in range(len(peak_df))])
         # peak_df["Category"] = ""
         peak_df.insert(2, "Category", "")
-        peak_df.loc[peak_df["Depth_max"].idxmax(), "Category"] += "(max depth)"
+        peak_df.loc[peak_df["Depth_max"].idxmax(), "Category"] += "(deepest)"
+        # Display-only column ("P1", "P2", ...). The integer "Peak" column stays
+        # the key used by all lookups/ordering and the table filter_query; the
+        # table renders this column in its place (see the columns list below).
+        peak_df["Peak_disp"] = [f"P{p}" for p in peak_df["Peak"]]
 
     # ------------------------------------------------------------------
     # Remaining channels (channel 1 is data[0] above). Appended AFTER the
@@ -181,7 +185,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             x=wl_d, y=d_d, mode='lines', name=f'{COL_CH}{ch}_{dbm_s.unit
             }',
             line=dict(color=_next_color(), width=2),
-            hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>',
+            hovertemplate='%{x:.12~f}<br>%{y:.5~f}<extra></extra>',
         )
         main_traces.append((len(initial_fig.data) - 1, d_arr))
 
@@ -189,16 +193,16 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     # Reference sweep. Insertion loss (deepest dip vs reference) is computed
     # on channel 1 only; a dashed reference line is drawn for every channel.
     # ------------------------------------------------------------------
-    il_idx = None  # trace index of the I.L. marker (None when no reference)
+    il_idx = None  # trace index of the IL marker (None when no reference)
     if params.reference:
         gmin_idx = int(np.nanargmin(dbm))
         gmin_x, gmin_y = float(wl[gmin_idx]), float(dbm[gmin_idx])
         initial_fig.add_scatter(
-            x=[gmin_x], y=[gmin_y], mode='markers+text', name='I.L.',
+            x=[gmin_x], y=[gmin_y], mode='markers+text', name='Insertion loss',
             marker=dict(symbol='star', size=9, color='#C0392B', line=_border),
             text=[f"<b>IL: {gmin_y:.5f}</b>"], textposition='bottom center',
             textfont=dict(size=14, color='#C0392B'),
-            hovertemplate='%{x:.7f}<br>%{y:.5f}<extra>I.L.</extra>',
+            hovertemplate='%{x:.12~f}<br>%{y:.5f}<extra>IL</extra>',
         )
         il_idx = len(initial_fig.data) - 1
         for k, (ch, r_arr, d_arr) in enumerate(zip(channels, dbm_s.ref, dbm_s.data)):
@@ -207,13 +211,13 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             initial_fig.add_scatter(
                 x=wl_d, y=r_d, mode='lines', name=f'{COL_REF}{ch}_dBm',
                 line=dict(color=_next_color(), width=2),
-                hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>', visible='legendonly',
+                hovertemplate='%{x:.12~f}<br>%{y:.5f}<extra></extra>', visible='legendonly',
             )
             ref_traces.append((len(initial_fig.data) - 1, r_arr))
             initial_fig.add_scatter(
                 x=wl_d, y=d_d, mode='lines', name=f'Raw_{COL_CH}{ch}_dBm',
                 line=dict(color=_next_color(), width=2),
-                hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>', visible='legendonly',
+                hovertemplate='%{x:.12~f}<br>%{y:.5f}<extra></extra>', visible='legendonly',
             )
             ref_traces.append((len(initial_fig.data) - 1, d_arr))
 
@@ -227,7 +231,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             initial_fig.add_scatter(
                 x=wl_d, y=o_d, mode='lines', name=f'{COL_SCAN}{s}_{COL_CH}{ch}_dBm',
                 line=dict(color=_next_color(), width=2),
-                hovertemplate='%{x:.7f}<br>%{y:.5f}<extra></extra>',
+                hovertemplate='%{x:.12~f}<br>%{y:.5f}<extra></extra>',
                 visible='legendonly',
             )
             overlay_traces.append((len(initial_fig.data) - 1, c_arr))
@@ -241,7 +245,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     initial_fig.add_scatter(
         x=[], y=[], mode='lines', name='Smoothed', visible=False,
         line=dict(color='#111111', width=2),
-        hovertemplate='%{x:.7f}<br>%{y:.5f}<extra>Smoothed</extra>',
+        hovertemplate='%{x:.12~f}<br>%{y:.5f}<extra>Smoothed</extra>',
     )
     smooth_idx = len(initial_fig.data) - 1
     _smooth = {'y': None}  # full-res filtered channel-1 array (None until applied)
@@ -255,13 +259,13 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     initial_fig.add_scatter(
         x=[], y=[], mode='lines', name='Delta:line', showlegend=False,
         line=dict(color='rgba(216,90,48,0.35)', width=1.5),
-        hovertemplate='%{x:.7f}<br>%{y:.5f}',
+        hovertemplate='%{x:.12~f}<br>%{y:.5f}',
     )
     delta_line_idx = len(initial_fig.data) - 1
 
     initial_fig.update_layout(
-        xaxis_title=dict(text='<b>Wavelength (nm)</b>', font=dict(size=12), standoff=5),
-        yaxis_title=dict(text='<b>Power (dBm or dB)</b>', font=dict(size=12), standoff=5),
+        xaxis_title=dict(text='<b>x - Wavelength (nm)</b>', font=dict(size=12), standoff=5),
+        yaxis_title=dict(text='<b>y - Power (dBm or dB)</b>', font=dict(size=12), standoff=5),
         hovermode='closest',
         showlegend=True,
         legend=dict(x=1.0, xanchor='left'),
@@ -272,7 +276,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     )
 
     initial_fig.update_yaxes(autorange='reversed')
-    initial_fig.update_xaxes(tickformat='.3f', hoverformat='.5f')
+    initial_fig.update_xaxes(tickformat='.7~f', hoverformat='.12~f')
     initial_fig.update_xaxes(showspikes=True, spikecolor="gray", spikemode="across", spikethickness=1)
     initial_fig.update_yaxes(showspikes=True, spikemode="across", spikecolor="gray", spikethickness=1)
 
@@ -337,19 +341,35 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     </body>
 </html>'''
 
+    # ------------------------------------------------------------------
+    # Right sidebar styles. The container sets the 14px default font, which
+    # cascades to labels/checklists/radio items. Form controls (<input>)
+    # don't inherit font-size, so INPUT_STYLE restates it. Hints/notes use
+    # the smaller NOTE_STYLE (11px).
+    # ------------------------------------------------------------------
+    HEADING_STYLE = {'fontWeight': 'bold', 'display': 'block', 'marginBottom': '6px'}
+    NOTE_STYLE = {'fontSize': '11px', 'color': '#888', 'display': 'block'}
+    # NOTE: text stays left-aligned — WebKit (pywebview) ignores text-align on
+    # type='number' inputs, and centering would require dropping the -/+ steppers.
+    INPUT_STYLE = {'width': '140px', 'boxSizing': 'border-box',
+                   'fontSize': '14px', 'padding': '2px 5px'}
+    INPUT_STYLE_FULL = {**INPUT_STYLE, 'width': '100%'}
+
     right_sidebar = html.Div([
         html.Div([
-            html.Label("Max points(x1000)/plot", style={'fontWeight': 'bold', 'marginBottom': '4px', 'display': 'block'}),
+            html.Label("Max points(x1000)/plot", style={**HEADING_STYLE, 'marginBottom': '4px'}),
             dcc.Input(
                 id='max-display-input',
                 type='number', min=0, max=1000, value=MAX_DISPLAY // 1000,
                 debounce=True,
-                style={'width': '160px', 'boxSizing': 'border-box'},
+                style=INPUT_STYLE,
             ),
-            html.Div("0 = no downsampling (may be slow)", style={'fontSize': '11px', 'color': '#888', 'marginTop': '2px'}),
+            html.Div("0 = no downsampling (may be slow)",
+                     style={**NOTE_STYLE, 'marginTop': '2px'}),
         ]),
         html.Details([
-            html.Summary("Show markers/table", style={'fontWeight': 'bold', 'cursor': 'pointer', 'marginBottom': '6px'}),
+            html.Summary("Show markers/table",
+                         style={'fontWeight': 'bold', 'cursor': 'pointer', 'marginBottom': '6px'}),
             dcc.Checklist(
                 id='fwhm-all',
                 options=[{'label': 'all', 'value': 'all'}],
@@ -364,27 +384,28 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
                     {'label': 'FWHM_max',  'value': 'max'},
                     {'label': 'FWHM_avg',  'value': 'avg'},
                     {'label': 'peak table', 'value': 'table'},
-                ] + ([{'label': 'I.L.', 'value': 'il'}] if il_idx is not None else []),
+                ] + ([{'label': 'Insertion loss', 'value': 'il'}] if il_idx is not None else []),
                 value=['peaks', 'max', 'avg', 'table'] + (['il'] if il_idx is not None else []),
                 style={'marginBottom': '4px', 'marginLeft': '16px'},
                 labelStyle={'display': 'block'},
             ),
         ], open=True) if pk is not None else None,
         html.Div([
-            html.Label("Click Mode", style={'fontWeight': 'bold', 'marginBottom': '6px', 'display': 'block'}),
+            html.Label("Click Mode", style=HEADING_STYLE),
             dcc.RadioItems(
                 id='click-mode',
-                options=[{'label': 'Delta', 'value': 1}, {'label': 'Bandwidth', 'value': 2}],
+                options=[{'label': 'Delta marker', 'value': 1}, {'label': 'Bandwidth marker', 'value': 2}],
                 value=1,
                 inline=True,
                 labelStyle={'display': 'inline-block', 'marginRight': '16px'},
                 style={'display': 'inline-block'},
             ),
             html.Button('Clear markers', id='clear-btn', n_clicks=0,
-                        style={'width': '150px', 'fontSize': '15px',
+                        style={'width': '150px', 'fontSize': '14px',
                                'padding': '5px 12px', 'marginTop': '5px'}),
             html.Div([
-                html.Label("Fine tune (Bandwidth marker)", style={'fontSize': '11px', 'color': '#888', 'marginBottom': '4px', 'display': 'block'}),
+                html.Label("Fine tune (Bandwidth marker)",
+                           style={**NOTE_STYLE, 'marginBottom': '4px'}),
                 dcc.Slider(
                     id='mode2-slider',
                     min=-SLIDER_RANGE,
@@ -397,37 +418,38 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
                 ),
                 html.Div(id='mode2-marker-info',
                          style={'display': 'none'}),
-                html.Label("Bandwidth amplitude (dB)", style={'fontSize': '11px', 'color': '#888', 'marginTop': '12px', 'marginBottom': '4px', 'display': 'block'}),
+                html.Label("Bandwidth amplitude (dB)",
+                           style={**NOTE_STYLE, 'marginTop': '12px', 'marginBottom': '4px'}),
                 dcc.Input(
                     id='mode2-offset-input',
                     type='number', step='any',
                     value=1,
                     debounce=True,
-                    style={'width': '100%', 'boxSizing': 'border-box'},
+                    style=INPUT_STYLE_FULL,
                 ),
-                html.Label("Slider range (pm)", style={'fontSize': '11px', 'color': '#888','marginTop': '6px', 'marginBottom': '4px', 'display': 'block'}),
+                html.Label("Slider range (pm)",
+                           style={**NOTE_STYLE, 'marginTop': '6px', 'marginBottom': '4px'}),
                 dcc.Input(
                     id='slider-range-input',
                     type='number', step='any', value=SLIDER_RANGE * 1000,
                     debounce=True,
-                    style={'width': '100%', 'boxSizing': 'border-box'},
+                    style=INPUT_STYLE_FULL,
                 ),
                 html.Div(id='mode2-offset-info',
                          style={'display': 'none'}),
-                html.Label("Search range (pm)", style={'fontSize': '11px', 'color': '#888',
-                                                  'marginTop': '12px', 'marginBottom': '4px',
-                                                  'display': 'block'}),
+                html.Label("Search range (pm)",
+                           style={**NOTE_STYLE, 'marginTop': '12px', 'marginBottom': '4px'}),
                 dcc.Input(
                     id='mode2-search-range-input',
                     type='number', step=5,
                     value=OFFSET_RANGE,
                     debounce=True,
-                    style={'width': '100%', 'boxSizing': 'border-box'},
+                    style=INPUT_STYLE_FULL,
                 ),
-            ], style={'marginTop': '10px', 'width': '160px'}),
+            ], style={'marginTop': '10px', 'width': '140px'}),
         ]),
     ], style={'padding': '20px 10px', 'display': 'flex', 'flexDirection': 'column',
-              'gap': '20px', 'fontFamily': 'system-ui, sans-serif'})
+              'gap': '20px', 'fontSize': '14px', 'fontFamily': 'system-ui, sans-serif'})
 
     # ------------------------------------------------------------------
     # Horizontal menu bar (top of the window). The action buttons live
@@ -447,7 +469,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         html.Div(id='save-raw-info', style=NAV_INFO_STYLE),
         html.Button(['Save ', html.U('P'), 'eak info...'], id='save-peak-btn', n_clicks=0, style=NAV_BTN_STYLE),
         html.Div(id='save-peak-info', style=NAV_INFO_STYLE),
-        html.Button('Apply a filter...', id='apply-filter-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        html.Button('Apply filter...', id='apply-filter-btn', n_clicks=0, style=NAV_BTN_STYLE),
         html.Button('Plot in Watt...', id='plot-watt-btn', n_clicks=0, style=NAV_BTN_STYLE),
         html.Div(id='plot-watt-info', style=NAV_INFO_STYLE),
         # Repeat: close this plot window and auto-Run the next sweep with the same parameters. Also bound to the Enter key (see the clientside callback below).
@@ -471,13 +493,14 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             peak_df.loc[peak_df["Peak"] == exam_idx, "Category"] += "(criteria)"
         else:
             ordered_peaks = [max_peak] + [int(p) for p in peak_df['Peak'] if int(p) != max_peak]
-        peak_options = [{'label': f'Peak {p}', 'value': f'peak:{p}'} for p in ordered_peaks]
-        for e in peak_options:
-            peak_num = [int(x) for x in e['label'].split() if x.isdigit()]
-            if exam_idx is not None and peak_num[0] == exam_idx:
-                    e['label'] += " (criteria) "
-            if peak_num[0] == max_peak:
-                e['label'] += " (max depth)"
+        peak_options = []
+        for p in ordered_peaks:
+            label = f'P{p}'
+            if exam_idx is not None and p == exam_idx:
+                label += " (criteria) "
+            if p == max_peak:
+                label += " (deepest)"
+            peak_options.append({'label': label, 'value': f'peak:{p}'})
     else:
         peak_options = []
     peak_options += [{'label': 'custom', 'value': 'custom'}]
@@ -491,7 +514,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         files = sorted(f for f in os.listdir(PEAKS_DIR)
                        if f.lower().endswith('.csv')
                        and os.path.isfile(os.path.join(PEAKS_DIR, f)))
-        opts = [{'label': f'Create a new file', 'value': ''}]
+        opts = [{'label': f'Create new file', 'value': ''}]
         opts += [{'label': f, 'value': f} for f in files]
         return opts
 
@@ -542,22 +565,22 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         style=MODAL_HIDDEN,
         children=html.Div([
             html.H4('Save peak info', style={'marginTop': 0}),
-            html.Label('Peak', style={'fontWeight': 'bold', 'display': 'block', 'marginBottom': '4px'}),
+            html.Label('Select peak', style={'fontWeight': 'bold', 'display': 'block', 'marginBottom': '4px'}),
             dcc.Dropdown(id='peak-select', options=peak_options,
                          value=peak_options[0]['value'], clearable=False,
                          style={'marginBottom': '12px'}),
             html.Label('Wavelength (nm)', style=_stat_label_style),
             dcc.Input(id='peak-wavelength', type='text', readOnly=True,
-                      value=_fmt_stat(_init_wl, 6), style=_stat_input_style),
+                      value=_fmt_stat(_init_wl, 7), style=_stat_input_style),
             html.Label('Depth (dB)', style=_stat_label_style),
             dcc.Input(id='peak-depth', type='text', readOnly=True,
                       value=_fmt_stat(_init_depth, 5), style=_stat_input_style),
             html.Label('Width (pm)', style=_stat_label_style),
             dcc.Input(id='peak-width', type='text', readOnly=True,
                       value=_fmt_stat(_init_width, 3), style=_stat_input_style),
-            html.Label('Insertion Loss (I.L.)', style=_stat_label_style),
+            html.Label('Insertion loss (IL)', style=_stat_label_style),
             dcc.Input(id='peak-loss', type='text', value=_il_value, readOnly=True, placeholder="Optional", style=_stat_input_style),
-            html.Label('Label (SN)', style={'fontWeight': 'bold', 'display': 'block',
+            html.Label('Label / Serial number', style={'fontWeight': 'bold', 'display': 'block',
                                        'marginBottom': '4px'}),
             dcc.Input(id='peak-label', type='text', value=_last_peak_label, debounce=False, placeholder="Required",
                       style={'width': '100%', 'boxSizing': 'border-box',
@@ -567,7 +590,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             dcc.Input(id='peak-temperature', type='number', value=_last_temperature, debounce=False, placeholder="Optional",
                       style={'width': '100%', 'boxSizing': 'border-box',
                              'marginBottom': '8px'}),
-            html.Label('Choose a file', style={'fontWeight': 'bold', 'display': 'block',
+            html.Label('Choose file', style={'fontWeight': 'bold', 'display': 'block',
                                                'marginBottom': '4px'}),
             dcc.Dropdown(id='peak-file-select', options=_peak_file_options(),
                          value=_remembered_file_value(_peak_file_options()),
@@ -600,7 +623,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         id='filter-modal',
         style=MODAL_HIDDEN,
         children=html.Div([
-            html.Label('Select a filter', style=LABEL_STYLE),
+            html.Label('Select filter', style=LABEL_STYLE),
             dcc.Dropdown(
                 id='filter-select',
                 options=[{'label': name, 'value': val}
@@ -679,9 +702,10 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
                 ], style={'display': 'flex', 'alignItems': 'flex-start', 'gap': '30px', 'marginTop': '5px'}),
                 html.Div(id='peak-table-container', children=[exam_div, html.Div('Peaks (auto-detected)', style=TABLE_TITLE_STYLE), dash_table.DataTable(
                     data=peak_df.to_dict('records'),
-                    # Display "Peak No." in the header while keeping the column id
-                    # 'Peak' (which peak_df lookups and the width rules depend on).
-                    columns=[{'name': 'Peak No.' if c == 'Peak' else c, 'id': c} for c in peak_df.columns],
+                    columns=[
+                        {'name': 'Peak No.', 'id': 'Peak_disp'}
+                        if c == 'Peak' else {'name': c, 'id': c}
+                        for c in peak_df.columns if c != 'Peak_disp'],
                     style_cell=TABLE_CELL_STYLE,
                     style_as_list_view=True,
                     style_header=TABLE_HEADER_STYLE,
@@ -762,7 +786,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             fig.add_scatter(
                 x=wl, y=y_arr, mode='lines', name=name,
                 line=dict(color=_color(), width=2),
-                hovertemplate='%{x:.7f}<br>%{y:.5e}<extra></extra>', **kw,
+                hovertemplate='%{x:.12~f}<br>%{y:.5e}<extra></extra>', **kw,
             )
 
         fig = go.Figure()
@@ -791,7 +815,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             legend=dict(x=1.0, xanchor='left'),
             height=750, width=1450, margin=dict(l=55, t=30, b=40),
         )
-        fig.update_xaxes(tickformat='.3f', hoverformat='.5f', showspikes=True,
+        fig.update_xaxes(tickformat='.8~f', hoverformat='.12~f', showspikes=True,
                          spikecolor='gray', spikemode='across', spikethickness=1)
         fig.update_yaxes(showspikes=True, spikemode='across',
                          spikecolor='gray', spikethickness=1)
@@ -955,7 +979,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     )
     def update_peak_stats(sel, _n_clicks, m2, markers):
         wl_v, depth, fwhm = _peak_stats(sel, m2, markers)
-        return _fmt_stat(wl_v, 6), _fmt_stat(depth, 5), _fmt_stat(fwhm, 4)
+        return _fmt_stat(wl_v, 7), _fmt_stat(depth, 5), _fmt_stat(fwhm, 3)
 
     @app.callback(
         Output('peak-modal', 'style', allow_duplicate=True),
@@ -1178,13 +1202,13 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             slope_str = "∞ (vertical)" if dl == 0 else f"{(dp / dl)*-1:+.1f}"
             # Midpoint (average) with the previous marker; blank for the first,
             # which has no previous marker to average against.
-            mid_x = f"{(m['x'] + prev['x']) / 2:.6f}"
-            mid_y = f"{(m['y'] + prev['y']) / 2:.5f}"
+            mid_x = f"{(m['x'] + prev['x']) / 2:.3f}"
+            mid_y = f"{(m['y'] + prev['y']) / 2:.3f}"
             rows.append({
                 'Marker': f'M{i+1}',
-                'x': f"{m['x']:.6f}", 'y': f"{m['y']:.5f}",
+                'x': f"{m['x']:.3f}", 'y': f"{m['y']:.3f}",
                 'mid x': mid_x, 'mid y': mid_y,
-                '|Δx|': f"{abs(dl):.6f}", '|Δy|': f"{abs(dp):.5f}",
+                '|Δx|': f"{abs(dl):.3f}", '|Δy|': f"{abs(dp):.3f}",
                 'slope': slope_str,
             })
 
@@ -1238,7 +1262,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         x, y = float(wl[idx]), float(dbm[idx])
         patched['data'][2]['x'] = [x]
         patched['data'][2]['y'] = [y]
-        patched['data'][2]['text'] = [f'({x:.6f}, {y:.5f})']
+        patched['data'][2]['text'] = [f'({x:.7f}, {y:.5f})']
         if y_offset:
             search_range = int(search_range_pm/(d_x*1000))
             left_nm, right_nm, width_pm = find_bandwidth(wl, dbm, idx, y_offset, search_range)
@@ -1254,7 +1278,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             patched['data'][4]['y'] = [max(dbm[i_right], y - y_offset)]
             patched['data'][4]['text'] = [f'(width: {width_pm:.3f} pm)']
             
-            width_info = f"width: {width_pm:.4f} pm\n"
+            width_info = f"width: {width_pm:.3f} pm\n"
         else:
             patched['data'][3]['x'] = []
             patched['data'][3]['y'] = []
@@ -1280,13 +1304,13 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         if m2 is None:
             return dash.no_update, {'display': 'none'}
         row = {'Ch': channels[0], 'Peak': 'custom', 'x': '', 'y': '', 'Depth': '', 'Bandwidth': '', 'base_x': '', 'base_y': ''}
-        row['x'] = f"{m2['x']:.6f}"
+        row['x'] = f"{m2['x']:.7f}"
         row['y'] = f"{m2['y']:.5f}"
         if m2.get('width_pm') is not None:
             row['Bandwidth'] = f"{m2['width_pm']:.3f}"
         if markers:
             base = markers[-1]
-            row['base_x'] = f"{base['x']:.6f}"
+            row['base_x'] = f"{base['x']:.7f}"
             row['base_y'] = f"{base['y']:.5f}"
             row['Depth'] = f"{m2['y'] - markers[-1]['y']:.5f}"
         return [row], {'display': 'block'}

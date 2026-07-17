@@ -12,6 +12,7 @@ import dpi_awareness  # noqa: F401
 
 log = logging.getLogger(__name__)
 
+from constants import APP_VERSION
 from inst_helper import prep_inst, check_inst
 from shutdown import IDLE_SECONDS, IDLE_POLL_MS
 from structs import Params
@@ -58,7 +59,7 @@ def get_inputs(pm=None, laser=None, auto_run=False):
     # auto_run: re-run the previous sweep without manual interaction (set by the
     # plot window's Repeat button). It is a control flag only — never stored on
     # Params, which holds run parameters exclusively.
-    params = Params()
+    params = Params(version=APP_VERSION)
     params.reference = _state["reference"]
     saved = {"ok": False}
     ran = {"ok": False}
