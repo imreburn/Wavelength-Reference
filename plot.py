@@ -15,7 +15,7 @@ import logging
 log = logging.getLogger(__name__)
 
 import shutdown
-from structs import PeakInfo, Params, Dataset
+from structs import Params, Dataset
 from analyze_data import peak_detection, find_bandwidth, exam_peak
 from save_csv import save_csv_raw, save_csv_peak_row, COL_CH, COL_REF, COL_SCAN, RAW_DIR
 from plot_helper import lttb, lttb_multi, pre_process
@@ -107,7 +107,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     # Trace-index bookkeeping for the resampler: (trace index, wl-aligned y).
     # data[0] is channel 1; the remaining channels, references and scans are
     # appended AFTER all the fixed-index marker & peak traces below, so those
-    # indices (data[1..11]) stay put for the callbacks.
+    # indices (data[1..10]) stay put for the callbacks.
     main_traces    = [(0, dbm)]
     ref_traces     = []
     overlay_traces = []
@@ -143,22 +143,28 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     pk = peak_detection(wl, dbm)
     exam_out, exam_msg, exam_idx = exam_peak(pk, params)
     if pk is not None:
-        # data[3..9] — peak annotation traces (shifted +1 due to mode-2 trace)
-        initial_fig.add_scatter(x=pk.peaks.wl, y=dbm[pk.peaks.idx], mode='markers+text', name='Peaks', marker=dict(size=8, color='#E63946', symbol='circle', line=_border), text=[f"P{i}" for i, _ in enumerate(pk.peaks.idx, start=1)], textposition='bottom center')
-        initial_fig.add_scatter(x=wl[pk.peaks.lt_idx], y=dbm[pk.peaks.lt_idx], mode='markers+text', name='Left bases', marker=dict(size=8, color='#2A9D8F', symbol='triangle-up', line=_border), text=[f"P{i}:L({e[0]:.3f}, {e[1]:.3f})" for i, e in enumerate(zip(wl[pk.peaks.lt_idx], dbm[pk.peaks.lt_idx]), start=1)], textposition='top right')
-        initial_fig.add_scatter(x=wl[pk.peaks.rt_idx], y=dbm[pk.peaks.rt_idx], mode='markers+text', name='Right bases', marker=dict(size=8, color='#2A9D8F', symbol='triangle-down', line=_border), text=[f"P{i}:R({e[0]:.3f}, {e[1]:.3f})" for i, e in enumerate(zip(wl[pk.peaks.rt_idx], dbm[pk.peaks.rt_idx]), start=1)], textposition='top left')
-        initial_fig.add_scatter(x=pk.max_fwhm.lt, y=pk.max_fwhm.dbm, mode='markers', name="FWHM_max:Left", visible=True, marker=dict(size=8, color='#F4A261', symbol='square', line=_border))
-        initial_fig.add_scatter(x=pk.max_fwhm.rt, y=pk.max_fwhm.dbm, mode='markers', name="FWHM_max:Right", visible=True, marker=dict(size=8, color='#F4A261', symbol='square', line=_border))
-        initial_fig.add_scatter(x=pk.avg_fwhm.lt, y=pk.avg_fwhm.dbm, mode='markers', name="FWHM_avg:Left", visible=True, marker=dict(size=8, color='#457B9D', symbol='diamond', line=_border))
-        initial_fig.add_scatter(x=pk.avg_fwhm.rt, y=pk.avg_fwhm.dbm, mode='markers', name="FWHM_avg:Right", visible=True, marker=dict(size=8, color='#457B9D', symbol='diamond', line=_border))
+        # data[5..10] — peak annotation traces (Peaks, L/R bases, FWHM max/avg/min)
+        initial_fig.add_scatter(x=pk.x_nm, y=dbm[pk.x_idx], mode='markers+text', name='Peaks', marker=dict(size=8, color='#E63946', symbol='circle', line=_border), text=[f"P{i}" for i, _ in enumerate(pk.x_idx, start=1)], textposition='bottom center')
+        
+        initial_fig.add_scatter(x=wl[pk.l_idx], y=dbm[pk.l_idx], mode='markers+text', name='Left bases', marker=dict(size=8, color='#2A9D8F', symbol='triangle-up', line=_border), text=[f"P{i}:L({e[0]:.3f}, {e[1]:.3f})" for i, e in enumerate(zip(wl[pk.l_idx], dbm[pk.l_idx]), start=1)], textposition='top right')
+        
+        initial_fig.add_scatter(x=wl[pk.r_idx], y=dbm[pk.r_idx], mode='markers+text', name='Right bases', marker=dict(size=8, color='#2A9D8F', symbol='triangle-down', line=_border), text=[f"P{i}:R({e[0]:.3f}, {e[1]:.3f})" for i, e in enumerate(zip(wl[pk.r_idx], dbm[pk.r_idx]), start=1)], textposition='top left')
+        
+        initial_fig.add_scatter(x=np.concatenate([pk.max.l_nm, pk.max.r_nm]), y=np.concatenate([pk.max.w_y, pk.max.w_y]), mode='markers', name="FWHM (max base)", visible=True, marker=dict(size=8, color='#F4A261', symbol='square', line=_border))
+
+        initial_fig.add_scatter(x=np.concatenate([pk.avg.l_nm, pk.avg.r_nm]), y=np.concatenate([pk.avg.w_y, pk.avg.w_y]), mode='markers', name="FWHM (avg base)", visible=True, marker=dict(size=8, color='#457B9D', symbol='diamond', line=_border))
+
+        initial_fig.add_scatter(x=np.concatenate([pk.min.l_nm, pk.min.r_nm]), y=np.concatenate([pk.min.w_y, pk.min.w_y]), mode='markers', name="FWHM (min base)", visible=True, marker=dict(size=8, color='#8E44AD', symbol='hexagon', line=_border))
 
         peak_dict = {
-            "x"           : np.round(pk.peaks.wl, decimals=7),
-            "y"           : np.round(dbm[pk.peaks.idx], decimals=5),
-            "Depth_max"   : np.round(pk.peaks.max_depths, decimals=5),
-            "FWHM_max"    : [round(w, 3) for w in pk.max_fwhm.width],
-            "Depth_avg"   : np.round(pk.peaks.avg_depths, decimals=5),
-            "FWHM_avg"    : [round(w, 3) for w in pk.avg_fwhm.width],
+            "x"           : np.round(pk.x_nm, decimals=7),
+            "y"           : np.round(dbm[pk.x_idx], decimals=5),
+            "Depth_max"   : np.round(pk.max.depth, decimals=5),
+            "FWHM_max"    : np.round(pk.max.w_pm, decimals=3),
+            "Depth_avg"   : np.round(pk.avg.depth, decimals=5),
+            "FWHM_avg"    : np.round(pk.avg.w_pm, decimals=3),
+            "Depth_min"   : np.round(pk.min.depth, decimals=5),
+            "FWHM_min"    : np.round(pk.min.w_pm, decimals=3),
                      }
         
         peak_df = pd.DataFrame(peak_dict)
@@ -174,7 +180,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
 
     # ------------------------------------------------------------------
     # Remaining channels (channel 1 is data[0] above). Appended AFTER the
-    # fixed-index marker/peak traces so data[1..11] stay put. Solid line,
+    # fixed-index marker/peak traces so data[1..10] stay put. Solid line,
     # one color per channel.
     # ------------------------------------------------------------------    
     for k, (ch, d_arr) in enumerate(zip(channels, mainplots)):
@@ -200,7 +206,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         initial_fig.add_scatter(
             x=[gmin_x], y=[gmin_y], mode='markers+text', name='Insertion loss',
             marker=dict(symbol='star', size=9, color='#C0392B', line=_border),
-            text=[f"<b>IL: {gmin_y:.5f}</b>"], textposition='bottom center',
+            text=[f"IL: {gmin_y:.5f} dB"], textposition='bottom center',
             textfont=dict(size=14, color='#C0392B'),
             hovertemplate='%{x:.12~f}<br>%{y:.5f}<extra>IL</extra>',
         )
@@ -381,11 +387,12 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
                 id='fwhm-dropdown',
                 options=[
                     {'label': 'peaks', 'value': 'peaks'},
-                    {'label': 'FWHM_max',  'value': 'max'},
-                    {'label': 'FWHM_avg',  'value': 'avg'},
+                    {'label': 'FWHM (max base)',  'value': 'max'},
+                    {'label': 'FWHM (avg base)',  'value': 'avg'},
+                    {'label': 'FWHM (min base)',  'value': 'min'},
                     {'label': 'peak table', 'value': 'table'},
                 ] + ([{'label': 'Insertion loss', 'value': 'il'}] if il_idx is not None else []),
-                value=['peaks', 'max', 'avg', 'table'] + (['il'] if il_idx is not None else []),
+                value=['peaks', 'max', 'avg', 'min', 'table'] + (['il'] if il_idx is not None else []),
                 style={'marginBottom': '4px', 'marginLeft': '16px'},
                 labelStyle={'display': 'block'},
             ),
@@ -1401,7 +1408,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         return _resample_curves(max_display)
 
     if pk is not None:
-        _ALL_MARKERS = ['peaks', 'max', 'avg', 'table'] + (['il'] if il_idx is not None else [])
+        _ALL_MARKERS = ['peaks', 'max', 'avg', 'min', 'table'] + (['il'] if il_idx is not None else [])
 
         @app.callback(
             Output('fwhm-dropdown', 'value'),
@@ -1428,15 +1435,16 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             show_peaks = 'peaks' in value if 'peaks' in value else 'legendonly'
             show_max = 'max' in value if 'max' in value else 'legendonly'
             show_avg = 'avg' in value if 'avg' in value else 'legendonly'
+            show_min = 'min' in value if 'min' in value else 'legendonly'
             patched = Patch()
-            # Indices shifted +3 (data[2..4] are mode-2 traces)
+            # Indices shifted +3 (data[2..4] are mode-2 traces). Each FWHM tier
+            # is a single merged Left+Right trace.
             patched['data'][5]['visible'] = show_peaks   # Peaks
             patched['data'][6]['visible'] = show_peaks   # Bases:Left
             patched['data'][7]['visible'] = show_peaks   # Bases:Right
-            patched['data'][8]['visible'] = show_max
-            patched['data'][9]['visible'] = show_max
-            patched['data'][10]['visible'] = show_avg
-            patched['data'][11]['visible'] = show_avg
+            patched['data'][8]['visible'] = show_max     # FWHM_max
+            patched['data'][9]['visible'] = show_avg     # FWHM_avg
+            patched['data'][10]['visible'] = show_min    # FWHM_min
             if il_idx is not None:
                 patched['data'][il_idx]['visible'] = 'il' in value if 'il' in value else 'legendonly'
             return patched

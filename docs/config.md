@@ -1,28 +1,56 @@
-#### Load/Save/Delete Preset
+## Config window
+
+### Preset
 
 - The program attempts to read `preset.csv` from the **path** written in `data_dir.txt` on startup.
-- Once parameters are **saved** (in that, they passed checks), **Manage Presets...** button is activated. In the pop-up, users can replace an existing preset with the currently saved parameters, create a new preset with them, or delete an existing preset.
+- Once parameters are **saved** (in that, they passed checks), **Manage Presets...** button is activated. A new window pops-up, and users can replace an existing preset with the currently saved parameters, or create a new preset with them, or delete an existing preset.
 
 ---
 
-#### Read Power in real-time
+### Multiple input channels
 
-- Once parameters are **saved**, **Read Power...** becomes active. Keyboard shortcut is **p**. In the pop-up, the current powers for all four channels are read and shown in two units(dBm and W), and updated at the rate of 20 Hz.
+- Users can select input channels by selecting checkboxes. At least one must be selected.
+- Data analysis is performed for the data from the least channel number only.
+
+---
+
+### The averaging time and the step size
+
+- The averaging time is calculated from the step size divided by the sweep speed.
+- The step size may be automatically adjusted to ensure that the averaging time is an integer and between 25 µs and 10 s.
+- Leaving the step size empty or 0 is adjusted to the smallest possible step size given the sweep speed.
+
+---
+
+### Power meter readout
+
+- After parameters are **saved**, the button **Read Power...** becomes active. The keyboard shortcut is **p**. A new pop-up appears, and the current powers for all four channels are read and shown in two units(dBm and W). The power is measured at the rate of 20 Hz.
+- The maximum power reached while the window is open is shown in the last column.
 - Power range setting is automatically adjusted by the power meter.
-- Parameters for source power and wavelength are referred from the saved parameters: **TLS Power (dBm), Stop Wavelength (nm)**, respectively.
+- The saved parameters(**TLS Power (dBm), Stop Wavelength (nm)**) are used to operate the instruments.
 
 ---
 
-#### Setting a Reference
+### Dynamic scan
 
-- Once a measurement is taken, it can be set a reference for subsequent measurements, by clicking **Set Reference**. The reference is set and the button changes to **Unset Reference**. Users can unset the reference by clicking it.
+- Users can run multiple scans with different power range settings. Up to 3 scans can be run with a decrement. For example, 10 dBm initial power meter range, 3 dynamic range scans, 10 dB decrement will lead to the first scan with 10 dBm range, the second with 0, the last with -10. The minimum power meter range is -70 dBm. An error message will be shown if the range lower than -70 is necessary for the given parameters. 
+
+---
+
+### Setting a reference
+
+- Once a measurement is taken without a reference, the data can be set a reference for subsequent measurements, by clicking **Set Reference**. Then the reference is set and the button label changes to **Unset Reference**. Clicking it unloads the reference. Note that **Unset Reference** does not **replace** the existing reference. Data collected while a reference is set **cannot** be set as a reference.
 - Because the parameters must be same for both reference and subsequent measurements, clicking **Change** button is assumed that the user would change parameters. Thus clicking **Change** immediately invalidates the existing reference and the last measurement cannot be set as a reference.
 
-#### Multiple input channels
+#### Status messages regarding reference
 
-- Users can select input channels by selecting checkboxes up to 4. At least one must be selected.
+- **Not Set / Not Available**: There is no data available for a reference, and thus a reference is not set. This message is shown when the program is just launched or the user clicks the "Change" button. The "Set Reference" button is disabled.
+- **Not Set / Available**: Measured data is available, but it is not loaded as a reference.
+- **Set**: Currently, data is set a reference.
 
-#### Pass/Fail Criteria
+--- 
+
+### Pass/Fail Criteria
 
 - Users can enter a range (min, max) for peak wavelength, depth, and width.
 - They are saved together with other parameters in a preset.

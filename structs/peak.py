@@ -2,24 +2,20 @@ from dataclasses import dataclass
 import numpy as np
 
 @dataclass
-class PeakFwhm:
-    lt   : list
-    rt   : list
-    width: list
-    dbm  : list
+class Width:
+    l_nm : np.ndarray
+    r_nm : np.ndarray
+    w_pm : np.ndarray
+    w_y  : np.ndarray
+    depth: np.ndarray
 
 @dataclass
-class Peaks:
-    idx       : np.ndarray
-    wl        : np.ndarray
-    lt_idx    : np.ndarray
-    rt_idx    : np.ndarray
-    max_depths: np.ndarray
-    avg_depths: np.ndarray
-
-@dataclass
-class PeakInfo:
-    peaks   : Peaks
-    max_fwhm: PeakFwhm
-    avg_fwhm: PeakFwhm
-    
+class Peak:
+    x_idx: np.ndarray
+    x_nm : np.ndarray
+    l_idx: np.ndarray
+    r_idx: np.ndarray
+    max  : Width
+    avg  : Width
+    min  : Width
+        

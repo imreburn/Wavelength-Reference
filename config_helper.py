@@ -184,7 +184,10 @@ def make_extra_widgets(frame, start_row, init, on_change, enable_dynamic=True):
 def validate_inputs(raw_strings, num_data, avg_time):
     """Return (values, None) on success or (None, error_msg) on failure."""
     values = []
-    for s in raw_strings:
+    for i, s in enumerate(raw_strings):
+        if i == 3 and s.strip() == "":  # step_size defaults to 0 when empty
+            values.append(0.0)
+            continue
         try:
             values.append(float(s))
         except ValueError:
@@ -202,11 +205,18 @@ def validate_inputs(raw_strings, num_data, avg_time):
         return None, "Step size must not be less than 0."
     if f"{sweep_speed}" not in SWEEP_SPEED_OPTIONS:
         return None, "Sweep speed must be selected from the dropdown list."
-    if power_dbm > 10:
-        return None, "TLS power exceeds the maximum (max: 10 dBm)"
+    # Maximum input power for N7748A: 16 dBm
+    if (wav_start >= 1515 and wav_stop <= 1620) and power_dbm > 11: 
+        return None, "TLS power exceeds the maximum (11 dBm) in 1515-1620 nm"
+    elif (wav_start >= 1480 and wav_stop <= 1630) and power_dbm > 9:
+        return None, "TLS power exceeds the maximum (9 dBm) in 1480-1630 nm"
+    else:
+        if power_dbm > 5:
+            return None, "TLS power exceeds the maximum (5 dBm) in 1450-1650 nm"
     
     avg_t         = int(step_size/sweep_speed*1e3)  # us
-    avg_t         = 25 if avg_t < 25 else avg_t
+    # 25 us <= avg_t <= 10s
+    avg_t         = min(max(avg_t, 25), 10000000)
     step_new      = round((sweep_speed/1e3) * avg_t, 4)
     wav_range     = (wav_stop - wav_start) * 1000   # pm
     pp            = int(wav_range // step_new)

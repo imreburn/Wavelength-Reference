@@ -8,7 +8,7 @@ import json
 from dataclasses import asdict
 import logging
 
-from structs import Params, PeakInfo, Dataset
+from structs import Params, Dataset
 from plot_helper import gen_xaxis
 from datapath import data_path
 
