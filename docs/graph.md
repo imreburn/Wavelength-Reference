@@ -49,3 +49,8 @@ Users can save raw data and peak data to CSV files.
 
 - If multiple peaks fall within the wavelength range, the peak with the deepest depth is chosen for examination.
 - If the wavelength range finds a peak, the row is highlighted in blue in the peak table. It is also automatically selected in the peak list in "Save peak info...".
+
+### Run the same test repeatedly
+
+- To run another test with the same parameters, just click **Run(or press Enter)**.
+- To do this even faster, users can click **Repeat(or press Enter)** in **the graph window**. It automates closing the graph window and clicking the "Run" button on the config window.

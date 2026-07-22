@@ -10,12 +10,11 @@ import numpy as np
 from scipy.signal import find_peaks, peak_widths
 import logging
 
-from structs import PeakInfo, Peaks, PeakFwhm, Params
-from constants import POWER_LIMIT
+from structs import Peak, Width, Params
 
 log = logging.getLogger(__name__)
 
-def combine_scans(scans, params: Params):
+def combine_scans(scans):
     """Combines multiple scans. If scans has one scan, it just return the scan as a combined data.
     - Unit is Watt
     
@@ -24,23 +23,17 @@ def combine_scans(scans, params: Params):
     Return:
         combined: [Ch.1, ...]
     """
-    # Start with the last scan (with the lowest power range setting)
-    combined = scans[-1].copy()
-    p_range = params.pm_range - (params.dyn_scans - 1) * params.decrement
-    
-    for scan in scans[-2::-1]:
-        pow_limit_prev = POWER_LIMIT[str(p_range)]
-        
-        for ch_idx, ch_new in enumerate(scan):
-            ch_com = combined[ch_idx]
-            combined[ch_idx] = np.where((ch_new > pow_limit_prev), ch_new, ch_com)
-            
-        p_range += params.decrement
+    def combine(series):
+        result = series[0].copy()
+        for arr in series[1:]:
+            mask = ~np.isnan(arr)
+            result[mask] = arr[mask]
+        return result
 
-    return combined
+    return [combine(col) for col in zip(*scans)]    
 
 
-def peak_detection(x, y, tune=None):
+def peak_detection(x: np.ndarray, y: np.ndarray, tune=None):
     # scipy's peak_widths requires float64 buffers; PM data is read as float32
     # y = np.asarray(data[1], dtype=np.float64)
 
@@ -52,69 +45,51 @@ def peak_detection(x, y, tune=None):
     # Assume a peak should be deeper than 3/4 of global max-min
     simple_prominence = (np.max(y) - np.min(y)) * 0.5
     simple_distance = int(len(y)/4)
-    peak_indices, peak_properties = find_peaks(y, prominence=simple_prominence, distance=simple_distance)
+    peak_indices, peak_properties = find_peaks(y, width=1,rel_height=0.5, prominence=simple_prominence, distance=simple_distance)
 
     log.info(f"Peak(s) found: {len(peak_indices)}")
     if len(peak_indices) == 0:
         return None
 
-    # Prominence takes the shorter peak depth by definition
-    min_peak_depths = peak_properties['prominences']
-    left_bases_is    = peak_properties['left_bases']
-    right_bases_is   = peak_properties['right_bases']
+    left_bases_is   = peak_properties['left_bases']
+    right_bases_is  = peak_properties['right_bases']
     
+    # left_ips, right_ips are fractional indices (interpolated positions)
     # Find peak depths - Max
     max_peak_depths = np.array([max(p-l, p-r) for p, l, r in zip(y[peak_indices], y[left_bases_is], y[right_bases_is])])
+    max_widths, max_fwhm_dbm, max_l_ips, max_r_ips = peak_widths(y, peak_indices, rel_height=0.5, prominence_data=(max_peak_depths, left_bases_is, right_bases_is))
     
     # Find peak depths - Averaged
     avg_peak_depths = np.array([round(p-(l+r)/2, 7) for p, l, r in zip(y[peak_indices], y[left_bases_is], y[right_bases_is])])
-
-    # Find FWHM in two ways
-    # left_ips, right_ips are fractional indices (interpolated positions)
-    
-    # Max
-    max_widths, max_fwhm_dbm, max_l_ips, max_r_ips = peak_widths(y, peak_indices, rel_height=0.5, prominence_data=(max_peak_depths, left_bases_is, right_bases_is))
-    
-    # Averaged base
     avg_widths, avg_fwhm_dbm, avg_l_ips, avg_r_ips = peak_widths(y, peak_indices, rel_height=0.5, prominence_data=(avg_peak_depths, left_bases_is, right_bases_is))
 
-    # Convert fractional indices in x-axis
-    max_fwhm_left_nm  = [x[int(ip)] + (ip % 1.0) * d_x for ip in max_l_ips]
-    max_fwhm_right_nm = [x[int(ip)] + (ip % 1.0) * d_x for ip in max_r_ips]
-    max_fwhm_pm       = [(w * d_x) * 1000 for w in max_widths]
-    
-    avg_fwhm_left_nm  = [x[int(ip)] + (ip % 1.0) * d_x for ip in avg_l_ips]
-    avg_fwhm_right_nm = [x[int(ip)] + (ip % 1.0) * d_x for ip in avg_r_ips]
-    avg_fwhm_pm       = [(w * d_x) * 1000 for w in avg_widths]
-    
-    # Peak locations in nm
-    peak_nm    = np.array(x[peak_indices])
-    # Get the index of the highest peak
-    max_peak_n = np.argmax(max_peak_depths)
-
-    return PeakInfo(
-        peaks=Peaks(
-            idx        = peak_indices,
-            wl         = peak_nm,
-            lt_idx     = left_bases_is,
-            rt_idx     = right_bases_is,
-            max_depths = max_peak_depths,
-            avg_depths = avg_peak_depths,
+    return Peak(
+        x_idx = peak_indices,
+        x_nm  = x[peak_indices],
+        l_idx = left_bases_is,
+        r_idx = right_bases_is,
+        max   = Width(
+            l_nm  = np.array([x[int(ip)] + (ip % 1.0) * d_x for ip in max_l_ips]),
+            r_nm  = np.array([x[int(ip)] + (ip % 1.0) * d_x for ip in max_r_ips]),
+            w_pm  = np.array([(w * d_x) * 1000 for w in max_widths]),
+            w_y   = max_fwhm_dbm,
+            depth = max_peak_depths,
         ),
-        max_fwhm=PeakFwhm(
-            lt    = max_fwhm_left_nm,
-            rt    = max_fwhm_right_nm,
-            width = max_fwhm_pm,
-            dbm   = max_fwhm_dbm,
+        avg = Width(    
+            l_nm  = np.array([x[int(ip)] + (ip % 1.0) * d_x for ip in avg_l_ips]),
+            r_nm  = np.array([x[int(ip)] + (ip % 1.0) * d_x for ip in avg_r_ips]),
+            w_pm  = np.array([(w * d_x) * 1000 for w in avg_widths]),
+            w_y   = avg_fwhm_dbm,
+            depth = avg_peak_depths,
         ),
-        avg_fwhm=PeakFwhm(
-            lt    = avg_fwhm_left_nm,
-            rt    = avg_fwhm_right_nm,
-            width = avg_fwhm_pm,
-            dbm   = avg_fwhm_dbm,
+        min = Width(
+            l_nm  = np.array([x[int(ip)] + (ip % 1.0) * d_x for ip in peak_properties['left_ips']]),
+            r_nm  = np.array([x[int(ip)] + (ip % 1.0) * d_x for ip in peak_properties['right_ips']]),
+            w_pm  = [(w * d_x) * 1000 for w in peak_properties['widths']],
+            w_y   = peak_properties['width_heights'],
+            depth = peak_properties['prominences']
         ),
     )
-
 
 def find_bandwidth(wl, dbm, idx, y_offset, search_range):
     height = float(dbm[idx]) - y_offset
@@ -151,7 +126,7 @@ def find_bandwidth(wl, dbm, idx, y_offset, search_range):
     return left_nm, right_nm, width_pm
 
 
-def exam_peak(pk: PeakInfo, params: Params):
+def exam_peak(pk: Peak, params: Params):
     def in_between(x, crit):
         return x >= crit[0] and x <= crit[1]
     
@@ -170,14 +145,14 @@ def exam_peak(pk: PeakInfo, params: Params):
     peak_found = False
     # If there are multiple peaks in the crit_loc range,
     # the peak with the the deepest depth will be chosen.
-    for i in range(len(pk.peaks.wl)):
-        if in_between(pk.peaks.wl[i], crit_loc):
+    for i in range(len(pk.x_nm)):
+        if in_between(pk.x_nm[i], crit_loc):
             peak_found = True
-            if pk.peaks.max_depths[i] > peak_dep:
+            if pk.max.depth[i] > peak_dep:
                 peak_idx = i + 1
-                peak_loc = pk.peaks.wl[i]
-                peak_dep = pk.peaks.max_depths[i]
-                peak_wid = pk.max_fwhm.width[i]
+                peak_loc = pk.x_nm[i]
+                peak_dep = pk.max.depth[i]
+                peak_wid = pk.max.w_pm[i]
     
     if not peak_found:
         return "Fail", f"No peak found in {crit_loc}", None
@@ -197,5 +172,5 @@ def exam_peak(pk: PeakInfo, params: Params):
         
 
 if __name__ == "__main__":
-    data = np.loadtxt("test_2026-05-11_14-44_converted.csv", skiprows=1, delimiter=',')
+    data = np.loadtxt("test_2026-05-11_14-44_converted.csv", skiprows=2, delimiter=',')
     print(peak_detection(data[:,0], data[:, 1]))

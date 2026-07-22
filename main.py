@@ -34,7 +34,7 @@ try:
             params.pm_range -= params.decrement
             
         params.pm_range = saved_pm_range
-        raw_w.data = combine_scans(raw_w.scans, params)
+        raw_w.data = combine_scans(raw_w.scans)
         
         if params.reference:
             raw_w.ref = ref_data

@@ -10,12 +10,18 @@ from structs import Params
 
 log = logging.getLogger(__name__)
 
+# Number of times run_sweep has been called since this module was imported
+# (i.e. since main.py started).
+_sweep_count = 0
+
 
 def run_sweep(pm, laser, params: Params, dryrun=False):
     """
     Returns a list of np 1-d arrays with the order matching with param.channel. (e.g. [Ch.1, Ch.2, Ch.3, Ch.4])
     """
-    log.info("--- Running instruments ---") 
+    global _sweep_count
+    _sweep_count += 1
+    log.info(f"--- Running instruments (sweep #{_sweep_count}) ---")
     
     check_inst(pm, laser)
 
@@ -108,7 +114,6 @@ def run_sweep(pm, laser, params: Params, dryrun=False):
             log.warning(f"[PM] Ch.{i}: All measurements are overflown.")
         elif np.any(np.isnan(arr_w)):
             log.warning(f"[PM] Ch.{i}: Some measurements are overflown.")
-    
         if np.any(arr_w <= 0):
             log.warning(f"[PM] Ch.{i}: Some measurements are less than or equal to 0.")
             arr_w[arr_w <= 0] = np.nan

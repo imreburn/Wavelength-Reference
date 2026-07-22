@@ -1,5 +1,22 @@
 # Changelog
 
+## [v1.1.11] - 2026-07-22
+
+### Added
+
+- Log the counter for each sweep. ([#81](https://github.com/imreburn/Wavelength-Reference/issues/81))
+- Added peak depth and FWHM (relative to the minimum baseline) to the auto-detected peak table and markers. More changes will follow in future updates. ([#84](https://github.com/imreburn/Wavelength-Reference/issues/84))
+
+### Changed
+
+- Applied the power meter's maximum averaging-time spec (10 s). ([#82](https://github.com/imreburn/Wavelength-Reference/issues/82))
+- Applied the tunable laser source's maximum output power spec, which varies with the sweep range. ([#72](https://github.com/imreburn/Wavelength-Reference/issues/72))
+- Merged the two FWHM marker sets into one and updated the legend names.
+
+### Fixed
+
+- Fixed incorrect combining of multiple scans.
+
 ## [v1.1.10] - 2026-07-17
 
 ### Added

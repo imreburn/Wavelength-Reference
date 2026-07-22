@@ -1,5 +1,4 @@
-from .peak import PeakInfo
-from .peak import Peaks
-from .peak import PeakFwhm
+from .peak import Peak
+from .peak import Width
 from .param import Params
 from .dataset import Dataset

@@ -159,7 +159,8 @@ def get_inputs(pm=None, laser=None, auto_run=False):
 
         # If step size is adjusted, change the field color
         step_adjusted = ""
-        if params.step_pm != float(entries[3].get()):
+        entered_step = float(entries[3].get() or 0)
+        if params.step_pm != entered_step:
             entries[3].delete(0, tk.END)
             entries[3].insert(0, f"{params.step_pm:.4f}")
             entries[3].config(disabledforeground="#cc7a00")
