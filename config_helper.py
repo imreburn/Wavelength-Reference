@@ -1,4 +1,5 @@
 import csv
+import math
 import tkinter as tk
 from datapath import data_path
 
@@ -46,6 +47,29 @@ def passfail_col(label, bound):
 
 # Flat list of Pass/Fail preset columns, in (label, bound) order.
 PASSFAIL_COLUMNS = [passfail_col(label, b) for label in PASSFAIL_LABELS for b in PASSFAIL_BOUNDS]
+
+
+# SI prefixes from 10^-24 to 10^24; index 8 is the blank (10^0) slot, which keeps
+# an unprefixed unit in the same column as a prefixed one in right-aligned labels.
+SI_PREFIXES = "yzafpnµm kMGTPEZY"
+
+
+def eng_format(x, unit="", digits=3):
+    """Format x in engineering notation with an SI prefix, e.g. 1.234 µW.
+
+    Never raises: magnitudes outside 10^±24 clamp to y/Y, and nan/inf pass
+    through. Live readouts call this from a Tk `after` loop, where an exception
+    would kill the loop rather than just garble one label.
+    """
+    if not math.isfinite(x):
+        return f"{x} {unit}"
+    exp = 0 if x == 0 else math.floor(math.log10(abs(x)) / 3) * 3
+    exp = max(-24, min(24, exp))
+    mant = round(x / 10.0**exp, digits) + 0.0  # + 0.0 folds -0.0 into 0.0
+    if abs(mant) >= 1000 and exp < 24:         # rounding pushed us up a decade
+        exp += 3
+        mant = round(x / 10.0**exp, digits)
+    return f"{mant:.{digits}f} {SI_PREFIXES[exp // 3 + 8]}{unit}"
 
 
 def channels_to_str(channels):

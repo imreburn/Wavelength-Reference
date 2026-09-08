@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed the bug when the measured power is too low. ([#60](https://github.com/imreburn/Wavelength-Reference/issues/60))
+
 ## [v1.1.11] - 2026-07-22
 
 ### Added

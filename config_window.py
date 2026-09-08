@@ -4,7 +4,6 @@ import time
 import tkinter as tk
 from tkinter import ttk
 import logging
-import decimal
 
 # Set Windows DPI awareness before the first Tk() window is created (import-time
 # side effect). Must come before any tkinter window in the process.
@@ -19,7 +18,7 @@ from structs import Params
 from config_helper import (
     FIELD_LABELS, DEFAULTS, SWEEP_SPEED_OPTIONS, PADDING,
     EXTRA_LABELS, EXTRA_DEFAULTS, PM_RANGE_LABEL, DYN_SCAN_LABEL, DECREMENT_LABEL,
-    CHANNEL_LABEL, CHANNEL_OPTIONS, CHANNEL_DEFAULT, channels_to_str, parse_channels,
+    CHANNEL_LABEL, CHANNEL_OPTIONS, CHANNEL_DEFAULT, channels_to_str, parse_channels, eng_format,
     PASSFAIL_LABELS, PASSFAIL_KEYS, PASSFAIL_DEFAULT, PASSFAIL_COLUMNS, passfail_col,
     load_presets, save_preset, delete_preset, make_extra_widgets, validate_inputs, validate_extras, validate_passfail, validation_error,
 )
@@ -336,14 +335,6 @@ def get_inputs(pm=None, laser=None, auto_run=False):
 
         job = {"id": None}
 
-        def prettyprint(x, baseunit):
-            prefix = "yzafpnµm kMGTPEZY"
-            shift  = decimal.Decimal('1E24')
-            d      = (decimal.Decimal(str(x))*shift).normalize()
-            m, e   = d.to_eng_string().split('E')
-            m = str(round(float(m), 3))
-            return m + " " + prefix[int(e)//3] + baseunit
-
         def refresh():
             # Bail out if the window was torn down between the `after` being
             # scheduled and it firing.
@@ -359,20 +350,19 @@ def get_inputs(pm=None, laser=None, auto_run=False):
                     watt_vars[i].set("-")
                     continue
  
-                if p_w > 0.01:
-                    watt_vars[i].set("overflown")
+                if p_w > 0.01 or p_w <= 0:
+                    watt_vars[i].set("-")
+                    power_vars[i].set("-")
                     continue
  
-                watt_vars[i].set(prettyprint(p_w, 'W'))
+                watt_vars[i].set(eng_format(p_w, 'W'))
+                power_vars[i].set(f"{10 * math.log10(p_w * 1e3):.3f} dBm")
+
                 if p_w > max_watts[i]:
                     max_watts[i] = p_w
-                    max_vars[i].set(prettyprint(p_w, 'W'))
-                # dBm = 10*log10(P / 1 mW); guard non-positive readings, which
-                # the meter can report at/below its noise floor.
-                if p_w > 0:
-                    power_vars[i].set(f"{10 * math.log10(p_w * 1e3):.3f} dBm")
-                else:
-                    power_vars[i].set("—")
+                    max_vars[i].set(eng_format(p_w, 'W'))
+                
+
             job["id"] = top.after(50, refresh)
 
         def on_top_close():
