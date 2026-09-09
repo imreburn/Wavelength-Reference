@@ -16,9 +16,9 @@ from inst_helper import prep_inst, check_inst
 from shutdown import IDLE_SECONDS, IDLE_POLL_MS
 from structs import Params
 from config_helper import (
-    FIELD_LABELS, DEFAULTS, SWEEP_SPEED_OPTIONS, PADDING,
-    EXTRA_LABELS, EXTRA_DEFAULTS, PM_RANGE_LABEL, DYN_SCAN_LABEL, DECREMENT_LABEL,
-    CHANNEL_LABEL, CHANNEL_OPTIONS, CHANNEL_DEFAULT, channels_to_str, parse_channels, eng_format,
+    FIELD_LABELS, DEFAULTS, SWEEP_SPEED_OPTIONS,
+    EXTRA_LABELS, EXTRA_DEFAULTS, PADDING_LABEL, PM_RANGE_LABEL, DYN_SCAN_LABEL, DECREMENT_LABEL,
+    CHANNEL_LABEL, CHANNEL_OPTIONS, CHANNEL_DEFAULT, channels_to_str, parse_channels, padding_nm, eng_format,
     PASSFAIL_LABELS, PASSFAIL_KEYS, PASSFAIL_DEFAULT, PASSFAIL_COLUMNS, passfail_col,
     load_presets, save_preset, delete_preset, make_extra_widgets, validate_inputs, validate_extras, validate_passfail, validation_error,
 )
@@ -36,6 +36,11 @@ WINDOW_POS = (50, 10)
 #   pos       — last window position (x, y); None until first close, then
 #               tracks wherever the user moved it
 _state = {"has_run": False, "reference": False, "pos": None}
+
+
+def preset_names(presets):
+    """Preset names in the order the dropdowns show them: alphabetical, case-insensitive."""
+    return sorted(presets, key=str.lower)
 
 
 def _is_disabled(widget):
@@ -89,8 +94,9 @@ def get_inputs(pm=None, laser=None, auto_run=False):
             w.config(state=field_state)
         for cb in channel_checks:
             cb.config(state=field_state)
-        extra_menus[PM_RANGE_LABEL].config(state=field_state)
-        extra_menus[DYN_SCAN_LABEL].config(state=field_state)
+        for label in EXTRA_LABELS:
+            if label != DECREMENT_LABEL:   # Decrement follows Dynamic Range Scans, below
+                extra_menus[label].config(state=field_state)
         if locked:
             extra_menus[DECREMENT_LABEL].config(state="disabled")
         else:
@@ -103,13 +109,15 @@ def get_inputs(pm=None, laser=None, auto_run=False):
         read_pm_btn.config(state="normal" if locked else "disabled")
 
     def on_save():
-        values, error = validate_inputs([e.get() for e in entries], num_data, avg_time)
+        extra_strs = {label: extra_vars[label].get() for label in EXTRA_LABELS}
+        error = validate_extras(extra_strs)
         if error:
             validation_error(error, result_label, num_data, avg_time, saved, run_btn)
             return
 
-        extra_strs = {label: extra_vars[label].get() for label in EXTRA_LABELS}
-        error = validate_extras(extra_strs)
+        padding = padding_nm(extra_strs[PADDING_LABEL])
+
+        values, error = validate_inputs([e.get() for e in entries], num_data, avg_time, padding)
         if error:
             validation_error(error, result_label, num_data, avg_time, saved, run_btn)
             return
@@ -151,7 +159,7 @@ def get_inputs(pm=None, laser=None, auto_run=False):
             setattr(params, lo_key, lo)
             setattr(params, hi_key, hi)
 
-        params.padding    = PADDING
+        params.padding    = padding
         params.time       = ts
         params.date       = ds
         params.name       = "unknown" if preset_var.get() == "none" else preset_var.get()
@@ -405,7 +413,7 @@ def get_inputs(pm=None, laser=None, auto_run=False):
             preset_vals[passfail_col(label, "max")] = mx.get()
 
         existing = load_presets()
-        names = list(existing.keys())
+        names = preset_names(existing)
 
         top = tk.Toplevel(root)
         top.title("Manage Presets")
@@ -488,9 +496,11 @@ def get_inputs(pm=None, laser=None, auto_run=False):
             # Keep the in-memory copy in sync so it can be loaded without a rebuild.
             presets[name] = dict(preset_vals)
 
-            # Surface a freshly added name in the main preset dropdown too.
+            # Surface a freshly added name in the main preset dropdown too, at its
+            # alphabetical position (+1 for the "none" entry the menu opens with).
             if name not in names:
-                preset_menu["menu"].add_command(label=name, command=tk._setit(preset_var, name))
+                index = preset_names(presets).index(name) + 1
+                preset_menu["menu"].insert_command(index, label=name, command=tk._setit(preset_var, name))
             top.destroy()
             result_label.config(text=f"Preset '{name}' saved.", fg="black")
 
@@ -552,8 +562,8 @@ def get_inputs(pm=None, laser=None, auto_run=False):
     # ---- Grid row layout -------------------------------------------------
     FIELDS_START = 2                     # preset at FIELDS_START, channel next, fields after
     CHANNEL_ROW  = FIELDS_START + 1      # channel checkboxes sit below Load Preset
-    EXTRAS_START = FIELDS_START + N + 2   # rows for the three extra dropdowns
-    LOGCOUNT_ROW = EXTRAS_START + 3
+    EXTRAS_START = FIELDS_START + N + 2   # one row per extra dropdown
+    LOGCOUNT_ROW = EXTRAS_START + len(EXTRA_LABELS)
     AVGTIME_ROW  = LOGCOUNT_ROW + 1
     SAVEBTN_ROW  = AVGTIME_ROW + 1
     HEADER2_ROW  = SAVEBTN_ROW + 1
@@ -568,7 +578,8 @@ def get_inputs(pm=None, laser=None, auto_run=False):
     section_header(frame, "Parameters", 0)
 
     presets = load_presets()
-    preset_options = ["none"] + list(presets.keys())
+    # Sorted for display only — preset.csv keeps whatever row order it has.
+    preset_options = ["none"] + preset_names(presets)
     preset_var = tk.StringVar(value=_last.get("preset", "none"))
     tk.Label(frame, text="Load Preset", anchor="e").grid(row=FIELDS_START, column=0, pady=4, padx=(0, 8), sticky="e")
     preset_menu = tk.OptionMenu(frame, preset_var, *preset_options)

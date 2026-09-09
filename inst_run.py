@@ -51,8 +51,8 @@ def run_sweep(pm, laser, params: Params, dryrun=False):
     laser.write(f":SOURCE0:WAVE  {tls_wl_start:.3f} NM")
     time.sleep(0.1)
     
-    if (w := (float(laser.query(":SOURCE0:WAVE?"))*1e9)) != tls_wl_start:
-        log.warning(f"[LASER] The current wavelength: {w}. Laser is still being adjusted.")
+    # if (w := (round(float(laser.query(":SOURCE0:WAVE?"))*1e9), 5)) != tls_wl_start:
+    #     log.warning(f"[LASER] The current wavelength: {w}. Laser is still being adjusted.")
         
     laser.write(":SOURCE0:POWER:UNIT  0")
     laser.write(f":SOURCE0:POWER {params.tls_dbm} DBM")

@@ -10,18 +10,25 @@ FIELD_LABELS = ["Start Wavelength (nm)", "Stop Wavelength (nm)", "Sweep Speed (n
 DEFAULTS = ["0", "0", "0.5", "0.0125", "0.1"]
 SWEEP_SPEED_OPTIONS = ["0.5", "1.0", "2.0", "5.0", "10.0", "20.0", "40.0", "50.0", "80.0", "100.0", "150.0", "160.0", "200.0"]
 
-# Extra dropdown-only fields (powermeter range + dynamic-range scanning).
+# Extra dropdown-only fields (sweep padding, powermeter range + dynamic-range scanning).
+PADDING_LABEL   = "Wavelength Padding (pm)"
 PM_RANGE_LABEL  = "Initial Power Meter Range (dBm)"
 DYN_SCAN_LABEL  = "Dynamic Range Scans"
 DECREMENT_LABEL = "Decrement (dB)"
 
+PADDING_OPTIONS   = ["0", "10", "20", "30", "40", "50"]
 PM_RANGE_OPTIONS  = ["10", "0", "-10", "-20", "-30", "-40", "-50", "-60", "-70"]
 DYN_SCAN_OPTIONS  = ["1", "2", "3"]
 DECREMENT_OPTIONS = ["10", "20", "30", "40"]
 
-EXTRA_LABELS   = [PM_RANGE_LABEL, DYN_SCAN_LABEL, DECREMENT_LABEL]
-EXTRA_OPTIONS  = {PM_RANGE_LABEL: PM_RANGE_OPTIONS, DYN_SCAN_LABEL: DYN_SCAN_OPTIONS, DECREMENT_LABEL: DECREMENT_OPTIONS}
-EXTRA_DEFAULTS = {PM_RANGE_LABEL: "10", DYN_SCAN_LABEL: "1", DECREMENT_LABEL: "10"}
+EXTRA_LABELS   = [PADDING_LABEL, PM_RANGE_LABEL, DYN_SCAN_LABEL, DECREMENT_LABEL]
+EXTRA_OPTIONS  = {PADDING_LABEL: PADDING_OPTIONS, PM_RANGE_LABEL: PM_RANGE_OPTIONS, DYN_SCAN_LABEL: DYN_SCAN_OPTIONS, DECREMENT_LABEL: DECREMENT_OPTIONS}
+EXTRA_DEFAULTS = {PADDING_LABEL: "50", PM_RANGE_LABEL: "10", DYN_SCAN_LABEL: "1", DECREMENT_LABEL: "10"}
+
+
+def padding_nm(s):
+    """Convert a padding dropdown value (picometer string) to nm."""
+    return int(s) / 1000.0
 
 # Acquisition channel selection (checkboxes 1–4); at least one must be chosen.
 CHANNEL_LABEL   = "Input Channel"
@@ -88,8 +95,6 @@ def parse_channels(s):
     return tuple(out)
 
 PRESET_CSV = data_path("preset.csv", mkdir=False)
-
-PADDING = 0.010  # addtional padding in nm
 
 WAV_MIN, WAV_MAX = 1450, 1650
 
@@ -166,7 +171,7 @@ def delete_preset(name):
 
 
 def make_extra_widgets(frame, start_row, init, on_change, enable_dynamic=True):
-    """Build the three extra dropdowns starting at grid row `start_row`.
+    """Build the extra dropdowns, one per EXTRA_LABELS row, from grid row `start_row`.
 
     `init`         dict of label -> initial value (falls back to EXTRA_DEFAULTS).
     `on_change`    callback fired on any selection change.
@@ -176,16 +181,11 @@ def make_extra_widgets(frame, start_row, init, on_change, enable_dynamic=True):
 
     Returns (vars, menus) — each a dict keyed by label.
     """
-    specs = [
-        (PM_RANGE_LABEL,  PM_RANGE_OPTIONS),
-        (DYN_SCAN_LABEL,  DYN_SCAN_OPTIONS),
-        (DECREMENT_LABEL, DECREMENT_OPTIONS),
-    ]
     vars_, menus = {}, {}
-    for j, (label, options) in enumerate(specs):
+    for j, label in enumerate(EXTRA_LABELS):
         tk.Label(frame, text=label, anchor="e").grid(row=start_row + j, column=0, pady=4, padx=(0, 8), sticky="e")
         v = tk.StringVar(value=init.get(label, EXTRA_DEFAULTS[label]))
-        m = tk.OptionMenu(frame, v, *options)
+        m = tk.OptionMenu(frame, v, *EXTRA_OPTIONS[label])
         m.grid(row=start_row + j, column=1, pady=4, sticky="w")
         v.trace_add("write", on_change)
         vars_[label] = v
@@ -205,8 +205,14 @@ def make_extra_widgets(frame, start_row, init, on_change, enable_dynamic=True):
     return vars_, menus
 
 
-def validate_inputs(raw_strings, num_data, avg_time):
-    """Return (values, None) on success or (None, error_msg) on failure."""
+def validate_inputs(raw_strings, num_data, avg_time, padding):
+    """Return (values, None) on success or (None, error_msg) on failure.
+
+    `padding` is the extra sweep range added on each side, in nm (0 for none).
+    It widens the range the log count and bounds check are computed over, but the
+    returned start/stop stay as entered — inst_run/plot_helper re-apply it from
+    Params.padding.
+    """
     values = []
     for i, s in enumerate(raw_strings):
         if i == 3 and s.strip() == "":  # step_size defaults to 0 when empty
@@ -218,11 +224,11 @@ def validate_inputs(raw_strings, num_data, avg_time):
             return None, "all fields must be numbers."
     wav_start, wav_stop, sweep_speed, step_size, power_dbm = values[0], values[1], values[2], values[3], values[4]
     
-    wav_start    -= PADDING
-    wav_stop     += PADDING
+    # wav_start    -= padding
+    # wav_stop     += padding
     
     if not (WAV_MIN <= wav_start <= WAV_MAX) or not (WAV_MIN <= wav_stop <= WAV_MAX):
-        return None, f"Wavelengths must be between {WAV_MIN+PADDING} and {WAV_MAX-PADDING} nm."
+        return None, f"Wavelengths must be between {WAV_MIN:g} and {WAV_MAX:g} nm."
     if wav_start >= wav_stop:
         return None, "Start wavelength must be less than Stop wavelength."
     if step_size < 0:
@@ -242,7 +248,7 @@ def validate_inputs(raw_strings, num_data, avg_time):
     # 25 us <= avg_t <= 10s
     avg_t         = min(max(avg_t, 25), 10000000)
     step_new      = round((sweep_speed/1e3) * avg_t, 4)
-    wav_range     = (wav_stop - wav_start) * 1000   # pm
+    wav_range     = ((wav_stop + padding) - (wav_start - padding)) * 1000   # pm
     pp            = int(wav_range // step_new)
     qq            = wav_range % step_new
     num_data_log  = pp if qq == 0 else pp+1
@@ -266,9 +272,10 @@ def validate_extras(extra_strs):
 
     `extra_strs`: dict label -> raw string. Decrement is only checked when Dynamic
     Range Scans is 2 or 3 (otherwise the field is unused/disabled). Run before any
-    int() conversion so a bad preset value is reported instead of crashing.
+    int() conversion so a bad preset value is reported instead of crashing — that
+    includes padding_nm(), which validate_inputs depends on.
     """
-    for label in (PM_RANGE_LABEL, DYN_SCAN_LABEL):
+    for label in (PADDING_LABEL, PM_RANGE_LABEL, DYN_SCAN_LABEL):
         if extra_strs[label] not in EXTRA_OPTIONS[label]:
             return f"{label} must be selected from the dropdown list."
     if extra_strs[DYN_SCAN_LABEL] in ("2", "3") and extra_strs[DECREMENT_LABEL] not in DECREMENT_OPTIONS:

@@ -1,10 +1,15 @@
 # Changelog
 
-## [1.1.12] - 2026-09-08
+## [unreleased]
+
+### Added
+
+- Added the "Wavelength Padding (pm)" parameter in the config window. This extra padding to the sweep range from (start wavelength - padding) to (stop wavelength + padding).
 
 ### Fixed
 
 - Fixed the bug when the measured power is too low. ([#60](https://github.com/imreburn/Wavelength-Reference/issues/60))
+- Display the loaded presets alphabetically ([#89](https://github.com/imreburn/Wavelength-Reference/issues/89))
 
 ## [v1.1.11] - 2026-07-22
 
