@@ -4,7 +4,7 @@
 
 ### Added
 
-- Added the "Wavelength Padding (pm)" parameter in the config window. This extra padding to the sweep range from (start wavelength - padding) to (stop wavelength + padding).
+- Added the "Wavelength Padding (pm)" parameter in the config window. This extra padding to the sweep range from (start wavelength - padding) to (stop wavelength + padding). The default value is 50 pm (same as the Keysight IL), but the user may change it to 0. ([#88](https://github.com/imreburn/Wavelength-Reference/issues/88)).
 
 ### Fixed
 
