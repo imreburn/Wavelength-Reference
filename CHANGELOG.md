@@ -1,5 +1,11 @@
 # Changelog
 
+## [unreleased]
+
+### Changed
+
+- The power measurements are no longer multiplied by -1. Instead, the sign of datapoints is preserved. ([#90](https://github.com/imreburn/Wavelength-Reference/issues/90))
+
 ## [1.1.12] - 2026-09-09
 
 ### Added
