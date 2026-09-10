@@ -1,3 +1,18 @@
+## Graph window
+
+### Top Navigation Bar
+
+#### Save Raw Data...
+
+- Raw data can be saved as a CSV file. The user can set the location and the name of the file from the pop-up window. The default path is set as the `Raw Data` folder in the [data location](../README.md#data-location).
+
+#### Save Peak Info...
+
+- **P** key is the keyboard shortcut.
+- Label (SN) cannot be left empty.
+- I.L. and Temperature can be left empty.
+- If the pass/fail criteria finds a peak, it will be automatically selected from the peak list. A note "(criteria)" is added to the peak.
+- The peak with the maximum depth (based on 'Depth_max') is noted "(max depth)", and will be listed next to the one found by the criteria. The same peak may be chosen by both conditions.
 #### Analyzing measurement
 
 **Detecting Peak(s)**

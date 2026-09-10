@@ -4,10 +4,11 @@
 
 - The program attempts to read `preset.csv` from the **path** written in `data_dir.txt` on startup.
 - Once parameters are **saved** (in that, they passed checks), **Manage Presets...** button is activated. A new window pops-up, and users can replace an existing preset with the currently saved parameters, or create a new preset with them, or delete an existing preset.
+- If the currently saved preset is deleted, the parameters are reset to the defaults.
 
 ---
 
-### Multiple input channels
+### Select input channels
 
 - Users can select input channels by selecting checkboxes. At least one must be selected.
 - Data analysis is performed for the data from the least channel number only.
@@ -22,6 +23,13 @@
 
 ---
 
+### Wavelength Padding
+
+- The Keysight IL software automatically adds 50 pm padding to the start and stop wavelength. For example, if the user sets 1535 and 1537 nm as the start and stop wavelength, the actual sweep range is set by the software from 1534.95 nm to 1537.05 nm.
+- In WavelengthSweep software, the user can configure this padding parameter from 0 to 50 pm with 10 pm increment. 
+
+---
+
 ### Power meter readout
 
 - After parameters are **saved**, the button **Read Power...** becomes active. The keyboard shortcut is **p**. A new pop-up appears, and the current powers for all four channels are read and shown in two units(dBm and W). The power is measured at the rate of 20 Hz.
@@ -33,7 +41,7 @@
 
 ### Dynamic scan
 
-- Users can run multiple scans with different power range settings. Up to 3 scans can be run with a decrement. For example, 10 dBm initial power meter range, 3 dynamic range scans, 10 dB decrement will lead to the first scan with 10 dBm range, the second with 0, the last with -10. The minimum power meter range is -70 dBm. An error message will be shown if the range lower than -70 is necessary for the given parameters. 
+- Users can run multiple scans (up to 3) with different power range settings. Up to 3 scans can be run with a decrement. For example, 10 dBm initial power meter range, 3 dynamic range scans, 10 dB decrement will lead to the first scan with 10 dBm range, the second with 0, the last with -10. The minimum power meter range is -70 dBm. An error message will be shown if the range lower than -70 is necessary for the given parameters. 
 
 ---
 
@@ -45,15 +53,18 @@
 #### Status messages regarding reference
 
 - **Not Set / Not Available**: There is no data available for a reference, and thus a reference is not set. This message is shown when the program is just launched or the user clicks the "Change" button. The "Set Reference" button is disabled.
-- **Not Set / Available**: Measured data is available, but it is not loaded as a reference.
-- **Set**: Currently, data is set a reference.
+- **Not Set / Available**: Measured data is available, but it is not loaded as a reference. The "Set Reference" button is active for the user to set it as a reference.
+- **Set**: A reference data is set.
 
 --- 
 
 ### Pass/Fail Criteria
 
 - Users can enter a range (min, max) for peak wavelength, depth, and width.
+- If more than one peak are found inside the given peak wavelength range, the deepest peak is used for the depth and width range criteria.
+- If a peak wavelength range is not set but either the depth or width range is set, the test always fails.
+- If a depth range is not set, it is skipped. The same applies to the width.
 - They are saved together with other parameters in a preset.
 - All fields are 0 by default. Setting all as 0 turns off the criteria. The result is not examined, and no message is shown.
-- If a wavelength range is not set but either the depth or width range is set, the test always fails.
-- If a depth range is not set, it is skipped. The same applies to the width.
+- If a min value is entered and the max field is left empty or 0, the positive infinity is automatically assigned as the max value. 
+- If a max value is entered and the min field is left empty, 0 is automatically assigned as the min value.
