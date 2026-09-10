@@ -4,7 +4,7 @@ analyze_data.py - Helper functions for data processing
 Functions:
     combine_scans(scans)    Combine multiple scans for dynamic range scans
     peak_detection(data)    Find peaks and their bases and FWHMs
-    find_bandwidth(wl, dbm, idx, y_offset, search_range)    Find a full width an offset by bandwidth amplitude (y-offset) above given x-position
+    find_bandwidth(wl, dbm, idx, y_offset, search_range)    Find the full width of the dip at idx, measured y_offset dB above its bottom
 """
 import numpy as np
 from scipy.signal import find_peaks, peak_widths
@@ -33,7 +33,7 @@ def combine_scans(scans):
     return [combine(col) for col in zip(*scans)]    
 
 
-def peak_detection(x: np.ndarray, y: np.ndarray, tune=None):
+def peak_detection(x: np.ndarray, tmp_y: np.ndarray, tune=None):
     # scipy's peak_widths requires float64 buffers; PM data is read as float32
     # y = np.asarray(data[1], dtype=np.float64)
 
@@ -42,6 +42,10 @@ def peak_detection(x: np.ndarray, y: np.ndarray, tune=None):
     
     # Find peaks
     # tunable parameters: prominence, distance, etc.
+    # Absorption dips point down in dBm, but find_peaks/peak_widths only locate
+    # maxima, so run them on a flipped copy (#90). Everything that comes back as
+    # a y-value is negated again on the way out; depths/widths are unaffected.
+    y = -tmp_y
     # Assume a peak should be deeper than 3/4 of global max-min
     simple_prominence = (np.max(y) - np.min(y)) * 0.5
     simple_distance = int(len(y)/4)
@@ -72,26 +76,35 @@ def peak_detection(x: np.ndarray, y: np.ndarray, tune=None):
             l_nm  = np.array([x[int(ip)] + (ip % 1.0) * d_x for ip in max_l_ips]),
             r_nm  = np.array([x[int(ip)] + (ip % 1.0) * d_x for ip in max_r_ips]),
             w_pm  = np.array([(w * d_x) * 1000 for w in max_widths]),
-            w_y   = max_fwhm_dbm,
+            w_y   = -max_fwhm_dbm,
             depth = max_peak_depths,
         ),
         avg = Width(    
             l_nm  = np.array([x[int(ip)] + (ip % 1.0) * d_x for ip in avg_l_ips]),
             r_nm  = np.array([x[int(ip)] + (ip % 1.0) * d_x for ip in avg_r_ips]),
             w_pm  = np.array([(w * d_x) * 1000 for w in avg_widths]),
-            w_y   = avg_fwhm_dbm,
+            w_y   = -avg_fwhm_dbm,
             depth = avg_peak_depths,
         ),
         min = Width(
             l_nm  = np.array([x[int(ip)] + (ip % 1.0) * d_x for ip in peak_properties['left_ips']]),
             r_nm  = np.array([x[int(ip)] + (ip % 1.0) * d_x for ip in peak_properties['right_ips']]),
             w_pm  = [(w * d_x) * 1000 for w in peak_properties['widths']],
-            w_y   = peak_properties['width_heights'],
+            w_y   = -peak_properties['width_heights'],
             depth = peak_properties['prominences']
         ),
     )
 
-def find_bandwidth(wl, dbm, idx, y_offset, search_range):
+def find_bandwidth(wl, tmp_dbm, idx, y_offset, search_range):
+    """Full width of the dip at idx, measured y_offset dB above its bottom.
+
+    Returns (left_nm, right_nm, width_pm). Only x-positions are returned, so
+    the flipped sign used below never reaches the caller.
+    """
+    # The walk below is written for an upward peak; dips point down in dBm, so
+    # work on a flipped copy (#90). Note this makes the local `dbm` the opposite
+    # sign from the caller's — see the marker clamp in plot.py's mode-2 callback.
+    dbm = -tmp_dbm
     height = float(dbm[idx]) - y_offset
     i_min = max(0, idx - search_range)
     # len(wl) - 1 (not len(wl)): the right-side loop below reads dbm[i] at i == i_max,

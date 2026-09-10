@@ -70,15 +70,15 @@ def gen_xaxis(params: Params):
 
 def pre_process(raw_w: Dataset, params: Params):
     def wtodbm(x):
-        """convert Watt to dBm, and multiply by -1 as it is loss
+        """convert Watt to dBm
 
         Args:
             x (np.ndarray): 1-D numpy array in Watt
 
         Returns:
-            np.ndarray: 1-D numpy array in dBm * (-1)
+            np.ndarray: 1-D numpy array in dBm
         """
-        return -10 * np.log10(x * 1000)
+        return 10 * np.log10(x * 1000)
     
     wav_range, i_lo, i_hi = gen_xaxis(params)
     

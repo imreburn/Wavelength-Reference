@@ -196,17 +196,20 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         main_traces.append((len(initial_fig.data) - 1, d_arr))
 
     # ------------------------------------------------------------------
-    # Reference sweep. Insertion loss (deepest dip vs reference) is computed
+    # Reference sweep. Insertion loss is computed
     # on channel 1 only; a dashed reference line is drawn for every channel.
     # ------------------------------------------------------------------
     il_idx = None  # trace index of the IL marker (None when no reference)
     if params.reference:
-        gmin_idx = int(np.nanargmin(dbm))
-        gmin_x, gmin_y = float(wl[gmin_idx]), float(dbm[gmin_idx])
+        # Issue #90
+        gmax_idx = int(np.nanargmax(dbm))
+        gmax_x, gmax_y = float(wl[gmax_idx]), float(dbm[gmax_idx])
         initial_fig.add_scatter(
-            x=[gmin_x], y=[gmin_y], mode='markers+text', name='Insertion loss',
+            x=[gmax_x], y=[gmax_y], mode='markers+text', name='Insertion loss',
             marker=dict(symbol='star', size=9, color='#C0392B', line=_border),
-            text=[f"IL: {gmin_y:.5f} dB"], textposition='bottom center',
+            # Negated (not abs) so a negative IL still reads as negative — that
+            # means the device came out above the reference, usually a bad ref sweep.
+            text=[f"IL: {-gmax_y:.5f} dB"], textposition='bottom center',
             textfont=dict(size=14, color='#C0392B'),
             hovertemplate='%{x:.12~f}<br>%{y:.5f}<extra>IL</extra>',
         )
@@ -281,7 +284,6 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         uirevision='constant',
     )
 
-    initial_fig.update_yaxes(autorange='reversed')
     initial_fig.update_xaxes(tickformat='.7~f', hoverformat='.12~f')
     initial_fig.update_xaxes(showspikes=True, spikecolor="gray", spikemode="across", spikethickness=1)
     initial_fig.update_yaxes(showspikes=True, spikemode="across", spikecolor="gray", spikethickness=1)
@@ -305,47 +307,6 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         log.error("Dash callback error", exc_info=err)
 
     app = dash.Dash(__name__, on_error=_log_dash_error)
-
-    # Block the right mouse button over the plot. Plotly has no config flag to
-    # disable right-drag panning, and that pan is what drops the y-axis
-    # autorange:'reversed' orientation (a regression that only showed up in the
-    # packaged build's bundled plotly.js). A capture-phase listener on the
-    # document intercepts button-2 mousedown / contextmenu before they reach
-    # Plotly's own drag handlers, so right-drag never starts. Injected via
-    # index_string (not an assets/ folder) so it survives PyInstaller freezing.
-    app.index_string = '''<!DOCTYPE html>
-<html>
-    <head>
-        {%metas%}
-        <title>{%title%}</title>
-        {%favicon%}
-        {%css%}
-    </head>
-    <body>
-        {%app_entry%}
-        <footer>
-            {%config%}
-            {%scripts%}
-            {%renderer%}
-        </footer>
-        <script>
-        (function () {
-            var onGraph = function (e) {
-                return e.target && e.target.closest && e.target.closest('#spectrum');
-            };
-            document.addEventListener('mousedown', function (e) {
-                if (e.button === 2 && onGraph(e)) {
-                    e.stopPropagation();
-                    e.preventDefault();
-                }
-            }, true);
-            document.addEventListener('contextmenu', function (e) {
-                if (onGraph(e)) { e.preventDefault(); }
-            }, true);
-        })();
-        </script>
-    </body>
-</html>'''
 
     # ------------------------------------------------------------------
     # Right sidebar styles. The container sets the 14px default font, which
@@ -546,7 +507,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             if sel == 'custom':
                 if m2 is None or not markers:
                     return None, None, None
-                return m2['x'], m2['y'] - markers[-1]['y'], m2.get('width_pm')
+                return m2['x'], markers[-1]['y'] - m2['y'], m2.get('width_pm')
             i   = int(sel.split(':')[1])
             row = peak_df[peak_df['Peak'] == i].iloc[0]
             return float(row['x']), float(row['Depth_max']), float(row['FWHM_max'])
@@ -557,8 +518,8 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         """Format a stat value to nd decimals, or '' when unavailable."""
         return '' if v is None else f'{float(v):.{nd}f}'
 
-    # Insertion loss for the global minimum, same expression used at save time.
-    _il_value = round(gmin_y, 5) if params.reference else None
+    # Insertion loss for the global maximum, same expression used at save time.
+    _il_value = round(-gmax_y, 5) if params.reference else None
 
     # Initial read-only stats for the default (first) peak selection.
     _init_wl, _init_depth, _init_width = _peak_stats(peak_options[0]['value'], None, None)
@@ -1016,7 +977,9 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
                 return (dash.no_update, dash.no_update,
                         "Custom peak needs a Mode 2 marker and a Mode 1 base marker.")
             wl_v  = m2['x']
-            depth = m2['y'] - markers[-1]['y']
+            # Base marker minus the dip: dBm runs negative-down, so the base
+            # sits above the mode-2 marker and this order keeps depth positive.
+            depth = markers[-1]['y'] - m2['y']
             fwhm  = m2.get('width_pm')
         else:
             i     = int(sel.split(':')[1])
@@ -1206,7 +1169,9 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             prev = markers[i - 1] if i > 0 else {'x': 0.0, 'y': 0.0}
             dl = m['x'] - prev['x']
             dp = m['y'] - prev['y']
-            slope_str = "∞ (vertical)" if dl == 0 else f"{(dp / dl)*-1:+.1f}"
+            # dB/nm as-plotted. The old *-1 undid the negated-dBm convention;
+            # dp is already a true power difference, so it would flip the sign.
+            slope_str = "∞ (vertical)" if dl == 0 else f"{dp / dl:+.1f}"
             # Midpoint (average) with the previous marker; blank for the first,
             # which has no previous marker to average against.
             mid_x = f"{(m['x'] + prev['x']) / 2:.3f}"
@@ -1279,10 +1244,10 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             i_left  = max(0, idx - search_range)
             i_right = min(len(dbm) - 1, idx + search_range)
             patched['data'][3]['x'] = [float(left_nm)]
-            patched['data'][3]['y'] = [max(dbm[i_left], y - y_offset)]
+            patched['data'][3]['y'] = [min(dbm[i_left], y + y_offset)]
             patched['data'][3]['text'] = ['L']
             patched['data'][4]['x'] = [float(right_nm)]
-            patched['data'][4]['y'] = [max(dbm[i_right], y - y_offset)]
+            patched['data'][4]['y'] = [min(dbm[i_right], y + y_offset)]
             patched['data'][4]['text'] = [f'(width: {width_pm:.3f} pm)']
             
             width_info = f"width: {width_pm:.3f} pm\n"
@@ -1319,7 +1284,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
             base = markers[-1]
             row['base_x'] = f"{base['x']:.7f}"
             row['base_y'] = f"{base['y']:.5f}"
-            row['Depth'] = f"{m2['y'] - markers[-1]['y']:.5f}"
+            row['Depth'] = f"{base['y'] - m2['y']:.5f}"
         return [row], {'display': 'block'}
 
     def _resample_curves(max_display, x0=None, x1=None):
@@ -1367,28 +1332,12 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         if not relayout:
             return dash.no_update
 
-        # --- restore the inverted y-axis on Reset axes / autoscale -------
-        # autorange='reversed' only holds while the axis is auto-ranging.
-        # Right-click pan drops the reversal (and uirevision locks the
-        # un-inverted view in), but we leave that alone — clicking the
-        # modebar's "Reset axes"/"Autoscale" button (which emits
-        # yaxis.autorange=True) is what puts the inversion back.
-        # Disabled: right-drag pan is now blocked at the DOM level (see the
-        # index_string script), so the y-axis can no longer be un-inverted and
-        # this reset-axes correction is unnecessary.
-        # y_fix = 'reversed' if relayout.get('yaxis.autorange') else None
-
-        # --- x resample over the visible window --------------------------
+        # Resample over the visible x-window.
         patched = dash.no_update
         if relayout.get('xaxis.autorange') or relayout.get('autosize'):
             patched = _resample_curves(max_display)
         elif 'xaxis.range[0]' in relayout:
             patched = _resample_curves(max_display, relayout['xaxis.range[0]'], relayout['xaxis.range[1]'])
-
-        # if y_fix is not None:
-        #     if patched is dash.no_update:
-        #         patched = Patch()
-        #     patched['layout']['yaxis']['autorange'] = y_fix
 
         return patched
 
@@ -1502,6 +1451,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     from open_csv import plot_raw
-    csv_path = "Raw Data/hc13n_watt_reference.csv"
+    # csv_path = "Raw Data/hc13n_watt_reference.csv"
+    csv_path = "Raw Data/Tri-CO-12-02608520.csv"
     plot_raw(csv_path)
     
