@@ -11,7 +11,7 @@ import dpi_awareness  # noqa: F401
 
 log = logging.getLogger(__name__)
 
-from constants import APP_VERSION
+from constants import APP_VERSION, TLS_SOURCES
 from inst_helper import prep_inst, check_inst
 from shutdown import IDLE_SECONDS, IDLE_POLL_MS
 from structs import Params
@@ -59,12 +59,19 @@ def section_header(frame, text, row):
         row=row + 1, column=0, columnspan=2, sticky="ew", pady=(0, 6))
 
 
-def get_inputs(pm=None, laser=None, auto_run=False):
+def get_inputs(pm=None, laser=None, auto_run=False, source=None):
     # auto_run: re-run the previous sweep without manual interaction (set by the
     # plot window's Repeat button). It is a control flag only — never stored on
     # Params, which holds run parameters exclusively.
+    # source: the laser chosen at startup (a TLS_SOURCES key). Its spec sets the
+    # wavelength and power limits, and the name is recorded on Params. Defaults
+    # to the first entry so the __main__ UI test below runs without main.py.
+    source      = source or next(iter(TLS_SOURCES))
+    source_spec = TLS_SOURCES[source]
+
     params = Params(version=APP_VERSION)
     params.reference = _state["reference"]
+    params.source    = source
     saved = {"ok": False}
     ran = {"ok": False}
     # Cleanup for the power-readout window, if one is open. Set while the readout
@@ -83,6 +90,20 @@ def get_inputs(pm=None, laser=None, auto_run=False):
         if _idle_job["id"]:
             root.after_cancel(_idle_job["id"])
             _idle_job["id"] = None
+
+    def _pin_padding():
+        """External source: padding stays 0 and its dropdown stays disabled.
+
+        The user enters exactly the range they set on the laser, so nothing is
+        added on either side. Called after build, at the end of every
+        lock/unlock (unlocking re-enables the extras) and after a preset loads
+        (presets carry their own padding). No-op for an app-controlled laser.
+        """
+        if not source_spec["external"]:
+            return
+        if extra_vars[PADDING_LABEL].get() != "0":   # skip a no-change write (it would trace)
+            extra_vars[PADDING_LABEL].set("0")
+        extra_menus[PADDING_LABEL].config(state="disabled")
 
     def set_locked(locked):
         """Lock/unlock the parameter fields and toggle Save/Change/Run accordingly."""
@@ -107,6 +128,7 @@ def get_inputs(pm=None, laser=None, auto_run=False):
         preset_save_btn.config(state="normal" if locked else "disabled")
         run_btn.config(state="normal" if locked else "disabled")
         read_pm_btn.config(state="normal" if locked else "disabled")
+        _pin_padding()
 
     def on_save():
         extra_strs = {label: extra_vars[label].get() for label in EXTRA_LABELS}
@@ -117,7 +139,7 @@ def get_inputs(pm=None, laser=None, auto_run=False):
 
         padding = padding_nm(extra_strs[PADDING_LABEL])
 
-        values, error = validate_inputs([e.get() for e in entries], num_data, avg_time, padding)
+        values, error = validate_inputs([e.get() for e in entries], num_data, avg_time, padding, source_spec)
         if error:
             validation_error(error, result_label, num_data, avg_time, saved, run_btn)
             return
@@ -160,6 +182,8 @@ def get_inputs(pm=None, laser=None, auto_run=False):
             setattr(params, hi_key, hi)
 
         params.padding    = padding
+        params.wl_st_pad  = params.wl_start - padding
+        params.wl_sp_pad  = params.wl_stop  + padding
         params.time       = ts
         params.date       = ds
         params.name       = "unknown" if preset_var.get() == "none" else preset_var.get()
@@ -243,6 +267,7 @@ def get_inputs(pm=None, laser=None, auto_run=False):
                 entry.insert(0, vals[label])
         for label in EXTRA_LABELS:
             extra_vars[label].set(vals[label])
+        _pin_padding()
         preset_channels = parse_channels(vals[CHANNEL_LABEL])
         for ch in CHANNEL_OPTIONS:
             channel_vars[ch].set(1 if ch in preset_channels else 0)
@@ -560,7 +585,8 @@ def get_inputs(pm=None, laser=None, auto_run=False):
     N = len(FIELD_LABELS)
 
     # ---- Grid row layout -------------------------------------------------
-    FIELDS_START = 2                     # preset at FIELDS_START, channel next, fields after
+    SOURCE_ROW   = 2                     # read-only: the laser chosen at startup
+    FIELDS_START = SOURCE_ROW + 1        # preset at FIELDS_START, channel next, fields after
     CHANNEL_ROW  = FIELDS_START + 1      # channel checkboxes sit below Load Preset
     EXTRAS_START = FIELDS_START + N + 2   # one row per extra dropdown
     LOGCOUNT_ROW = EXTRAS_START + len(EXTRA_LABELS)
@@ -576,6 +602,15 @@ def get_inputs(pm=None, laser=None, auto_run=False):
 
     # ---- Set Parameters --------------------------------------------------
     section_header(frame, "Parameters", 0)
+
+    # Laser source: chosen in the console at startup and fixed for the session,
+    # so this is display only. The range is shown because it is what Save
+    # enforces on the wavelength fields.
+    source_text = f"{source}  ({source_spec['wl_min']}-{source_spec['wl_max']} nm)"
+    if source_spec["external"]:
+        source_text += ", external"
+    tk.Label(frame, text="Laser Source", anchor="e").grid(row=SOURCE_ROW, column=0, pady=4, padx=(0, 8), sticky="e")
+    tk.Label(frame, text=source_text, anchor="w").grid(row=SOURCE_ROW, column=1, pady=4, sticky="w")
 
     presets = load_presets()
     # Sorted for display only — preset.csv keeps whatever row order it has.
@@ -622,7 +657,12 @@ def get_inputs(pm=None, laser=None, auto_run=False):
     default_disabledfg = entries[3].cget("disabledforeground")
 
     init_extras = _last.get("extras", EXTRA_DEFAULTS)
+    if source_spec["external"]:
+        # Seed 0 here so _pin_padding() below finds nothing to change: a write
+        # during build would fire on_entry_change before result_label exists.
+        init_extras = {**init_extras, PADDING_LABEL: "0"}
     extra_vars, extra_menus = make_extra_widgets(frame, EXTRAS_START, init_extras, on_entry_change)
+    _pin_padding()
 
     num_data = tk.StringVar(value="0")
     avg_time = tk.StringVar(value="0")
@@ -766,7 +806,7 @@ if __name__ == "__main__":
     # pm, laser = prep_inst()
     
     while True:
-        params = get_inputs()
+        params = get_inputs(source="81600B")
         # params = get_inputs(pm, laser)
         if not params:
             break

@@ -14,9 +14,6 @@ from logger import setup_logging, fast_exit
 from datapath import data_path
 
 def plot_raw(filepath=None):
-    log = setup_logging("PlotSweep")
-    log.info(f"Version_{APP_VERSION}")
-
     if not filepath:
         root = tk.Tk()
         root.withdraw()
@@ -28,8 +25,8 @@ def plot_raw(filepath=None):
         root.destroy()
 
         if not csv_path:
-            log.error(f"Failed to read: {csv_path}")
-            sys.exit(0)
+            log.info(f"No file selected; exiting")
+            return False
         else:
             log.info(f"Read successfully: {csv_path}")
     else:
@@ -50,8 +47,11 @@ def plot_raw(filepath=None):
 
     display_plot(raw_w, params=params)
 
-    # Skip the slow pywebview/.NET native teardown so the console closes promptly.
-    fast_exit(0)
+    return True
     
 if __name__ == "__main__":
-    plot_raw()
+    log = setup_logging("PlotSweep")
+    log.info(f"Version_{APP_VERSION}")
+    while plot_raw():
+        pass
+    fast_exit(0)

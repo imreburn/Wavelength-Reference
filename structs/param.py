@@ -8,6 +8,8 @@ class Params:
     wl_start  : float           = field(default=None)
     wl_stop   : float           = field(default=None)
     padding   : float           = field(default=None)
+    wl_st_pad : float           = field(default=None)
+    wl_sp_pad : float           = field(default=None)
     speed     : float           = field(default=None)
     step_pm   : float           = field(default=None)
     tls_dbm   : float           = field(default=None)
@@ -26,6 +28,7 @@ class Params:
     width_min : float           = field(default=None)
     width_max : float           = field(default=None)
     
+    source    : str             = field(default=None)
     time      : str             = field(default=None)
     date      : str             = field(default=None)
     version   : str             = field(default=None)

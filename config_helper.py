@@ -96,8 +96,6 @@ def parse_channels(s):
 
 PRESET_CSV = data_path("preset.csv", mkdir=False)
 
-WAV_MIN, WAV_MAX = 1450, 1650
-
 
 def load_presets():
     """Return {material: {label: value, ...}} from preset.csv, or {} on any failure.
@@ -205,13 +203,16 @@ def make_extra_widgets(frame, start_row, init, on_change, enable_dynamic=True):
     return vars_, menus
 
 
-def validate_inputs(raw_strings, num_data, avg_time, padding):
+def validate_inputs(raw_strings, num_data, avg_time, padding, source_spec):
     """Return (values, None) on success or (None, error_msg) on failure.
 
     `padding` is the extra sweep range added on each side, in nm (0 for none).
     It widens the range the log count and bounds check are computed over, but the
     returned start/stop stay as entered — inst_run/plot_helper re-apply it from
     Params.padding.
+
+    `source_spec` is the selected laser's TLS_SOURCES entry: its wl_min/wl_max
+    bound the wavelengths and its power_rules bound the TLS power.
     """
     values = []
     for i, s in enumerate(raw_strings):
@@ -227,8 +228,9 @@ def validate_inputs(raw_strings, num_data, avg_time, padding):
     # wav_start    -= padding
     # wav_stop     += padding
     
-    if not (WAV_MIN <= wav_start <= WAV_MAX) or not (WAV_MIN <= wav_stop <= WAV_MAX):
-        return None, f"Wavelengths must be between {WAV_MIN:g} and {WAV_MAX:g} nm."
+    wl_min, wl_max = source_spec["wl_min"], source_spec["wl_max"]
+    if not (wl_min <= wav_start <= wl_max) or not (wl_min <= wav_stop <= wl_max):
+        return None, f"Wavelengths must be between {wl_min:g} and {wl_max:g} nm."
     if wav_start >= wav_stop:
         return None, "Start wavelength must be less than Stop wavelength."
     if step_size < 0:
@@ -236,13 +238,16 @@ def validate_inputs(raw_strings, num_data, avg_time, padding):
     if f"{sweep_speed}" not in SWEEP_SPEED_OPTIONS:
         return None, "Sweep speed must be selected from the dropdown list."
     # Maximum input power for N7748A: 16 dBm
-    if (wav_start >= 1515 and wav_stop <= 1620) and power_dbm > 11: 
-        return None, "TLS power exceeds the maximum (11 dBm) in 1515-1620 nm"
-    elif (wav_start >= 1480 and wav_stop <= 1630) and power_dbm > 9:
-        return None, "TLS power exceeds the maximum (9 dBm) in 1480-1630 nm"
-    else:
-        if power_dbm > 5:
-            return None, "TLS power exceeds the maximum (5 dBm) in 1450-1650 nm"
+    # TLS power: of the source's bands that contain the whole sweep, the one
+    # with the highest limit applies (nested bands: tightest = highest). The
+    # old if/elif chain fell through to a tighter band's *lower* limit when the
+    # power was under the wider band's limit, rejecting 9-11 dBm in 1515-1620.
+    applicable = [(lo, hi, lim) for lo, hi, lim in source_spec["power_rules"]
+                  if lo <= wav_start and wav_stop <= hi]
+    if applicable:
+        lo, hi, lim = max(applicable, key=lambda rule: rule[2])
+        if power_dbm > lim:
+            return None, f"TLS power exceeds the maximum ({lim:g} dBm) in {lo:g}-{hi:g} nm"
     
     avg_t         = int(step_size/sweep_speed*1e3)  # us
     # 25 us <= avg_t <= 10s
