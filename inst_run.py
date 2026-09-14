@@ -14,6 +14,61 @@ log = logging.getLogger(__name__)
 # (i.e. since main.py started).
 _sweep_count = 0
 
+def arm_pm(pm, params):
+    tls_wl_start = params.wl_start - params.padding
+    tls_wl_stop  = params.wl_stop  + params.padding
+    pm.write(f":TRIG:CONF DEF")
+
+    # ----- Power Meter -----
+    for i in params.channel:
+        pm.write(f":INIT{i}:CONT 0")
+        pm.write(f":SENSE{i}:FUNC:STAT LOGG, STOP")
+        pm.write(f":SENSE{i}:POW:WAVE {(tls_wl_start + tls_wl_stop)/2:.3f} NM")
+        pm.write(f":SENSE{i}:POW:ATIME {params.at_us} US")
+        pm.write(f":SENSE{i}:CORR 0")
+        pm.write(f":SENSE{i}:POW:REF:STATE OFF")
+        pm.write(f":SENSE{i}:POW:RANGE:AUTO  0")
+        pm.write(f":SENSE{i}:POW:RANGE  {params.pm_range} DBM")
+        pm.write(f":SENSE{i}:POW:UNIT  1")   # W (faster)
+        
+        pm.write(f":TRIG{i}:OUTP DIS")
+        pm.write(f":TRIG{i}:INP  CME")
+        
+        pm.write(f":SENSE{i}:FUNC:PAR:LOGG {params.num_data}, {params.at_us} US")
+        # PM: arm logging function before sweep starts
+        pm.write(f":SENSE{i}:FUNC:STAT LOGG, START")
+    
+    
+def logging_complete(pm, params):
+    """True once every selected channel has finished its log."""
+    return all(pm.query(f":SENSE{i}:FUNC:STAT?").split(',')[1] == "COMPLETE" for i in params.channel)
+
+
+def read_pm(pm, params):
+    power_w_all = []
+    upper_limit = POWER_LIMIT[str(params.pm_range)]
+    
+    for i in params.channel:
+        log.info(f"[PM] Ch.{i}: Read logged measurements")
+        pm.write(f":SENSE{i}:FUNC:RES?")
+        time.sleep(2)
+
+        power_w_all.append(np.asarray(pm.read_binary_values(container=np.ndarray), dtype=np.float64))
+        log.info(f"[PM] Ch.{i}: Log count: {len(power_w_all[-1])}")
+        pm.write(f":SENSE{i}:FUNC:STAT LOGG, STOP")    
+        
+    for i, arr_w in zip(params.channel, power_w_all):
+        arr_w[arr_w > upper_limit] = np.nan
+        if np.all(np.isnan(arr_w)):
+            log.warning(f"[PM] Ch.{i}: All measurements are overflown.")
+        elif np.any(np.isnan(arr_w)):
+            log.warning(f"[PM] Ch.{i}: Some measurements are overflown.")
+        if np.any(arr_w <= 0):
+            log.warning(f"[PM] Ch.{i}: Some measurements are less than or equal to 0.")
+            arr_w[arr_w <= 0] = np.nan
+        
+    return power_w_all
+
 
 def run_sweep(pm, laser, params: Params, dryrun=False):
     """
@@ -25,28 +80,11 @@ def run_sweep(pm, laser, params: Params, dryrun=False):
     
     check_inst(pm, laser)
 
+    arm_pm(pm, params)
+
     tls_wl_start = params.wl_start - params.padding
     tls_wl_stop  = params.wl_stop  + params.padding
-
-    # ----- Power Meter -----
-    for i in params.channel:
-        pm.write(f":INIT{i}:CONT 0")
-        pm.write(f":SENSE{i}:FUNC:STAT LOGG, STOP")
-        pm.write(f":SENSE{i}:POW:WAVE {tls_wl_stop:.3f} NM")
-        pm.write(f":SENSE{i}:POW:ATIME {params.at_us} US")
-        pm.write(f":SENSE{i}:CORR 0")
-        pm.write(f":SENSE{i}:POW:RANGE:AUTO  0")
-        pm.write(f":SENSE{i}:POW:RANGE  {params.pm_range} DBM")
-        pm.write(f":SENSE{i}:POW:UNIT  1")   # W (faster)
-        pm.write(f":TRIG{i}:OUTP DIS")
-        pm.write(f":TRIG{i}:INP  CME")
-        
-        pm.write(f":SENSE{i}:FUNC:PAR:LOGG {params.num_data}, {params.at_us} US")
-        # PM: arm logging function before sweep starts
-        pm.write(f":SENSE{i}:FUNC:STAT LOGG, START")
-
-    pm.write(f":TRIG:CONF PASS")
-
+    
     # ----- Laser -----
     laser.write(f":SOURCE0:WAVE  {tls_wl_start:.3f} NM")
     time.sleep(0.1)
@@ -89,36 +127,15 @@ def run_sweep(pm, laser, params: Params, dryrun=False):
         time.sleep(1)
     
     log.info("[LASER] Sweep finished")
-    
-    # PM: read logged data
-    power_w_all = []
-    
-    for i in params.channel:
-        log.info(f"[PM] Ch.{i}: Read logged measurements")
-        pm.write(f":SENSE{i}:FUNC:RES?")
-        time.sleep(2)
-
-        power_w_all.append(np.asarray(pm.read_binary_values(container=np.ndarray), dtype=np.float64))
-        log.info(f"[PM] Ch.{i}: Log count: {len(power_w_all[-1])}")
-        pm.write(f":SENSE{i}:FUNC:STAT LOGG, STOP")
-    
-    check_inst(pm, laser)
     # Safety: turn off laser after each run
     laser.write(":SOURCE0:POW:STATE 0")
+        
+    if logging_complete(pm, params):
+        log.info("[PM] Logging completed")
     
-    upper_limit = POWER_LIMIT[str(params.pm_range)]
+    check_inst(pm, laser)
     
-    for i, arr_w in zip(params.channel, power_w_all):
-        arr_w[arr_w > upper_limit] = np.nan
-        if np.all(np.isnan(arr_w)):
-            log.warning(f"[PM] Ch.{i}: All measurements are overflown.")
-        elif np.any(np.isnan(arr_w)):
-            log.warning(f"[PM] Ch.{i}: Some measurements are overflown.")
-        if np.any(arr_w <= 0):
-            log.warning(f"[PM] Ch.{i}: Some measurements are less than or equal to 0.")
-            arr_w[arr_w <= 0] = np.nan
-    
-    return power_w_all
+    return read_pm(pm, params)
 
 if __name__ == "__main__":
     pm, laser = prep_inst()
