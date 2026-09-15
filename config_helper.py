@@ -94,10 +94,12 @@ def parse_channels(s):
             continue
     return tuple(out)
 
-PRESET_CSV = data_path("preset.csv", mkdir=False)
+
+def preset_path(source):
+    return data_path(f"preset_{source}.csv", mkdir=False)
 
 
-def load_presets():
+def load_presets(path):
     """Return {material: {label: value, ...}} from preset.csv, or {} on any failure.
 
     FIELD_LABELS columns are required; EXTRA_LABELS columns are optional and fall
@@ -106,7 +108,7 @@ def load_presets():
     the GUI can surface it and reject it on Save, matching the field dropdowns.
     """
     try:
-        with open(PRESET_CSV, newline="") as f:
+        with open(path, newline="") as f:
             reader = csv.DictReader(f)
             presets = {}
             for row in reader:
@@ -125,47 +127,47 @@ def load_presets():
                 presets[name] = vals
         return presets
     except Exception:
-        log.warning("preset.csv not found.")
+        log.warning("%s not found.", path)
         return {}
 
 
-def save_preset(name, vals):
-    """Insert or replace `name` in PRESET_CSV with the given label->value dict.
+def save_preset(path, name, vals):
+    """Insert or replace `name` in path with the given label->value dict.
 
     Existing presets are preserved and a matching name is overwritten in place;
     a new name is appended. Returns None on success or an error message string.
     """
     columns = FIELD_LABELS + EXTRA_LABELS + [CHANNEL_LABEL] + PASSFAIL_COLUMNS
     fieldnames = ["Name"] + columns
-    presets = load_presets()
+    presets = load_presets(path)
     presets[name] = {col: vals.get(col, "") for col in columns}
     try:
-        with open(PRESET_CSV, "w", newline="") as f:
+        with open(path, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             for nm, row in presets.items():
                 writer.writerow({"Name": nm, **row})
         return None
     except Exception as e:
-        return f"Could not write {PRESET_CSV}: {e}"
+        return f"Could not write {path}: {e}"
 
 
-def delete_preset(name):
-    """Remove `name` from PRESET_CSV. Returns None on success or an error message string."""
-    presets = load_presets()
+def delete_preset(path, name):
+    """Remove `name` from path. Returns None on success or an error message string."""
+    presets = load_presets(path)
     if name not in presets:
         return f"Preset '{name}' not found."
     del presets[name]
     fieldnames = ["Name"] + FIELD_LABELS + EXTRA_LABELS + [CHANNEL_LABEL] + PASSFAIL_COLUMNS
     try:
-        with open(PRESET_CSV, "w", newline="") as f:
+        with open(path, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             for nm, row in presets.items():
                 writer.writerow({"Name": nm, **row})
         return None
     except Exception as e:
-        return f"Could not write {PRESET_CSV}: {e}"
+        return f"Could not write {path}: {e}"
 
 
 def make_extra_widgets(frame, start_row, init, on_change, enable_dynamic=True):

@@ -20,7 +20,7 @@ from config_helper import (
     EXTRA_LABELS, EXTRA_DEFAULTS, PADDING_LABEL, PM_RANGE_LABEL, DYN_SCAN_LABEL, DECREMENT_LABEL,
     CHANNEL_LABEL, CHANNEL_OPTIONS, CHANNEL_DEFAULT, channels_to_str, parse_channels, padding_nm, eng_format,
     PASSFAIL_LABELS, PASSFAIL_KEYS, PASSFAIL_DEFAULT, PASSFAIL_COLUMNS, passfail_col,
-    load_presets, save_preset, delete_preset, make_extra_widgets, validate_inputs, validate_extras, validate_passfail, validation_error,
+    preset_path, load_presets, save_preset, delete_preset, make_extra_widgets, validate_inputs, validate_extras, validate_passfail, validation_error,
 )
 
 
@@ -68,6 +68,8 @@ def get_inputs(pm=None, laser=None, auto_run=False, source=None):
     # to the first entry so the __main__ UI test below runs without main.py.
     source      = source or next(iter(TLS_SOURCES))
     source_spec = TLS_SOURCES[source]
+    
+    preset_file = preset_path(source)
 
     params = Params(version=APP_VERSION)
     params.reference = _state["reference"]
@@ -438,7 +440,7 @@ def get_inputs(pm=None, laser=None, auto_run=False, source=None):
             preset_vals[passfail_col(label, "min")] = mn.get()
             preset_vals[passfail_col(label, "max")] = mx.get()
 
-        existing = load_presets()
+        existing = load_presets(preset_file)
         names = preset_names(existing)
 
         top = tk.Toplevel(root)
@@ -493,7 +495,7 @@ def get_inputs(pm=None, laser=None, auto_run=False, source=None):
                 if not name:
                     msg.config(text="No preset selected to delete.")
                     return
-                error = delete_preset(name)
+                error = delete_preset(preset_file, name)
                 if error:
                     msg.config(text=error)
                     return
@@ -514,7 +516,7 @@ def get_inputs(pm=None, laser=None, auto_run=False, source=None):
                     msg.config(text="Please enter a name.")
                     return
 
-            error = save_preset(name, preset_vals)
+            error = save_preset(preset_file, name, preset_vals)
             if error:
                 msg.config(text=error)
                 return
@@ -613,7 +615,7 @@ def get_inputs(pm=None, laser=None, auto_run=False, source=None):
     tk.Label(frame, text="Laser Source", anchor="e").grid(row=SOURCE_ROW, column=0, pady=4, padx=(0, 8), sticky="e")
     tk.Label(frame, text=source_text, anchor="w").grid(row=SOURCE_ROW, column=1, pady=4, sticky="w")
 
-    presets = load_presets()
+    presets = load_presets(preset_file)
     # Sorted for display only — preset.csv keeps whatever row order it has.
     preset_options = ["none"] + preset_names(presets)
     preset_var = tk.StringVar(value=_last.get("preset", "none"))
