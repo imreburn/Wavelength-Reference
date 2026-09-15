@@ -1,6 +1,6 @@
 # Changelog
 
-## [unreleased]
+## [unreleased] (to be 2.0.0)
 
 ### Added
 
