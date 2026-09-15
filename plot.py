@@ -440,9 +440,14 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         html.Button('Apply filter...', id='apply-filter-btn', n_clicks=0, style=NAV_BTN_STYLE),
         html.Button('Plot in Watt...', id='plot-watt-btn', n_clicks=0, style=NAV_BTN_STYLE),
         html.Div(id='plot-watt-info', style=NAV_INFO_STYLE),
-        # Repeat: close this plot window and auto-Run the next sweep with the same parameters. Also bound to the Enter key (see the clientside callback below).
-        html.Button('Repeat (Enter)', id='repeat-btn', n_clicks=0,
-                    style={**NAV_BTN_STYLE, 'fontWeight': 'bold', 'marginLeft': 'auto'}),
+        # Close: just close this plot window (same as the window's close button).
+        # marginLeft: auto pushes it and the Repeat button to the right edge.
+        html.Button('Close', id='close-btn', n_clicks=0,
+                    style={**NAV_BTN_STYLE, 'marginLeft': 'auto'}),
+        html.Div(id='close-dummy', style={'display': 'none'}),
+        # Close & Repeat: close this plot window and auto-Run the next sweep with the same parameters. Also bound to the Enter key (see the clientside callback below).
+        html.Button('Close & Repeat (Enter)', id='repeat-btn', n_clicks=0,
+                    style={**NAV_BTN_STYLE, 'fontWeight': 'bold'}),
         # Dummy sink for the keybind clientside callback; the keydown
         # listener it installs is what actually clicks the button.
         html.Div(id='repeat-keybind-dummy', style={'display': 'none'}),
@@ -809,6 +814,20 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         # the function below shuts the server down, and display_plot() returns
         # _repeat['flag'] to the caller (main_sweep), which auto-Runs next loop.
         _repeat['flag'] = True
+        window = _window_holder.get('window')
+        if window is not None:
+            window.destroy()
+        return dash.no_update
+
+    @app.callback(
+        Output('close-dummy', 'children'),
+        Input('close-btn', 'n_clicks'),
+        prevent_initial_call=True,
+    )
+    def on_close(n_clicks):
+        # Just close the window, exactly like the window's own close button:
+        # no repeat flag, so display_plot() returns False and main_sweep waits
+        # for the user instead of auto-Running.
         window = _window_holder.get('window')
         if window is not None:
             window.destroy()

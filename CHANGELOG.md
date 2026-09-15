@@ -5,6 +5,7 @@
 ### Added
 
 - Supports the external laser source. ([#85](https://github.com/imreburn/Wavelength-Reference/issues/85))
+- Added a "Close" button in the graph window. Renamed the button "Repeat (Enter)" to "Close & Repeat (Enter)".
 
 ### Changed
 
