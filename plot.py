@@ -368,8 +368,8 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
                 labelStyle={'display': 'inline-block', 'marginRight': '16px'},
                 style={'display': 'inline-block'},
             ),
-            html.Button('Clear markers', id='clear-btn', n_clicks=0,
-                        style={'width': '150px', 'fontSize': '14px',
+            html.Button('Clear both markers', id='clear-btn', n_clicks=0,
+                        style={'width': '150px', 'fontSize': '13px',
                                'padding': '5px 12px', 'marginTop': '5px'}),
             html.Div([
                 html.Label("Fine tune (Bandwidth marker)",
@@ -433,16 +433,17 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     # are just not rendered.
     NAV_INFO_STYLE = {'display': 'none'}
     top_navbar = html.Nav([
-        html.Button('Save Raw data...', id='save-raw-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        html.Button('Save Raw Data...(S)', id='save-raw-btn', n_clicks=0, style=NAV_BTN_STYLE),
         html.Div(id='save-raw-info', style=NAV_INFO_STYLE),
-        html.Button(['Save ', html.U('P'), 'eak info...'], id='save-peak-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        html.Button(['Save Peak info...(P)'], id='save-peak-btn', n_clicks=0, style=NAV_BTN_STYLE),
         html.Div(id='save-peak-info', style=NAV_INFO_STYLE),
-        html.Button('Apply filter...', id='apply-filter-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        html.Button('Apply Filter...(F)', id='apply-filter-btn', n_clicks=0, style=NAV_BTN_STYLE),
         html.Button('Plot in Watt...', id='plot-watt-btn', n_clicks=0, style=NAV_BTN_STYLE),
         html.Div(id='plot-watt-info', style=NAV_INFO_STYLE),
-        # Close: just close this plot window (same as the window's close button).
-        # marginLeft: auto pushes it and the Repeat button to the right edge.
-        html.Button('Close', id='close-btn', n_clicks=0,
+        html.Button('Sweep Info...(I)', id='sweep-info-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        # Close Window: just close this plot window (same as the window's close
+        # button). marginLeft: auto pushes it and the Repeat button to the right edge.
+        html.Button('Close Window (W)', id='close-btn', n_clicks=0,
                     style={**NAV_BTN_STYLE, 'marginLeft': 'auto'}),
         html.Div(id='close-dummy', style={'display': 'none'}),
         # Close & Repeat: close this plot window and auto-Run the next sweep with the same parameters. Also bound to the Enter key (see the clientside callback below).
@@ -650,6 +651,37 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     else:
         exam_div = None
 
+    # ------------------------------------------------------------------
+    # "Sweep Info" modal — read-only table of the sweep parameters. Built
+    # once here (params never changes while the window is open) from
+    # Params.describe(), so a field added to Params shows up on its own.
+    # ------------------------------------------------------------------
+    _info_cell  = {'padding': '1px 12px 1px 0', 'whiteSpace': 'nowrap', 'verticalAlign': 'top'}
+    _info_label = {**_info_cell, 'color': '#555'}
+    _info_group = {'textAlign': 'left', 'paddingTop': '10px', 'paddingBottom': '2px'}
+    _info_rows, _last_group = [], None
+    for group, label, text in params.describe():
+        if group != _last_group:
+            style = {**_info_group, 'paddingTop': 0} if not _info_rows else _info_group
+            _info_rows.append(html.Tr(html.Th(group, colSpan=2, style=style)))
+            _last_group = group
+        _info_rows.append(html.Tr([html.Td(label, style=_info_label),
+                                   html.Td(text,  style=_info_cell)]))
+    sweep_info_modal = html.Div(
+        id='sweep-info-modal',
+        style=MODAL_HIDDEN,
+        children=html.Div([
+            html.H4('Sweep info', style={'marginTop': 0}),
+            html.Table(_info_rows, style={'borderCollapse': 'collapse', 'fontSize': '13px'}),
+            html.Div(html.Button('Close', id='sweep-info-close', n_clicks=0),
+                     style={'textAlign': 'right', 'marginTop': '12px'}),
+        ], style={'backgroundColor': 'white', 'padding': '20px 24px',
+                  'borderRadius': '8px', 'width': '360px',
+                  'maxHeight': '90vh', 'overflowY': 'auto',
+                  'fontFamily': 'system-ui, sans-serif',
+                  'boxShadow': '0 4px 20px rgba(0,0,0,0.25)'}),
+    )
+
     app.layout = html.Div([
         top_navbar,
         html.Div([
@@ -705,6 +737,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         html.Div(id='idle-shutdown-dummy', style={'display': 'none'}),
         peak_modal,
         filter_modal,
+        sweep_info_modal,
     ])
 
     # ------------------------------------------------------------------
@@ -858,28 +891,47 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         Input('repeat-btn', 'n_clicks'),
     )
 
-    # 'p' opens "Save peak info..." — same focus guard as Enter (skipped while
-    # typing in an input/textarea/select or an open dropdown), and ignored when
-    # a modifier is held so e.g. Cmd/Ctrl+P (print) still works.
+    # Letter shortcuts for the menu buttons: the key shown in a button's "(X)"
+    # suffix clicks that button. Same focus guard as Enter (skipped while typing
+    # in an input/textarea/select or an open dropdown), ignored when a modifier
+    # is held so e.g. Cmd/Ctrl+P (print) still works, and ignored while any
+    # modal is open so a second one can't stack on top. One document-level
+    # keydown listener serves every entry; add a key here and a "(X)" to the
+    # button label to bind a new one.
+    KEY_SHORTCUTS = {
+        's': 'save-raw-btn',
+        'p': 'save-peak-btn',
+        'f': 'apply-filter-btn',
+        'i': 'sweep-info-btn',
+        'w': 'close-btn',
+    }
+    MODAL_IDS = ['peak-modal', 'filter-modal', 'sweep-info-modal']
     app.clientside_callback(
         """
         function(n) {
-            if (!window._peakKeyBound) {
-                window._peakKeyBound = true;
+            if (!window._menuKeysBound) {
+                window._menuKeysBound = true;
+                var keys = __KEYS__;
+                var modals = __MODALS__;
                 document.addEventListener('keydown', function(e) {
-                    if (e.key !== 'p' && e.key !== 'P') return;
+                    var id = keys[(e.key || '').toLowerCase()];
+                    if (!id) return;
                     if (e.metaKey || e.ctrlKey || e.altKey) return;
                     var t = e.target;
                     var tag = t && t.tagName ? t.tagName.toUpperCase() : '';
                     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
                     if (t && t.closest && t.closest('.Select')) return;  // dcc.Dropdown
-                    var btn = document.getElementById('save-peak-btn');
+                    for (var i = 0; i < modals.length; i++) {
+                        var m = document.getElementById(modals[i]);
+                        if (m && m.style.display !== 'none') return;
+                    }
+                    var btn = document.getElementById(id);
                     if (btn) btn.click();
                 });
             }
             return '';
         }
-        """,
+        """.replace('__KEYS__', json.dumps(KEY_SHORTCUTS)).replace('__MODALS__', json.dumps(MODAL_IDS)),
         Output('save-peak-btn', 'title'),
         Input('save-peak-btn', 'n_clicks'),
     )
@@ -1110,6 +1162,17 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         patched['data'][smooth_idx]['name'] = FILTER_LABELS.get(filt, 'Smoothed')
         patched['data'][smooth_idx]['visible'] = True
         return MODAL_HIDDEN, patched, ""
+
+    # Sweep-info modal: open / close. Read-only, so there is nothing to apply.
+    @app.callback(
+        Output('sweep-info-modal', 'style'),
+        Input('sweep-info-btn', 'n_clicks'),
+        Input('sweep-info-close', 'n_clicks'),
+        prevent_initial_call=True,
+    )
+    def toggle_sweep_info(open_clicks, close_clicks):
+        triggered = callback_context.triggered[0]['prop_id']
+        return MODAL_HIDDEN if 'sweep-info-close' in triggered else MODAL_SHOWN
 
     @app.callback(
         Output('markers-store', 'data'),

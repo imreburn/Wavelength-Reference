@@ -5,7 +5,9 @@
 ### Added
 
 - Supports the external laser source. ([#85](https://github.com/imreburn/Wavelength-Reference/issues/85))
-- Added a "Close" button in the graph window. Renamed the button "Repeat (Enter)" to "Close & Repeat (Enter)".
+- Added a "Close Window" button in the graph window. Renamed the button "Repeat (Enter)" to "Close & Repeat (Enter)". ([#80](https://github.com/imreburn/Wavelength-Reference/issues/80))
+- Added a "Sweep Info..." button in the graph window that shows the parameters of the current sweep. ([#97](https://github.com/imreburn/Wavelength-Reference/issues/97))
+- Keyboard shortcuts (`s`, `f`, `i`, `w`) for the "Save Raw Data...(S)", "Apply Filter...(F)", "Sweep Info...(I)", and "Close Window (W)" buttons in the graph window.
 
 ### Changed
 
