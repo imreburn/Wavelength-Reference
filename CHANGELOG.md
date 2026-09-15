@@ -2,9 +2,14 @@
 
 ## [unreleased]
 
+### Added
+
+- Supports the external laser source. ([#85](https://github.com/imreburn/Wavelength-Reference/issues/85))
+
 ### Changed
 
-- The power measurements are no longer multiplied by -1. Instead, the sign of datapoints is preserved. ([#90](https://github.com/imreburn/Wavelength-Reference/issues/90))
+- The power measurements are no longer multiplied by -1. Instead, the original sign of measurement is preserved. Y-axis of the plot is not inverted as a result. ([#90](https://github.com/imreburn/Wavelength-Reference/issues/90))
+- Default setting for applying a filter is changed to ('Hamming', 40).
 
 ## [1.1.12] - 2026-09-09
 

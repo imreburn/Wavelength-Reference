@@ -15,10 +15,10 @@ from scipy.signal import savgol_filter, get_window
 # value -> display name. Drives the dropdown options and the legend name of
 # the filtered trace.
 FILTER_LABELS = {
+    'hamming': 'Hamming',
     'rect'   : 'Rectangular',
     'tri'    : 'Triangular',
     'hann'   : 'Hann',
-    'hamming': 'Hamming',
     'savgol' : 'Savitzky-Golay',
 }
 
@@ -30,7 +30,7 @@ FILTER_PARAMS = {
     'rect'   : [('Window size', 21)],
     'tri'    : [('Window size', 21)],
     'hann'   : [('Window size', 21)],
-    'hamming': [('Window size', 21)],
+    'hamming': [('Window size', 40)],
 }
 
 # Filters that smooth by convolving with a normalized window kernel; the

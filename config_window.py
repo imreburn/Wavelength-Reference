@@ -186,6 +186,7 @@ def get_inputs(pm=None, laser=None, auto_run=False, source=None):
         params.wl_sp_pad  = params.wl_stop  + padding
         params.time       = ts
         params.date       = ds
+        # TODO #95
         params.name       = "unknown" if preset_var.get() == "none" else preset_var.get()
 
         # If step size is adjusted, change the field color

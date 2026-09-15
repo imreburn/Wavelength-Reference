@@ -52,10 +52,12 @@ def _print_instructions(params : Params, scan_label=""):
     print(f"   Start wavelength  : {params.wl_st_pad:.3f} nm")
     print(f"   Stop wavelength   : {params.wl_sp_pad:.3f} nm")
     print(f"   Sweep speed       : {params.speed:g} nm/s")
+    print(f"   Power             : {params.tls_dbm:g} dBm")
     print(f"   Expected duration : {duration:.1f} s")
     print()
     print(" To cancel, click this window and press Esc (or Ctrl+C).")
     print(bar)
+    print()
 
 
 def _flush_keys():

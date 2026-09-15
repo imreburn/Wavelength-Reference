@@ -26,9 +26,10 @@ def select_source():
     print(bar)
     for i, name in enumerate(names, start=1):
         info = TLS_SOURCES[name]
-        how = "external, set manually" if info["external"] else "controlled by this app"
+        how = "must be set manually" if info["external"] else "controlled by this app"
         print(f"   {i}. {name}  ({info['wl_min']}-{info['wl_max']} nm), {how}")
     print(bar)
+    print()
     try:
         while True:
             raw = input(f" Enter a number 1-{len(names)} [1]: ").strip()
