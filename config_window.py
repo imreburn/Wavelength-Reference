@@ -21,6 +21,7 @@ from config_helper import (
     PASSFAIL_LABELS, PASSFAIL_KEYS, PASSFAIL_DEFAULT, PASSFAIL_COLUMNS, passfail_col,
     preset_path, load_presets, save_preset, delete_preset, section_header, make_extra_widgets,
     validate_inputs, validate_extras, validate_passfail, validation_error,
+    LABEL_DIGIT_OPTIONS, LABEL_DIGIT_DEFAULT, LABEL_START_DEFAULT, validate_label,
 )
 
 
@@ -75,9 +76,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # below. Root teardown (Run/Close) stops it first, so its pending `after`
     # tick can't fire against destroyed widgets ("invalid command name ...").
     readout_section = None
-    # Pending id of the idle-timeout poll below, so root teardown (Run/Close) can
-    # cancel it for the same reason. Without this the poll survives destroy() on
-    # Windows and fires against the deleted callback ("invalid command name
+    # Pending id of the idle-timeout poll below, so root teardown (Run/Close) can cancel it for the same reason. Without this the poll survives destroy() on Windows and fires against the deleted callback ("invalid command name
     # ..._check_idle"); the exact route has not been pinned down, so the
     # winfo_exists() guard in _check_idle stays as a second line of defence.
     _idle_job = {"id": None}
@@ -155,9 +154,6 @@ def get_inputs(readout=None, auto_run=False, source=None):
             validation_error(error, result_label, num_data, avg_time, saved, run_btn)
             return
 
-        ts = datetime.now().strftime("%m/%d/%Y_%H-%M-%S")
-        ds = datetime.now().strftime("%m/%d/%Y")
-
         params.wl_start   = values[0]
         params.wl_stop    = values[1]
         params.speed      = values[2]
@@ -179,8 +175,6 @@ def get_inputs(readout=None, auto_run=False, source=None):
         params.padding    = padding
         params.wl_st_pad  = params.wl_start - padding
         params.wl_sp_pad  = params.wl_stop  + padding
-        params.time       = ts
-        params.date       = ds
         # TODO #95
         params.name       = "unknown" if preset_var.get() == "none" else preset_var.get()
 
@@ -212,10 +206,29 @@ def get_inputs(readout=None, auto_run=False, source=None):
         # fields swallow Enter), so Enter now reaches the Run binding.
         root.focus_set()
 
+    # Set while clear_preset_name() writes "none", so on_preset_change leaves
+    # the fields alone instead of resetting them to defaults.
+    _keep_fields = {"on": False}
+
+    def clear_preset_name():
+        """Show "none" as the preset but keep every field value as it is.
+
+        Used once the values may no longer match the preset (Change, a preset
+        that failed Save, or the loaded preset being deleted), so a Run never
+        reports edited values under the preset's name.
+        """
+        _keep_fields["on"] = True
+        try:
+            preset_var.set("none")
+        finally:
+            _keep_fields["on"] = False
+        params.name = "unknown"
+
     def on_change_params():
         # Re-open the parameter fields for editing; require a fresh Save before Run.
         saved["ok"] = False
         set_locked(False)
+        clear_preset_name()
         # Changing parameters invalidates any reference taken against them, and
         # resets the reference section to its pre-first-run state.
         _state["reference"] = False
@@ -244,6 +257,8 @@ def get_inputs(readout=None, auto_run=False, source=None):
             result_label.config(text="Inputs changed — please Save again.", fg="red")
 
     def on_preset_change(*_):
+        if _keep_fields["on"]:
+            return
         name = preset_var.get()
         if name == "none":
             # Selecting "none" resets every field back to its default.
@@ -275,10 +290,52 @@ def get_inputs(readout=None, auto_run=False, source=None):
                 entry.delete(0, tk.END)
                 entry.insert(0, vals[passfail_col(label, bound)])
         on_entry_change()
+        if name == "none":
+            return
+        # A preset goes straight to the Saved (locked) state, so its values
+        # can't be edited and then run under its name; Change clears the name.
+        on_save()
+        if saved["ok"]:
+            result_label.config(text=f"Preset '{name}' loaded and saved. Click Run or press Enter, "
+                                     "or Change to edit.", fg="blue")
+        else:
+            # Invalid preset: keep the error on screen, but drop the name so the
+            # fixed-up values aren't saved under it.
+            error_text = result_label.cget("text")
+            clear_preset_name()
+            result_label.config(text=f"{error_text} (preset '{name}' not loaded as-is)", fg="red")
 
     def on_run():
         if not saved["ok"]:
             return
+        # More Info is checked here, not in Save: its fields never lock, so a
+        # label fix doesn't need Change (which would clear the reference).
+        label, label_n = None, None
+        if add_label_var.get():
+            label, label_n, error = validate_label(prefix_var.get(), digits_var.get(), start_var.get())
+            if error:
+                result_label.config(text=f"Error: {error}", fg="red")
+                return
+        params.label    = label
+        params.save_raw = bool(save_raw_var.get())
+
+        # Stamped at Run, not Save, so the time (and the auto-save filename)
+        # matches the sweep even if the window sat saved for a while.
+        now = datetime.now()
+        params.time = now.strftime("%Y-%m-%d_%H-%M-%S")
+        params.date = now.strftime("%m/%d/%Y")
+
+        # The counter advances on every Run, so the window reopens on the next
+        # label. Past the digit limit, the reopened window refuses to Run.
+        if label_n is not None:
+            digits = int(digits_var.get())
+            if label_n == 10 ** digits - 1:
+                log.warning("Label %s is the last one for %d digits.", label, digits)
+            start_var.set(str(label_n + 1))
+        _last["info"] = {"add_label": add_label_var.get(), "prefix": prefix_var.get(),
+                         "digits": digits_var.get(), "start": start_var.get(),
+                         "save_raw": save_raw_var.get()}
+
         _last["fields"] = [e.get() for e in entries]
         _last["preset"] = preset_var.get()
         _last["extras"] = {label: extra_vars[label].get() for label in EXTRA_LABELS}
@@ -357,7 +414,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
             except (tk.TclError, TypeError):
                 pass
             if preset_var.get() == name:
-                preset_var.set("none")
+                clear_preset_name()
 
         def do_action():
             if mode.get() == "delete":
@@ -577,6 +634,69 @@ def get_inputs(readout=None, auto_run=False, source=None):
             passfail_widgets.append(e)
         passfail_entries[label] = tuple(row_entries)
 
+    # More Info: an optional label (prefix + zero-padded counter) and auto-save.
+    # Session-only (kept in _last, not presets) and never locked by Save; Run
+    # validates it. Not bound to on_entry_change, so edits keep the saved state.
+    info_container = tk.Frame(right_col)
+    info_container.pack(anchor="w", fill="x", pady=(16, 0))
+    section_header(info_container, "More Settings (Optional)", 0)
+    init_info = _last.get("info", {})
+
+    add_label_var = tk.IntVar(value=init_info.get("add_label", 0))
+    prefix_var    = tk.StringVar(value=init_info.get("prefix", ""))
+    digits_var    = tk.StringVar(value=init_info.get("digits", LABEL_DIGIT_DEFAULT))
+    start_var     = tk.StringVar(value=init_info.get("start", LABEL_START_DEFAULT))
+    save_raw_var  = tk.IntVar(value=init_info.get("save_raw", 0))
+
+    tk.Checkbutton(info_container, text="Add label (SN)", variable=add_label_var).grid(
+        row=2, column=0, pady=4, sticky="w")
+    # Fixed width so the row doesn't shift as the preview text changes.
+    label_preview = tk.Label(info_container, text="", anchor="w", width=20,
+                             font=("TkDefaultFont", 10, "bold"))
+    label_preview.grid(row=2, column=1, pady=4, sticky="w")
+
+    # Left-aligned and indented to sit under the "Add label" text, not the box.
+    tk.Label(info_container, text="Prefix", anchor="w").grid(row=3, column=0, pady=4, padx=(24, 8), sticky="w")
+    prefix_entry = tk.Entry(info_container, textvariable=prefix_var, width=20)
+    prefix_entry.grid(row=3, column=1, pady=4, sticky="w")
+
+    tk.Label(info_container, text="Digits", anchor="w").grid(row=4, column=0, pady=4, padx=(24, 8), sticky="w")
+    digits_frame = tk.Frame(info_container)
+    digits_frame.grid(row=4, column=1, pady=4, sticky="w")
+    digits_menu = tk.OptionMenu(digits_frame, digits_var, *LABEL_DIGIT_OPTIONS)
+    digits_menu.pack(side="left")
+    tk.Label(digits_frame, text="Starting from").pack(side="left", padx=(12, 2))
+    start_entry = tk.Entry(digits_frame, textvariable=start_var, width=6)
+    start_entry.pack(side="left")
+
+    # Spans both columns so its long text doesn't widen column 0 (which would
+    # push the Prefix/Digits fields far to the right).
+    save_raw_frame = tk.Frame(info_container)
+    save_raw_frame.grid(row=5, column=0, columnspan=2, pady=4, sticky="w")
+    tk.Checkbutton(save_raw_frame, text="Auto-save raw data", variable=save_raw_var).pack(side="left")
+    tk.Label(save_raw_frame, text="→ Raw Data/", fg="gray").pack(side="left", padx=(4, 0))
+
+    def update_label_ui(*_):
+        """Enable the label fields to match the checkbox/digits; refresh the preview."""
+        on = bool(add_label_var.get())
+        prefix_entry.config(state="normal" if on else "disabled")
+        digits_menu.config(state="normal" if on else "disabled")
+        start_entry.config(state="normal" if on and digits_var.get() != "0" else "disabled")
+        label, _, error = validate_label(prefix_var.get(), digits_var.get(), start_var.get())
+        if error:
+            # Short reason here; Run shows the full message in the status line.
+            digits = digits_var.get()
+            start  = start_var.get().strip()
+            over   = digits in LABEL_DIGIT_OPTIONS[1:] and start.isascii() and start.isdigit() and int(start) >= 10 ** int(digits)
+            label_preview.config(text=f"over {10 ** int(digits) - 1}" if over else "invalid",
+                                 fg="red" if on else "gray")
+        else:
+            label_preview.config(text=label, fg="black" if on else "gray")
+
+    for v in (add_label_var, prefix_var, digits_var, start_var):
+        v.trace_add("write", update_label_ui)
+    update_label_ui()
+
     # Power Readout: live meter values plus the laser wavelength/power controls.
     # Started once the window is up (below); Run and Close stop it.
     if readout is not None:
@@ -625,6 +745,13 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # keeping the locked state across loops.
     if "fields" in _last:
         on_save()
+
+    # The previous Run may have pushed the label counter past its digit limit.
+    # Say so now rather than only when Run is pressed (or a Repeat stalls).
+    if add_label_var.get():
+        _, _, label_error = validate_label(prefix_var.get(), digits_var.get(), start_var.get())
+        if label_error:
+            result_label.config(text=f"Label: {label_error}", fg="red")
 
     # Repeat from the plot window: the values are already saved (above), so just
     # fire Run once the window is up. Only valid when there are prior values to

@@ -49,6 +49,8 @@ class Params:
     width_min : float           = _p(label='Peak width min',      unit='pm', group='Pass/fail criteria')
     width_max : float           = _p(label='Peak width max',      unit='pm', group='Pass/fail criteria')
 
+    label     : str             = _p(label='Label',               group='Run')
+    save_raw  : bool            = _p(label='Auto-save raw data',  group='Run')
     source    : str             = _p(label='Laser source',        group='Run')
     time      : str             = _p(label='Time',                group='Run')
     date      : str             = _p(label='Date',                group='Run')

@@ -57,6 +57,49 @@ def passfail_col(label, bound):
 PASSFAIL_COLUMNS = [passfail_col(label, b) for label in PASSFAIL_LABELS for b in PASSFAIL_BOUNDS]
 
 
+# More Info: an optional per-run label (prefix + zero-padded counter) and the
+# auto-save switch. Session-only UI state — never written to presets.
+LABEL_DIGIT_OPTIONS = ["0", "1", "2", "3", "4"]
+LABEL_DIGIT_DEFAULT = "0"
+LABEL_START_DEFAULT = "1"
+# The label goes into the auto-save filename, so reject what Windows forbids.
+FILENAME_BAD_CHARS  = '\\/:*?"<>|'
+
+
+def build_label(prefix, digits, n):
+    """prefix followed by n zero-padded to `digits` places; just prefix for 0 digits."""
+    return prefix + (f"{n:0{digits}d}" if digits else "")
+
+
+def validate_label(prefix, digits_s, start_s):
+    """Validate the More Info label fields.
+
+    Returns (label, n, None) on success or (None, None, error_msg) on failure,
+    where n is the counter value (None when digits is 0). The prefix is kept as
+    text, so leading zeros survive.
+    """
+    if digits_s not in LABEL_DIGIT_OPTIONS:
+        return None, None, "label digits must be selected from the dropdown list."
+    digits = int(digits_s)
+    if any(c in FILENAME_BAD_CHARS for c in prefix):
+        return None, None, f"label prefix must not contain any of {FILENAME_BAD_CHARS}"
+    if prefix != prefix.rstrip(" ."):
+        return None, None, "label prefix must not end with a space or a dot."
+    n = None
+    if digits:
+        start_s = start_s.strip()
+        if not (start_s.isascii() and start_s.isdigit()):   # isdigit alone accepts "²"
+            return None, None, "label 'starting from' must be a whole number."
+        n = int(start_s)
+        limit = 10 ** digits - 1
+        if n > limit:
+            return None, None, f"label counter is over {limit}, the {digits}-digit limit."
+    label = build_label(prefix, digits, n)
+    if not label:
+        return None, None, "label is empty. Enter a prefix or choose 1 or more digits."
+    return label, n, None
+
+
 # SI prefixes from 10^-24 to 10^24; index 8 is the blank (10^0) slot, which keeps
 # an unprefixed unit in the same column as a prefixed one in right-aligned labels.
 SI_PREFIXES = "yzafpnµm kMGTPEZY"

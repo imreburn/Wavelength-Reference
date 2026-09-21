@@ -42,7 +42,30 @@ _last_peak_file   = ''
 _last_peak_label  = ''
 _last_temperature = None
 
-def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorption Spectrum"):
+def _status(text, error=False):
+    """One message for the status strip under the nav bar; red for errors."""
+    return html.Span(text, style={'color': '#c0392b' if error else '#555'})
+
+
+def _add_label_annotation(fig, params):
+    """Put the run label above the plot's top-left corner, if there is one.
+
+    Paper coordinates keep it in the corner through zoom/pan, and sitting in the
+    top margin keeps it off the traces. No callback patches layout.annotations,
+    so it survives every figure update.
+    """
+    if not params.label:
+        return
+    fig.add_annotation(
+        text=f'Label (SN): {params.label}',
+        xref='paper', yref='paper', x=0, y=1,
+        xanchor='left', yanchor='bottom',
+        showarrow=False, font=dict(size=13),
+    )
+
+
+def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorption Spectrum",
+                 autosaved_to=None, autosave_error=None):
     """
     Parameters
     ----------
@@ -287,6 +310,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         margin=dict(l=50, t=30, b=5),
         uirevision='constant',
     )
+    _add_label_annotation(initial_fig, params)
 
     initial_fig.update_xaxes(tickformat='.7~f', hoverformat='.12~f')
     initial_fig.update_xaxes(showspikes=True, spikecolor="gray", spikemode="across", spikethickness=1)
@@ -433,17 +457,12 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         'background': 'transparent', 'color': '#fff', 'cursor': 'pointer',
         'fontFamily': 'system-ui, sans-serif',
     }
-    # The callbacks still return their status strings into these divs; the divs
-    # are just not rendered.
-    NAV_INFO_STYLE = {'display': 'none'}
     top_navbar = html.Nav([
         html.Button('Save raw data...(S)', id='save-raw-btn', n_clicks=0, style=NAV_BTN_STYLE),
-        html.Div(id='save-raw-info', style=NAV_INFO_STYLE),
         html.Button(['Save peak info...(P)'], id='save-peak-btn', n_clicks=0, style=NAV_BTN_STYLE),
-        html.Div(id='save-peak-info', style=NAV_INFO_STYLE),
         html.Button('Apply filter...(F)', id='apply-filter-btn', n_clicks=0, style=NAV_BTN_STYLE),
         html.Button('Plot in Watt...', id='plot-watt-btn', n_clicks=0, style=NAV_BTN_STYLE),
-        html.Div(id='plot-watt-info', style=NAV_INFO_STYLE),
+        html.Div(id='plot-watt-dummy', style={'display': 'none'}),
         html.Button('Sweep info...(I)', id='sweep-info-btn', n_clicks=0, style=NAV_BTN_STYLE),
         # Power Readout: live meter values in a modal (readout.PowerReadout).
         # Disabled when there is no readout, e.g. plotting a saved CSV.
@@ -465,6 +484,20 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         html.Div(id='close-dummy', style={'display': 'none'}),
     ], style={'display': 'flex', 'alignItems': 'center', 'gap': '4px',
               'padding': '3px 16px', 'backgroundColor': '#2c3e50'})
+
+    # Status strip under the nav bar: one line, the newest message replaces the
+    # last. Fixed height so the graph doesn't shift as messages come and go.
+    # Opens with the auto-save result, if main.py auto-saved this sweep.
+    if autosave_error:
+        initial_status = _status("Auto-save failed; use Save raw data.", error=True)
+    elif autosaved_to:
+        initial_status = _status(f"Auto-saved: {os.path.basename(autosaved_to)}")
+    else:
+        initial_status = ""
+    nav_status = html.Div(initial_status, id='nav-status', style={
+        'height': '20px', 'lineHeight': '20px', 'padding': '0 30px',
+        'fontSize': '12px', 'fontFamily': 'system-ui, sans-serif',
+        'backgroundColor': '#ecf0f1', 'overflow': 'hidden', 'whiteSpace': 'nowrap'})
 
     # ------------------------------------------------------------------
     # "Save peak info" modal — choose a detected peak (or the custom one)
@@ -567,7 +600,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
             dcc.Input(id='peak-loss', type='text', value=_il_value, readOnly=True, placeholder="Optional", style=_stat_input_style),
             html.Label('Label / Serial number', style={'fontWeight': 'bold', 'display': 'block',
                                        'marginBottom': '4px'}),
-            dcc.Input(id='peak-label', type='text', value=_last_peak_label, debounce=False, placeholder="Required",
+            dcc.Input(id='peak-label', type='text', value=params.label or _last_peak_label, debounce=False, placeholder="Required",
                       style={'width': '100%', 'boxSizing': 'border-box',
                              'marginBottom': '8px'}),
             html.Label('Temperature (\u00B0C)', style={'fontWeight': 'bold', 'display': 'block',
@@ -773,6 +806,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
 
     app.layout = html.Div([
         top_navbar,
+        nav_status,
         html.Div([
             html.Div([
                 dcc.Graph(id='spectrum', figure=initial_fig, config={'scrollZoom':True}),
@@ -835,7 +869,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
     # ------------------------------------------------------------------
 
     @app.callback(
-        Output('save-raw-info', 'children'),
+        Output('nav-status', 'children', allow_duplicate=True),
         Input('save-raw-btn', 'n_clicks'),
         prevent_initial_call=True,
     )
@@ -853,16 +887,16 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
             file_types=('CSV files (*.csv)', 'All files (*.*)'),
         )
         if not result:
-            return ""
+            return dash.no_update   # cancelled: keep whatever the strip shows
         # SAVE_DIALOG returns a str on some versions, a tuple/list on others.
         file_path = result[0] if isinstance(result, (list, tuple)) else result
         # data/ref are the full-resolution per-channel lists; save_csv_raw pairs
         # them with params.channel to label columns Ch.<n> / Ch.<n>(Ref).
         save_csv_raw(raw_w, params=params, file_path=file_path)
-        return "Raw data saved."
+        return _status(f"Raw data saved: {os.path.basename(file_path)}")
 
     @app.callback(
-        Output('plot-watt-info', 'children'),
+        Output('plot-watt-dummy', 'children'),
         Input('plot-watt-btn', 'n_clicks'),
         prevent_initial_call=True,
     )
@@ -911,6 +945,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
             legend=dict(x=1.0, xanchor='left'),
             height=750, width=1450, margin=dict(l=55, t=30, b=40),
         )
+        _add_label_annotation(fig, params)
         fig.update_xaxes(tickformat='.8~f', hoverformat='.12~f', showspikes=True,
                          spikecolor='gray', spikemode='across', spikethickness=1)
         fig.update_yaxes(showspikes=True, spikemode='across',
@@ -925,7 +960,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
             f'{title} — Watt', html_path,
             width=1250, height=700, maximized=True,
         )
-        return "Watt window opened."
+        return dash.no_update
 
     @app.callback(
         Output('repeat-keybind-dummy', 'children'),
@@ -1113,7 +1148,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
 
     @app.callback(
         Output('peak-modal', 'style', allow_duplicate=True),
-        Output('save-peak-info', 'children'),
+        Output('nav-status', 'children', allow_duplicate=True),
         Output('peak-modal-error', 'children'),
         Input('peak-cancel', 'n_clicks'),
         Input('peak-save-confirm', 'n_clicks'),
@@ -1175,7 +1210,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         _last_peak_file   = os.path.basename(file_path)
         _last_peak_label  = label
         _last_temperature = temperature
-        return MODAL_HIDDEN, "Peak data saved.", ""
+        return MODAL_HIDDEN, _status(f"Peak data saved: {os.path.basename(file_path)}"), ""
 
     # ------------------------------------------------------------------
     # Apply-filter modal: open / cancel / apply

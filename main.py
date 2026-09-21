@@ -4,6 +4,7 @@ from inst_run import run_sweep, SweepCancelled
 from inst_run_ext import run_sweep_ext
 from analyze_data import combine_scans
 from plot import display_plot
+from save_csv import save_csv_raw, auto_raw_path
 from readout import PowerReadout
 from logger import setup_logging, fast_exit
 from structs import Dataset
@@ -100,8 +101,21 @@ try:
             raw_w.ref = ref_data
         else:
             ref_data = raw_w.data.copy()
-        
-        auto_run = display_plot(raw_w, params=params, readout=readout)
+
+        # Auto-save after the reference is attached, so the file matches what
+        # "Save raw data..." would write. A failure is shown on the plot rather
+        # than ending the session; the button is still there as a fallback.
+        autosaved_to, autosave_error = None, None
+        if params.save_raw:
+            try:
+                autosaved_to = auto_raw_path(params)
+                save_csv_raw(raw_w, params=params, file_path=autosaved_to)
+            except Exception as e:
+                log.exception("Auto-save of raw data failed")
+                autosaved_to, autosave_error = None, str(e)
+
+        auto_run = display_plot(raw_w, params=params, readout=readout,
+                                autosaved_to=autosaved_to, autosave_error=autosave_error)
         # The plot window sets this on idle timeout; its normal close would
         # otherwise loop back to the config window instead of exiting.
         if shutdown.requested():
