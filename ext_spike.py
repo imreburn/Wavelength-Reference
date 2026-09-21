@@ -2,18 +2,34 @@ import pyvisa
 import sys
 import time
 import numpy as np
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 import plotly.express as px
 
 # ext_spike.py — throwaway. Answers three questions, then gets deleted.
 VISA_ADDRESS_POWER_METER    = 'USB0::0x0957::0x3718::DE53500131::0::INSTR'
+
+ESC = "\x1b"
+
+def _esc_pressed():
+    """Non-blocking: True if Esc is among the keys pressed since the last call."""
+    while msvcrt and msvcrt.kbhit():
+        ch = msvcrt.getwch()
+        if ch in ("\x00", "\xe0"):   # arrow/function key: two-char code, skip both
+            msvcrt.getwch()
+            continue
+        if ch == ESC:
+            return True
+    return False
 
 
 try:
     import msvcrt  # Windows
 
     def _read_one_key():
-        msvcrt.getch()
+        ch = msvcrt.getch()
+        if ch == ESC:
+            sys.exit(0)
+
 
 except ImportError:
     import termios  # macOS / Linux
@@ -46,6 +62,7 @@ time.sleep(3)
 while True:
 
     wait_for_key("Press any key to start...")
+
 
     pm_range = 0
 

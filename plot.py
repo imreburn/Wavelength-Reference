@@ -21,6 +21,7 @@ from save_csv import save_csv_raw, save_csv_peak_row, COL_CH, COL_REF, COL_SCAN,
 from plot_helper import lttb, lttb_multi, pre_process
 from datapath import data_path
 from filters import FILTER_LABELS, FILTER_PARAMS, apply_filter, FilterError
+from readout import READOUT_COLUMNS, DASH_REFRESH_MS, format_row, format_actual
 
 # Shared styles for the three DataTables (peak, custom, delta markers).
 # Row height is driven by the cell's vertical padding; keep it small for compact rows.
@@ -41,10 +42,13 @@ _last_peak_file   = ''
 _last_peak_label  = ''
 _last_temperature = None
 
-def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum"):
+def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorption Spectrum"):
     """
     Parameters
     ----------
+    readout : readout.PowerReadout, optional
+        The session's live power readout, shown in the "Power Readout" modal.
+        None (e.g. plotting a saved CSV) leaves the button disabled.
 
     Notes
     -----
@@ -433,25 +437,32 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     # are just not rendered.
     NAV_INFO_STYLE = {'display': 'none'}
     top_navbar = html.Nav([
-        html.Button('Save Raw Data...(S)', id='save-raw-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        html.Button('Save raw data...(S)', id='save-raw-btn', n_clicks=0, style=NAV_BTN_STYLE),
         html.Div(id='save-raw-info', style=NAV_INFO_STYLE),
-        html.Button(['Save Peak info...(P)'], id='save-peak-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        html.Button(['Save peak info...(P)'], id='save-peak-btn', n_clicks=0, style=NAV_BTN_STYLE),
         html.Div(id='save-peak-info', style=NAV_INFO_STYLE),
-        html.Button('Apply Filter...(F)', id='apply-filter-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        html.Button('Apply filter...(F)', id='apply-filter-btn', n_clicks=0, style=NAV_BTN_STYLE),
         html.Button('Plot in Watt...', id='plot-watt-btn', n_clicks=0, style=NAV_BTN_STYLE),
         html.Div(id='plot-watt-info', style=NAV_INFO_STYLE),
-        html.Button('Sweep Info...(I)', id='sweep-info-btn', n_clicks=0, style=NAV_BTN_STYLE),
-        # Close Window: just close this plot window (same as the window's close
-        # button). marginLeft: auto pushes it and the Repeat button to the right edge.
-        html.Button('Close Window (W)', id='close-btn', n_clicks=0,
-                    style={**NAV_BTN_STYLE, 'marginLeft': 'auto'}),
-        html.Div(id='close-dummy', style={'display': 'none'}),
+        html.Button('Sweep info...(I)', id='sweep-info-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        # Power Readout: live meter values in a modal (readout.PowerReadout).
+        # Disabled when there is no readout, e.g. plotting a saved CSV.
+        html.Button('Power readout...(R)', id='readout-btn', n_clicks=0,
+                    disabled=readout is None,
+                    style=NAV_BTN_STYLE if readout is not None
+                    else {**NAV_BTN_STYLE, 'opacity': 0.4, 'cursor': 'default'}),
+
         # Close & Repeat: close this plot window and auto-Run the next sweep with the same parameters. Also bound to the Enter key (see the clientside callback below).
         html.Button('Close & Repeat (Enter)', id='repeat-btn', n_clicks=0,
-                    style={**NAV_BTN_STYLE, 'fontWeight': 'bold'}),
+                    style={**NAV_BTN_STYLE, 'fontWeight': 'bold', 'marginLeft': 'auto'}),
         # Dummy sink for the keybind clientside callback; the keydown
         # listener it installs is what actually clicks the button.
         html.Div(id='repeat-keybind-dummy', style={'display': 'none'}),
+                # Close Window: just close this plot window (same as the window's close
+        # button). marginLeft: auto pushes it and the Repeat button to the right edge.
+        html.Button('Close window (W)', id='close-btn', n_clicks=0,
+                    style={**NAV_BTN_STYLE}),
+        html.Div(id='close-dummy', style={'display': 'none'}),
     ], style={'display': 'flex', 'alignItems': 'center', 'gap': '4px',
               'padding': '3px 16px', 'backgroundColor': '#2c3e50'})
 
@@ -682,6 +693,84 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
                   'boxShadow': '0 4px 20px rgba(0,0,0,0.25)'}),
     )
 
+    # ------------------------------------------------------------------
+    # "Power Readout" modal — the live meter readout (readout.PowerReadout),
+    # polled by a dcc.Interval only while the modal is open. Opening starts
+    # the readout, closing stops it. Without a readout (plotting a saved CSV)
+    # the button is disabled and none of this runs.
+    # ------------------------------------------------------------------
+    _ro_has_laser = readout is not None and readout.has_laser
+    _ro_cell  = {'padding': '2px 10px', 'textAlign': 'right', 'whiteSpace': 'nowrap',
+                 'fontSize': '16px', 'fontVariantNumeric': 'tabular-nums'}
+    _ro_head  = {**_ro_cell, 'fontSize': '13px', 'color': '#555', 'borderBottom': '1px solid #ccc'}
+    _ro_label = {'fontSize': '13px', 'display': 'inline-block', 'width': '120px'}
+    _ro_row   = {'display': 'flex', 'alignItems': 'center', 'marginBottom': '4px'}
+    _ro_input = {'width': '90px', 'fontSize': '14px', 'padding': '2px 5px', 'boxSizing': 'border-box'}
+    # The read-back beside each field: what the meter and laser report now.
+    _ro_actual = {'fontSize': '13px', 'color': '#555', 'marginLeft': '10px', 'whiteSpace': 'nowrap'}
+
+    def _readout_actual():
+        """Text for the two read-back spans (wavelength row, power row)."""
+        if readout is None:
+            return '', ''
+        pm_s, lwl_s, ldbm_s = format_actual(readout.actual, readout.has_laser)
+        return f"pm {pm_s}, laser {lwl_s}", f"laser {ldbm_s}"
+
+    def _readout_rows(rows):
+        """One <tr> per channel from read()'s output; None -> placeholders."""
+        trs = []
+        for i in range(4):
+            if rows is None:
+                cells = ('—',) * 4
+            else:
+                rng, w = rows[i]
+                cells = format_row(rng, w, readout.max_w[i])
+            trs.append(html.Tr([html.Td(str(i + 1), style=_ro_cell)]
+                               + [html.Td(c, style=_ro_cell) for c in cells]))
+        return trs
+
+    readout_modal = html.Div(
+        id='readout-modal',
+        style=MODAL_HIDDEN,
+        children=html.Div([
+            html.H4('Power readout', style={'marginTop': 0}),
+            # Same order as the config window's section: Laser on, the two
+            # fields, then Apply / Reset Max.
+            dcc.Checklist(
+                id='readout-laser',
+                options=[{'label': ' Laser on', 'value': 'on', 'disabled': not _ro_has_laser}],
+                value=['on'] if (readout is not None and readout.emission) else [],
+                style={'fontSize': '13px', 'marginBottom': '6px'}),
+            html.Div([
+                html.Label('Wavelength (nm)', style=_ro_label),
+                dcc.Input(id='readout-wl', type='text', style=_ro_input,
+                          value=f"{readout.wl_nm:g}" if readout is not None else ''),
+                html.Span(_readout_actual()[0], id='readout-wl-actual', style=_ro_actual),
+            ], style=_ro_row),
+            html.Div([
+                html.Label('TLS Power (dBm)', style=_ro_label),
+                dcc.Input(id='readout-dbm', type='text', style=_ro_input, disabled=not _ro_has_laser,
+                          value=f"{readout.dbm:g}" if readout is not None else ''),
+                html.Span(_readout_actual()[1], id='readout-dbm-actual', style=_ro_actual),
+            ], style=_ro_row),
+            html.Div([
+                html.Button('Apply', id='readout-apply', n_clicks=0),
+                html.Button('Reset Max', id='readout-reset', n_clicks=0, style={'marginLeft': '8px'}),
+            ], style={'marginTop': '6px'}),
+            html.Div(id='readout-msg', style={'minHeight': '18px', 'fontSize': '13px', 'marginTop': '4px'}),
+            html.Table([
+                html.Thead(html.Tr([html.Th(c, style=_ro_head) for c in READOUT_COLUMNS])),
+                html.Tbody(id='readout-rows', children=_readout_rows(None)),
+            ], style={'borderCollapse': 'collapse', 'marginTop': '6px'}),
+            html.Div(html.Button('Close', id='readout-close', n_clicks=0),
+                     style={'textAlign': 'right', 'marginTop': '12px'}),
+            dcc.Interval(id='readout-tick', interval=DASH_REFRESH_MS, n_intervals=0, disabled=True),
+        ], style={'backgroundColor': 'white', 'padding': '20px 24px',
+                  'borderRadius': '8px', 'width': 'fit-content',
+                  'fontFamily': 'system-ui, sans-serif',
+                  'boxShadow': '0 4px 20px rgba(0,0,0,0.25)'}),
+    )
+
     app.layout = html.Div([
         top_navbar,
         html.Div([
@@ -738,6 +827,7 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         peak_modal,
         filter_modal,
         sweep_info_modal,
+        readout_modal,
     ])
 
     # ------------------------------------------------------------------
@@ -903,9 +993,10 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         'p': 'save-peak-btn',
         'f': 'apply-filter-btn',
         'i': 'sweep-info-btn',
+        'r': 'readout-btn',
         'w': 'close-btn',
     }
-    MODAL_IDS = ['peak-modal', 'filter-modal', 'sweep-info-modal']
+    MODAL_IDS = ['peak-modal', 'filter-modal', 'sweep-info-modal', 'readout-modal']
     app.clientside_callback(
         """
         function(n) {
@@ -1173,6 +1264,63 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
     def toggle_sweep_info(open_clicks, close_clicks):
         triggered = callback_context.triggered[0]['prop_id']
         return MODAL_HIDDEN if 'sweep-info-close' in triggered else MODAL_SHOWN
+
+    # Power-readout modal. Opening starts the readout and enables its poll;
+    # closing stops both. start() blocks for the instrument check (~1 s).
+    @app.callback(
+        Output('readout-modal', 'style'),
+        Output('readout-tick', 'disabled'),
+        Input('readout-btn', 'n_clicks'),
+        Input('readout-close', 'n_clicks'),
+        prevent_initial_call=True,
+    )
+    def toggle_readout(open_clicks, close_clicks):
+        if readout is None:
+            return dash.no_update, dash.no_update
+        if 'readout-close' in callback_context.triggered[0]['prop_id']:
+            readout.stop()
+            return MODAL_HIDDEN, True
+        readout.start()
+        return MODAL_SHOWN, False
+
+    @app.callback(
+        Output('readout-rows', 'children'),
+        Output('readout-wl-actual', 'children'),
+        Output('readout-dbm-actual', 'children'),
+        Input('readout-tick', 'n_intervals'),
+        prevent_initial_call=True,
+    )
+    def refresh_readout(_n):
+        # wait=False: skip this tick rather than queue behind a worker thread
+        # still mid-query (Dash runs callbacks on a pool, so ticks can overlap).
+        rows = readout.read(wait=False) if readout is not None else None
+        if rows is None:
+            return dash.no_update, dash.no_update, dash.no_update
+        return (_readout_rows(rows), *_readout_actual())
+
+    @app.callback(
+        Output('readout-msg', 'children'),
+        Input('readout-apply', 'n_clicks'),
+        Input('readout-laser', 'value'),
+        Input('readout-reset', 'n_clicks'),
+        State('readout-wl', 'value'),
+        State('readout-dbm', 'value'),
+        prevent_initial_call=True,
+    )
+    def readout_controls(_apply, laser_value, _reset, wl_text, dbm_text):
+        if readout is None:
+            return dash.no_update
+        triggered = callback_context.triggered[0]['prop_id']
+        if 'readout-laser' in triggered:
+            readout.set_emission('on' in (laser_value or []))
+            return ''
+        if 'readout-reset' in triggered:
+            readout.reset_max()
+            return ''
+        err = readout.set_wavelength(wl_text)
+        if err is None and readout.has_laser:
+            err = readout.set_power(dbm_text)
+        return html.Span(err or 'Applied.', style={'color': 'red' if err else 'blue'})
 
     @app.callback(
         Output('markers-store', 'data'),
@@ -1523,6 +1671,11 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
         server.shutdown()
         thread.join()
 
+    # The readout modal may have been open when the window closed. stop() is
+    # idempotent and waits out a tick still in flight on a worker thread.
+    if readout is not None:
+        readout.stop()
+
     # True when the user clicked Repeat (or pressed Enter); the caller uses this
     # to auto-Run the next sweep. False on a normal window close.
     return _repeat['flag']
@@ -1533,7 +1686,9 @@ def display_plot(raw_w: Dataset, params: Params, *, title="Absorption Spectrum")
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     from open_csv import plot_raw
+    from inst_dummy import dummy_readout
     # csv_path = "Raw Data/hc13n_watt_reference.csv"
     csv_path = "Raw Data/Tri-CO-12-02608520.csv"
-    plot_raw(csv_path)
+    # Dummy instruments, so the Power Readout modal can be exercised here.
+    plot_raw(csv_path, readout=dummy_readout("N7778C"))
     

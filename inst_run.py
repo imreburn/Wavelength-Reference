@@ -25,8 +25,10 @@ def arm_pm(pm, params : Params):
     # ----- Power Meter -----
     for i in params.channel:
         pm.write(f":INIT{i}:CONT 0")
+        
         pm.write(f":SENSE{i}:FUNC:STAT LOGG, STOP")
-        pm.write(f":SENSE{i}:POW:WAVE {(params.wl_st_pad + params.wl_sp_pad)/2:.3f} NM")
+        
+        pm.write(f":SENSE{i}:POW:WAV {(params.wl_st_pad + params.wl_sp_pad)/2:.3f} NM")
         pm.write(f":SENSE{i}:POW:ATIME {params.at_us} US")
         pm.write(f":SENSE{i}:CORR 0")
         pm.write(f":SENSE{i}:POW:REF:STATE OFF")
@@ -40,6 +42,7 @@ def arm_pm(pm, params : Params):
         pm.write(f":SENSE{i}:FUNC:PAR:LOGG {params.num_data}, {params.at_us} US")
         # PM: arm logging function before sweep starts
         pm.write(f":SENSE{i}:FUNC:STAT LOGG, START")
+        print(f"Ch {i}:", pm.query(f":SENSE{i}:FUNC:STAT?"))
     
     log.info("[PM] Logging armed.")
     
@@ -152,8 +155,9 @@ def run_sweep(pm, laser, params: Params, dryrun=False):
         log.info("[PM] Logging completed")
     else:
         log.warning("[PM] Logging NOT completed")
+        raise Exception
     
-    # check_inst(pm, laser)
+    check_inst(pm, laser)
     
     return read_pm(pm, params)
 

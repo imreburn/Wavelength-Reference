@@ -13,7 +13,9 @@ from logger import setup_logging, fast_exit
 
 from datapath import data_path
 
-def plot_raw(filepath=None):
+def plot_raw(filepath=None, readout=None):
+    """Plot a saved raw CSV. `readout` (a readout.PowerReadout) is passed
+    through to display_plot; None leaves its Power Readout button disabled."""
     if not filepath:
         root = tk.Tk()
         root.withdraw()
@@ -45,7 +47,7 @@ def plot_raw(filepath=None):
     for i in range(1, params.dyn_scans + 1):
         raw_w.scans.append([df[f'{COL_SCAN}{i}_{COL_CH}{ch}_{raw_w.unit}'].to_numpy() for ch in params.channel])
 
-    display_plot(raw_w, params=params)
+    display_plot(raw_w, params=params, readout=readout)
 
     return True
     

@@ -4,6 +4,7 @@ from inst_run import run_sweep, SweepCancelled
 from inst_run_ext import run_sweep_ext
 from analyze_data import combine_scans
 from plot import display_plot
+from readout import PowerReadout
 from logger import setup_logging, fast_exit
 from structs import Dataset
 from constants import APP_VERSION, TLS_SOURCES
@@ -29,7 +30,6 @@ def select_source():
         how = "must be set manually" if info["external"] else "controlled by this app"
         print(f"   {i}. {name}  ({info['wl_min']}-{info['wl_max']} nm), {how}")
     print(bar)
-    print()
     try:
         while True:
             raw = input(f" Enter a number 1-{len(names)} [1]: ").strip()
@@ -42,6 +42,7 @@ def select_source():
         print()
         log.info("No laser source selected — exiting.")
         fast_exit(0)
+    print()
 
 
 try:
@@ -51,8 +52,11 @@ try:
     external = TLS_SOURCES[source]["external"]
     log.info(f"Laser source: {source}" + (" (external)" if external else ""))
     pm, laser = prep_inst(with_laser=not external)
-    
-    
+
+    # The live power readout, shared by the config window (as a section) and
+    # the plot window (as a modal). One per session, so its max carries over.
+    readout = PowerReadout(pm, laser, TLS_SOURCES[source])
+
     # Exit on laptop-close/system-sleep: the VISA sessions go stale on wake, so
     # a daemon thread hard-exits rather than leaving them held. (Idle-timeout,
     # handled per-window below, is a separate, graceful path.)
@@ -61,7 +65,7 @@ try:
     auto_run = False  # set by Repeat on the previous plot; auto-Runs this loop
 
     while True:
-        params = get_inputs(pm, laser, auto_run=auto_run, source=source)
+        params = get_inputs(readout, auto_run=auto_run, source=source)
         if not params:
             break
 
@@ -97,7 +101,7 @@ try:
         else:
             ref_data = raw_w.data.copy()
         
-        auto_run = display_plot(raw_w, params=params)
+        auto_run = display_plot(raw_w, params=params, readout=readout)
         # The plot window sets this on idle timeout; its normal close would
         # otherwise loop back to the config window instead of exiting.
         if shutdown.requested():

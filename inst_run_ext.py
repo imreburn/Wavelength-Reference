@@ -134,6 +134,8 @@ def run_sweep_ext(pm, params : Params, scan_label=""):
         check_inst(pm)
         raise SweepCancelled
 
+    # check_inst(pm)
+    
     return read_pm(pm, params)
 
 

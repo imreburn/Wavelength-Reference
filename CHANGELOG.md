@@ -5,14 +5,19 @@
 ### Added
 
 - Supports the external laser source. This involves multiple changes, more information here:([#85](https://github.com/imreburn/Wavelength-Reference/issues/85))
-- Added a "Close Window" button in the graph window. Renamed the button "Repeat (Enter)" to "Close & Repeat (Enter)". ([#80](https://github.com/imreburn/Wavelength-Reference/issues/80))
+- Added a "Close Window" button at the right end of the navigation bar in the graph window. Renamed the button "Repeat (Enter)" to "Close & Repeat (Enter)". ([#80](https://github.com/imreburn/Wavelength-Reference/issues/80))
 - Added a "Sweep Info..." button in the graph window that shows the parameters of the current sweep. ([#97](https://github.com/imreburn/Wavelength-Reference/issues/97))
 - Keyboard shortcuts (`s`, `f`, `i`, `w`) for the "Save Raw Data...(S)", "Apply Filter...(F)", "Sweep Info...(I)", and "Close Window (W)" buttons in the graph window.
 
 ### Changed
 
-- The power measurements are no longer multiplied by -1. Instead, the original sign of measurement is preserved. Y-axis of the plot is not inverted as a result. ([#90](https://github.com/imreburn/Wavelength-Reference/issues/90))
+- The power measurements are no longer multiplied by -1. Instead, the raw measurement with its sign is preserved. Y-axis of the plot is no longer inverted as a result. This doesn't change any relative measurements such as depth and width. ([#90](https://github.com/imreburn/Wavelength-Reference/issues/90))
 - Default setting for applying a filter is changed to ('Hamming', 40).
+- [PlotSweep]: The program loops until no file is selected.
+- Power readout ([#94](https://github.com/imreburn/Wavelength-Reference/issues/94))
+  - Power readout is now shown on the config window directly, instead of a new pop-up window.
+  - The user can turn on/off laser and control wavelength and power. The maximum measured power can be reset.
+  - The same functionality is added to the graph window, too. "Power Readout...(R)" button is added and its keyboard shortcut is `r`.
 
 ## [1.1.12] - 2026-09-09
 

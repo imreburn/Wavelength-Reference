@@ -1,5 +1,4 @@
 from datetime import datetime
-import math
 import time
 import tkinter as tk
 from tkinter import ttk
@@ -12,15 +11,16 @@ import dpi_awareness  # noqa: F401
 log = logging.getLogger(__name__)
 
 from constants import APP_VERSION, TLS_SOURCES
-from inst_helper import prep_inst, check_inst
 from shutdown import IDLE_SECONDS, IDLE_POLL_MS
 from structs import Params
+from readout_tk import ReadoutSection
 from config_helper import (
     FIELD_LABELS, DEFAULTS, SWEEP_SPEED_OPTIONS,
     EXTRA_LABELS, EXTRA_DEFAULTS, PADDING_LABEL, PM_RANGE_LABEL, DYN_SCAN_LABEL, DECREMENT_LABEL,
-    CHANNEL_LABEL, CHANNEL_OPTIONS, CHANNEL_DEFAULT, channels_to_str, parse_channels, padding_nm, eng_format,
+    CHANNEL_LABEL, CHANNEL_OPTIONS, CHANNEL_DEFAULT, channels_to_str, parse_channels, padding_nm,
     PASSFAIL_LABELS, PASSFAIL_KEYS, PASSFAIL_DEFAULT, PASSFAIL_COLUMNS, passfail_col,
-    preset_path, load_presets, save_preset, delete_preset, make_extra_widgets, validate_inputs, validate_extras, validate_passfail, validation_error,
+    preset_path, load_presets, save_preset, delete_preset, section_header, make_extra_widgets,
+    validate_inputs, validate_extras, validate_passfail, validation_error,
 )
 
 
@@ -51,15 +51,10 @@ def _is_disabled(widget):
         return False
 
 
-def section_header(frame, text, row):
-    """Place a bold section title plus a horizontal separator line below it."""
-    tk.Label(frame, text=text, font=("TkDefaultFont", 10, "bold"), anchor="w").grid(
-        row=row, column=0, columnspan=2, sticky="w", pady=(10, 0))
-    ttk.Separator(frame, orient="horizontal").grid(
-        row=row + 1, column=0, columnspan=2, sticky="ew", pady=(0, 6))
-
-
-def get_inputs(pm=None, laser=None, auto_run=False, source=None):
+def get_inputs(readout=None, auto_run=False, source=None):
+    # readout: the session's readout.PowerReadout, shown live in its own section
+    # for as long as this window is up (stopped before Run tears it down). None
+    # runs the window without a readout, e.g. a UI test with no instruments.
     # auto_run: re-run the previous sweep without manual interaction (set by the
     # plot window's Repeat button). It is a control flag only — never stored on
     # Params, which holds run parameters exclusively.
@@ -68,7 +63,7 @@ def get_inputs(pm=None, laser=None, auto_run=False, source=None):
     # to the first entry so the __main__ UI test below runs without main.py.
     source      = source or next(iter(TLS_SOURCES))
     source_spec = TLS_SOURCES[source]
-    
+
     preset_file = preset_path(source)
 
     params = Params(version=APP_VERSION)
@@ -76,11 +71,10 @@ def get_inputs(pm=None, laser=None, auto_run=False, source=None):
     params.source    = source
     saved = {"ok": False}
     ran = {"ok": False}
-    # Cleanup for the power-readout window, if one is open. Set while the readout
-    # window exists so root teardown (Run/Close) can cancel its pending `after`
-    # refresh loop before destroying it — otherwise queued callbacks fire against
-    # the destroyed widget ("invalid command name ...refresh").
-    _readout = {"close": None}
+    # The readout section (readout_tk.ReadoutSection), built with the widgets
+    # below. Root teardown (Run/Close) stops it first, so its pending `after`
+    # tick can't fire against destroyed widgets ("invalid command name ...").
+    readout_section = None
     # Pending id of the idle-timeout poll below, so root teardown (Run/Close) can
     # cancel it for the same reason. Without this the poll survives destroy() on
     # Windows and fires against the deleted callback ("invalid command name
@@ -129,7 +123,6 @@ def get_inputs(pm=None, laser=None, auto_run=False, source=None):
         change_btn.config(state="normal" if locked else "disabled")
         preset_save_btn.config(state="normal" if locked else "disabled")
         run_btn.config(state="normal" if locked else "disabled")
-        read_pm_btn.config(state="normal" if locked else "disabled")
         _pin_padding()
 
     def on_save():
@@ -215,6 +208,9 @@ def get_inputs(pm=None, laser=None, auto_run=False, source=None):
 
         saved["ok"] = True
         set_locked(True)
+        # Take the keyboard focus away from whichever field had it (the readout
+        # fields swallow Enter), so Enter now reaches the Run binding.
+        root.focus_set()
 
     def on_change_params():
         # Re-open the parameter fields for editing; require a fresh Save before Run.
@@ -293,139 +289,13 @@ def get_inputs(pm=None, laser=None, auto_run=False, source=None):
         _state["has_run"] = True
         _state["pos"] = (root.winfo_x(), root.winfo_y())
         log.info("params: %s", params)
-        # Tear down the power-readout window (and its refresh loop) first, so its
-        # pending `after` callbacks don't fire after root.destroy() kills it.
-        if _readout["close"]:
-            _readout["close"]()
+        # Stop the readout (and its tick) first, so no `after` callback fires
+        # after root.destroy(), and the meter is free before the sweep arms it.
+        if readout_section:
+            readout_section.stop()
         _cancel_idle()
         result_label.config(text="Running...", fg="black")
         root.after(200, root.destroy)
-
-    def on_read_power():
-        if not saved["ok"] or not pm or not laser:
-            return
-        # Prevent opening multiple readout windows while one is already open.
-        read_pm_btn.config(state="disabled")
-        # Opens a separate window for the power readout.
-        top = tk.Toplevel(root)
-        top.title("Power Meter Readout")
-        top.resizable(False, False)
-        top.transient(root)
-        # Check instruments
-        check_inst(pm, laser)
-        
-        laser.write(f":SOURCE0:WAVE  {params.wl_stop:.3f} NM")
-        laser.write(":SOURCE0:POWER:UNIT  0")
-        laser.write(f":SOURCE0:POWER {params.tls_dbm} DBM")
-        laser.write(":SOURCE0:POW:STATE 1")
-
-        for i in range(1, 5):
-            pm.write(f":SENSE{i}:POW:WAVE {params.wl_stop:.3f} NM")
-            pm.write(f":SENSE{i}:POW:ATIME 25 MS")
-            pm.write(f":INIT{i}:CONT 1")
-            pm.write(f":SENSE{i}:POW:RANGE:AUTO 1")
-        
-        time.sleep(1)
-        check_inst(pm, laser)
-
-        # Show the wavelength / TLS power the readout is being taken at.
-        info = tk.Frame(top)
-        info.grid(row=0, column=0, columnspan=4, padx=10, pady=(10, 4), sticky="w")
-        tk.Label(info, text="Wavelength (nm):", font=("TkDefaultFont", 10, "bold")).grid(
-            row=0, column=0, sticky="w", padx=(0, 6))
-        tk.Label(info, text=f"{params.wl_stop}", font=("TkDefaultFont", 10)).grid(
-            row=0, column=1, sticky="w", padx=(0, 20))
-        tk.Label(info, text="TLS Power (dBm):", font=("TkDefaultFont", 10, "bold")).grid(
-            row=1, column=0, sticky="w", padx=(0, 6))
-        tk.Label(info, text=f"{params.tls_dbm}", font=("TkDefaultFont", 10)).grid(
-            row=1, column=1, sticky="w")
-
-        for col, text in enumerate(("Ch.", "Power Range (Auto)", "Power (dBm)", "Power (W)", "Max power (W)")):
-            tk.Label(top, text=text, anchor="e", font=("TkDefaultFont", 10, "bold")).grid(
-                row=1, column=col, padx=10, pady=(10, 4), sticky="e")
-
-        range_vars, power_vars, watt_vars, max_vars = [], [], [], []
-        # Track the peak power (in W) seen on each channel while the window is open.
-        max_watts = [float("-inf")] * 4
-        for i in range(4):
-            rv, pv, wv, mv = (tk.StringVar(value="—"), tk.StringVar(value="—"),
-                              tk.StringVar(value="—"), tk.StringVar(value="—"))
-            tk.Label(top, text=str(i + 1), font=("TkDefaultFont", 14)).grid(
-                row=i + 2, column=0, padx=10, pady=2)
-            tk.Label(top, textvariable=rv, anchor="e", width=10,
-                     font=("TkDefaultFont", 14)).grid(
-                row=i + 2, column=1, padx=10, pady=2, sticky="e")
-            tk.Label(top, textvariable=pv, anchor="e", width=12,
-                     font=("TkDefaultFont", 14)).grid(
-                row=i + 2, column=2, padx=10, pady=2, sticky="e")
-            tk.Label(top, textvariable=wv, anchor="e", width=14,
-                     font=("TkDefaultFont", 14)).grid(
-                row=i + 2, column=3, padx=10, pady=2, sticky="e")
-            tk.Label(top, textvariable=mv, anchor="e", width=14,
-                     font=("TkDefaultFont", 14)).grid(
-                row=i + 2, column=4, padx=10, pady=2, sticky="e")
-            range_vars.append(rv)
-            power_vars.append(pv)
-            watt_vars.append(wv)
-            max_vars.append(mv)
-
-        job = {"id": None}
-
-        def refresh():
-            # Bail out if the window was torn down between the `after` being
-            # scheduled and it firing.
-            if not top.winfo_exists():
-                return
-            powers = pm.query(":FETCH:POW:ALL:CSV?").strip().split(',')
-            p_ranges = [pm.query(f":SENSE{i}:POW:RANGE?") for i in range(1, 5)]
-            for i in range(4):
-                range_vars[i].set(f"{int(float(p_ranges[i]))} dBm")
-                try:
-                    p_w = float(powers[i])
-                except (ValueError, IndexError):
-                    watt_vars[i].set("-")
-                    continue
- 
-                if p_w > 0.01 or p_w <= 0:
-                    watt_vars[i].set("-")
-                    power_vars[i].set("-")
-                    continue
- 
-                watt_vars[i].set(eng_format(p_w, 'W'))
-                power_vars[i].set(f"{10 * math.log10(p_w * 1e3):.3f} dBm")
-
-                if p_w > max_watts[i]:
-                    max_watts[i] = p_w
-                    max_vars[i].set(eng_format(p_w, 'W'))
-                
-
-            job["id"] = top.after(50, refresh)
-
-        def on_top_close():
-            # Safety: turn off laser
-            laser.write(":SOURCE0:POW:STATE 0")
-            _readout["close"] = None
-            if job["id"] is not None:
-                try:
-                    top.after_cancel(job["id"])
-                except tk.TclError:
-                    pass
-                job["id"] = None
-            if top.winfo_exists():
-                top.destroy()
-            if read_pm_btn.winfo_exists():
-                read_pm_btn.config(state="normal")
-
-        # Expose cleanup so root teardown (Run/Close) can cancel the refresh loop.
-        _readout["close"] = on_top_close
-        top.protocol("WM_DELETE_WINDOW", on_top_close)
-
-        tk.Button(top, text="Close", command=on_top_close, width=10).grid(
-            row=99, column=0, columnspan=5, pady=10)
-
-        # Track the initial delayed refresh so it can be cancelled if the window
-        # is closed within the first 1 seconds.
-        job["id"] = top.after(1000, refresh)
 
     def on_save_preset():
         # Only reachable once parameters have passed Save's checks.
@@ -574,9 +444,9 @@ def get_inputs(pm=None, laser=None, auto_run=False, source=None):
     def on_close():
         # Remember where the user left the window before closing.
         _state["pos"] = (root.winfo_x(), root.winfo_y())
-        # Cancel the readout refresh loop before destroying its parent window.
-        if _readout["close"]:
-            _readout["close"]()
+        # Stop the readout tick before destroying the widgets it updates.
+        if readout_section:
+            readout_section.stop()
         _cancel_idle()
         root.destroy()
 
@@ -595,13 +465,13 @@ def get_inputs(pm=None, laser=None, auto_run=False, source=None):
     LOGCOUNT_ROW = EXTRAS_START + len(EXTRA_LABELS)
     AVGTIME_ROW  = LOGCOUNT_ROW + 1
     SAVEBTN_ROW  = AVGTIME_ROW + 1
-    HEADER2_ROW  = SAVEBTN_ROW + 1
-    RUNBTN_ROW   = HEADER2_ROW + 2   # +2 leaves room for the separator line
-    HEADER3_ROW  = RUNBTN_ROW + 1
-    REFBTN_ROW   = HEADER3_ROW + 2
-    RESULT_ROW   = REFBTN_ROW + 1
-    # Pass/Fail Criteria sit in their own sub-frame in column 2 (to the right
-    # of the Parameters section), so they don't consume rows in columns 0–1.
+    HEADER2_ROW  = SAVEBTN_ROW + 1   # Reference
+    REFBTN_ROW   = HEADER2_ROW + 2   # +2 leaves room for the separator line
+    HEADER3_ROW  = REFBTN_ROW + 1    # Instruments
+    RUNBTN_ROW   = HEADER3_ROW + 2
+    RESULT_ROW   = RUNBTN_ROW + 1    # status messages sit right below Run
+    # Pass/Fail Criteria and the Power Readout sit in their own sub-frame in
+    # column 2 (right of the Parameters section), so they consume no rows here.
 
     # ---- Set Parameters --------------------------------------------------
     section_header(frame, "Parameters", 0)
@@ -676,12 +546,17 @@ def get_inputs(pm=None, laser=None, auto_run=False, source=None):
     tk.Label(frame, text="Averaging Time (μs)", anchor="e").grid(row=AVGTIME_ROW, column=0, sticky="e", pady=4, padx=(0, 8))
     tk.Label(frame, textvariable=avg_time, anchor="w").grid(row=AVGTIME_ROW, column=1, sticky="w", pady=4)
 
-    # ---- Pass/Fail Criteria (right column) ------------------------------
-    # A self-contained sub-frame placed to the right of the Parameters section.
-    # Each criterion has a min and max float entry placed side by side; values
-    # are validated and saved (and stored in presets) alongside the parameters.
-    pf_container = tk.Frame(frame)
-    pf_container.grid(row=0, column=2, rowspan=AVGTIME_ROW + 1, sticky="n", padx=(40, 0))
+    # ---- Right column: Pass/Fail Criteria, then the live Power Readout ----
+    # One sub-frame spanning every row of the main grid, so however tall the
+    # readout gets it never stretches the rows of the Parameters column.
+    right_col = tk.Frame(frame)
+    right_col.grid(row=0, column=2, rowspan=RESULT_ROW + 1, sticky="n", padx=(40, 0))
+
+    # Pass/Fail Criteria: each criterion has a min and max float entry placed
+    # side by side; values are validated and saved (and stored in presets)
+    # alongside the parameters.
+    pf_container = tk.Frame(right_col)
+    pf_container.pack(anchor="w")
     section_header(pf_container, "Pass/Fail Criteria (Optional)", 0)
     init_passfail = _last.get("passfail", {})
     passfail_entries = {}   # label -> (min_entry, max_entry)
@@ -702,6 +577,12 @@ def get_inputs(pm=None, laser=None, auto_run=False, source=None):
             passfail_widgets.append(e)
         passfail_entries[label] = tuple(row_entries)
 
+    # Power Readout: live meter values plus the laser wavelength/power controls.
+    # Started once the window is up (below); Run and Close stop it.
+    if readout is not None:
+        readout_section = ReadoutSection(right_col, readout)
+        readout_section.frame.pack(anchor="w", pady=(16, 0))
+
     save_frame = tk.Frame(frame)
     save_frame.grid(row=SAVEBTN_ROW, column=0, columnspan=2, pady=10)
     save_btn = tk.Button(save_frame, text="Save", command=on_save, width=10)
@@ -711,47 +592,28 @@ def get_inputs(pm=None, laser=None, auto_run=False, source=None):
     preset_save_btn = tk.Button(save_frame, text="Manage Presets...", command=on_save_preset, state="disabled")
     preset_save_btn.pack(side="left", padx=5)
 
-    # ---- Instruments -----------------------------------------------------
-    section_header(frame, "Instruments", HEADER2_ROW)
-    inst_frame = tk.Frame(frame)
-    inst_frame.grid(row=RUNBTN_ROW, column=0, columnspan=2, pady=10)
-    run_btn = tk.Button(inst_frame, text="Run (Enter)", command=on_run, width=10, state="disabled")
-    run_btn.pack(side="left", padx=5)
-    read_pm_btn = tk.Button(
-        inst_frame, text="Read Power...", underline=5, command=on_read_power, state="disabled"
-    )
-    read_pm_btn.pack(side="left", padx=5)
-
     # ---- Reference -------------------------------------------------------
-    # Status sits next to the section title instead of in its own field.
-    ref_header = tk.Frame(frame)
-    ref_header.grid(row=HEADER3_ROW, column=0, columnspan=2, sticky="w", pady=(10, 0))
-    tk.Label(ref_header, text="Reference", font=("TkDefaultFont", 10, "bold")).pack(side="left")
-    status_value = tk.Label(ref_header, text="Not Set", fg="blue", font=("TkDefaultFont", 10, "bold"))
-    status_value.pack(side="left", padx=(8, 0))
-    ttk.Separator(frame, orient="horizontal").grid(
-        row=HEADER3_ROW + 1, column=0, columnspan=2, sticky="ew", pady=(0, 6))
-
+    section_header(frame, "Reference", HEADER2_ROW)
     ref_frame = tk.Frame(frame)
     ref_frame.grid(row=REFBTN_ROW, column=0, columnspan=2, pady=4)
     ref_btn = tk.Button(ref_frame, text="Set Reference", command=on_toggle_ref, state="disabled")
     ref_btn.pack(side="left", padx=5)
+    # Status sits to the right of the button. Fixed width so the button stays
+    # put as the text changes ("Set" vs "Not Set / Not Available").
+    status_value = tk.Label(ref_frame, text="Not Set", fg="blue", font=("TkDefaultFont", 10, "bold"),
+                            width=20, anchor="w")
+    status_value.pack(side="left", padx=(8, 0))
+
+    # ---- Instruments -----------------------------------------------------
+    section_header(frame, "Instruments", HEADER3_ROW)
+    inst_frame = tk.Frame(frame)
+    inst_frame.grid(row=RUNBTN_ROW, column=0, columnspan=2, pady=10)
+    run_btn = tk.Button(inst_frame, text="Run (Enter)", command=on_run, width=10, state="disabled")
+    run_btn.pack(side="left", padx=5)
 
     # Enter triggers Run when it's enabled (on_run is a no-op until saved).
     root.bind("<Return>", lambda _e: on_run())
     root.bind("<KP_Enter>", lambda _e: on_run())
-
-    # 'p' triggers Read Power from anywhere in this window, like Enter does for
-    # Run. Safe as a global shortcut because every field here is numeric, a
-    # checkbox or a dropdown, so 'p' is never wanted as a literal character.
-    # The one text field (new preset name) lives in a Toplevel, whose keys never
-    # reach a binding made on root.
-    def on_read_power_key(_e):
-        if str(read_pm_btn["state"]) == "disabled":
-            return
-        on_read_power()
-    root.bind("<KeyPress-p>", on_read_power_key)
-    root.bind("<KeyPress-P>", on_read_power_key)
 
     result_label = tk.Label(frame, text="", wraplength=320, justify="left")
     result_label.grid(row=RESULT_ROW, column=0, columnspan=2)
@@ -774,7 +636,7 @@ def get_inputs(pm=None, laser=None, auto_run=False, source=None):
     # Close after IDLE_SECONDS with no keyboard/button activity. On expiry reuse
     # on_close(), so get_inputs() returns None and main.py breaks the loop and
     # runs close_inst (laser off). Reset on key/button (mouse motion alone isn't
-    # activity on a form); bind_all also covers the Read Power Toplevel.
+    # activity on a form); bind_all also covers the Manage Presets Toplevel.
     _idle_deadline = {"t": time.time() + IDLE_SECONDS}
 
     def _reset_idle(_e=None):
@@ -794,6 +656,11 @@ def get_inputs(pm=None, laser=None, auto_run=False, source=None):
     root.bind_all("<Button>", _reset_idle, add="+")
     _idle_job["id"] = root.after(IDLE_POLL_MS, _check_idle)
 
+    # Start the live readout. It defers itself one event-loop pass, so the
+    # window paints before the instrument check (which sleeps) runs.
+    if readout_section:
+        readout_section.start()
+
     # Grab keyboard focus so Enter works without clicking the window first
     # (on reopen, focus tends to stay on the console).
     root.lift()
@@ -806,11 +673,12 @@ def get_inputs(pm=None, laser=None, auto_run=False, source=None):
 
 
 if __name__ == "__main__":
-    # pm, laser = prep_inst()
-    
+    # UI test without instruments: dummy PM/laser drive the readout section.
+    from inst_dummy import dummy_readout
+    source  = "N7778C"
+    readout = dummy_readout(source)
     while True:
-        params = get_inputs(source="81600B")
-        # params = get_inputs(pm, laser)
+        params = get_inputs(readout, source=source)
         if not params:
             break
         print(params)

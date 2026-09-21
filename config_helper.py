@@ -1,6 +1,7 @@
 import csv
 import math
 import tkinter as tk
+from tkinter import ttk
 from datapath import data_path
 
 import logging
@@ -168,6 +169,14 @@ def delete_preset(path, name):
         return None
     except Exception as e:
         return f"Could not write {path}: {e}"
+
+
+def section_header(frame, text, row):
+    """Place a bold section title plus a horizontal separator line below it."""
+    tk.Label(frame, text=text, font=("TkDefaultFont", 10, "bold"), anchor="w").grid(
+        row=row, column=0, columnspan=2, sticky="w", pady=(10, 0))
+    ttk.Separator(frame, orient="horizontal").grid(
+        row=row + 1, column=0, columnspan=2, sticky="ew", pady=(0, 6))
 
 
 def make_extra_widgets(frame, start_row, init, on_change, enable_dynamic=True):
