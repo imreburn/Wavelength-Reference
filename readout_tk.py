@@ -8,7 +8,7 @@ import logging
 import tkinter as tk
 
 from config_helper import section_header
-from readout import READOUT_COLUMNS, TK_REFRESH_MS, format_row, format_actual
+from readout import READOUT_COLUMNS, TK_REFRESH_MS, format_row, format_actual, format_wl
 
 log = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class ReadoutSection:
         tk.Label(ctrl, text="Wavelength (nm)", anchor="e").grid(
             row=1, column=0, sticky="e", padx=(0, 6), pady=2)
         self.wl_entry = tk.Entry(ctrl, width=9)
-        self.wl_entry.insert(0, f"{readout.wl_nm:g}")
+        self.wl_entry.insert(0, format_wl(readout.wl_nm))
         self.wl_entry.grid(row=1, column=1, sticky="w", pady=2)
         self.wl_actual = tk.StringVar()
         tk.Label(ctrl, textvariable=self.wl_actual, fg="gray30").grid(

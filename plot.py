@@ -20,7 +20,7 @@ from analyze_data import peak_detection, find_bandwidth, exam_peak
 from save_csv import save_csv_raw, save_csv_peak_row, COL_CH, COL_REF, COL_SCAN, RAW_DIR, PEAKS_DIR
 from plot_helper import lttb, lttb_multi, pre_process
 from filters import FILTER_LABELS, FILTER_PARAMS, apply_filter, FilterError
-from readout import READOUT_COLUMNS, DASH_REFRESH_MS, format_row, format_actual
+from readout import READOUT_COLUMNS, DASH_REFRESH_MS, format_row, format_actual, format_wl
 
 # Shared styles for the three DataTables (peak, custom, delta markers).
 # Row height is driven by the cell's vertical padding; keep it small for compact rows.
@@ -143,13 +143,13 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
     # traces on a separate layer above the SVG line).
     # data[1] — mode-1 accumulated markers
     initial_fig.add_scatter(
-        x=[], y=[], mode='markers+text', name='Delta',
+        x=[], y=[], mode='markers+text', name='Delta marker(s)',
         marker=dict(symbol='diamond', size=7, color='#D85A30', line=_border),
         text=[], textposition='top center',
     )
     # data[2] — mode-2 single marker (always replaced)
     initial_fig.add_scatter(
-        x=[], y=[], mode='markers+text', name='Bandwidth',
+        x=[], y=[], mode='markers+text', name='Bandwidth marker',
         marker=dict(symbol='x', size=11, color='#E8A020', line=_border),
         text=[], textposition='bottom right',
     )
@@ -170,7 +170,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
     exam_out, exam_msg, exam_idx = exam_peak(pk, params)
     if pk is not None:
         # data[5..10] — peak annotation traces (Peaks, L/R bases, FWHM max/avg/min)
-        initial_fig.add_scatter(x=pk.x_nm, y=dbm[pk.x_idx], mode='markers+text', name='Peaks', marker=dict(size=8, color='#E63946', symbol='circle', line=_border), text=[f"P{i}" for i, _ in enumerate(pk.x_idx, start=1)], textposition='bottom center')
+        initial_fig.add_scatter(x=pk.x_nm, y=dbm[pk.x_idx], mode='markers+text', name='Peaks', marker=dict(size=5, color='#E63946', symbol='circle', line=_border), text=[f"P{i}" for i, _ in enumerate(pk.x_idx, start=1)], textposition='bottom center')
         
         initial_fig.add_scatter(x=wl[pk.l_idx], y=dbm[pk.l_idx], mode='markers+text', name='Left bases', marker=dict(size=8, color='#2A9D8F', symbol='triangle-up', line=_border), text=[f"P{i}:L({e[0]:.3f}, {e[1]:.3f})" for i, e in enumerate(zip(wl[pk.l_idx], dbm[pk.l_idx]), start=1)], textposition='top right')
         
@@ -775,7 +775,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
             html.Div([
                 html.Label('Wavelength (nm)', style=_ro_label),
                 dcc.Input(id='readout-wl', type='text', style=_ro_input,
-                          value=f"{readout.wl_nm:g}" if readout is not None else ''),
+                          value=format_wl(readout.wl_nm) if readout is not None else ''),
                 html.Span(_readout_actual()[0], id='readout-wl-actual', style=_ro_actual),
             ], style=_ro_row),
             html.Div([
@@ -796,8 +796,11 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
             html.Div(html.Button('Close', id='readout-close', n_clicks=0),
                      style={'textAlign': 'right', 'marginTop': '12px'}),
             dcc.Interval(id='readout-tick', interval=DASH_REFRESH_MS, n_intervals=0, disabled=True),
+        # fit-content still lets an unusually wide reading widen the box, but
+        # minWidth holds it at about the width the full table needs, so the
+        # box stops resizing every time a value gains or loses a character.
         ], style={'backgroundColor': 'white', 'padding': '20px 24px',
-                  'borderRadius': '8px', 'width': 'fit-content',
+                  'borderRadius': '8px', 'width': 'fit-content', 'minWidth': '470px',
                   'fontFamily': 'system-ui, sans-serif',
                   'boxShadow': '0 4px 20px rgba(0,0,0,0.25)'}),
     )
@@ -812,7 +815,8 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
                 html.Div([
                     html.Div(id='marker-info'),
                     html.Div(id='custom-table-container', style={'display': 'none'}, children=[
-                        html.Div('Custom Peak', style=TABLE_TITLE_STYLE),
+                        html.Div('Custom Peak (peak = Bandwidth marker, base = last Delta marker)',
+                                 style=TABLE_TITLE_STYLE),
                         dash_table.DataTable(
                             id='custom-table',
                             columns=[{'name': 'Peak No.' if c == 'Peak' else c, 'id': c} for c in
@@ -1311,7 +1315,12 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         if 'readout-close' in callback_context.triggered[0]['prop_id']:
             readout.stop()
             return MODAL_HIDDEN, True
-        readout.start()
+        try:
+            readout.start()
+        except Exception:
+            # check_inst now raises; a Dash callback would swallow it silently
+            # and the modal would open with no rows and no explanation.
+            log.exception("Power readout failed to start")
         return MODAL_SHOWN, False
 
     @app.callback(
@@ -1469,6 +1478,49 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         r = range_pm / 1000
         return -r, r, 0
 
+    def _mode2_sample(anchor, slider_val):
+        """The spectrum sample the Bandwidth marker sits on: the anchor click
+        shifted by the fine-tune slider, snapped to the nearest point of `wl`.
+
+        Returns (idx, x, y). Shared so the marker itself and the half-depth
+        amplitude below are always derived from the same sample.
+        """
+        x_target = anchor['x'] + (slider_val or 0)
+        i = np.searchsorted(wl, x_target)
+        i = np.clip(i, 1, len(wl) - 1)
+        idx = i if abs(wl[i] - x_target) < abs(wl[i-1] - x_target) else i - 1
+        return idx, float(wl[idx]), float(dbm[idx])
+
+    @app.callback(
+        Output('mode2-offset-input', 'value'),
+        Input('mode2-anchor-store', 'data'),
+        Input('mode2-slider', 'value'),
+        Input('markers-store', 'data'),
+        prevent_initial_call=True,
+    )
+    def update_offset_to_half_depth(anchor, slider_val, markers):
+        """Follow half the custom peak's depth in the Bandwidth amplitude field.
+
+        Depth is the same quantity the custom table shows (last Delta marker's y
+        minus the Bandwidth marker's y), so the width comes out measured at half
+        depth. Typing in the field still works and wins until the peak or the
+        base moves again.
+
+        No callback loop: Depth depends only on the anchor, the slider and the
+        Delta markers — never on the amplitude — so this writes to
+        mode2-offset-input without ever depending on it.
+        """
+        # No peak yet, or no Delta marker to measure down from: leave whatever
+        # the user last typed in place.
+        if anchor is None or not markers:
+            return dash.no_update
+        depth = markers[-1]['y'] - _mode2_sample(anchor, slider_val)[2]
+        # A base at or below the marker gives no usable amplitude (find_bandwidth
+        # would return a zero width), so keep the current value instead.
+        if depth <= 0:
+            return dash.no_update
+        return round(depth / 2, 5)
+
     @app.callback(
         Output('spectrum', 'figure', allow_duplicate=True),
         Output('mode2-marker-info', 'children'),
@@ -1488,11 +1540,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
                 patched['data'][i]['y'] = []
                 patched['data'][i]['text'] = []
             return patched, "", "", None
-        x_target = anchor['x'] + (slider_val or 0)
-        i = np.searchsorted(wl, x_target)
-        i = np.clip(i, 1, len(wl) - 1)
-        idx = i if abs(wl[i] - x_target) < abs(wl[i-1] - x_target) else i - 1
-        x, y = float(wl[idx]), float(dbm[idx])
+        idx, x, y = _mode2_sample(anchor, slider_val)
         patched['data'][2]['x'] = [x]
         patched['data'][2]['y'] = [y]
         patched['data'][2]['text'] = [f'({x:.7f}, {y:.5f})']

@@ -50,9 +50,9 @@ def setup_logging(app_name, level=logging.INFO, max_files=20, max_bytes=10 * 102
     )
 
 
-    logging.getLogger("inst_helper").setLevel(logging.DEBUG)
-    logging.getLogger("inst_run_ext").setLevel(logging.DEBUG)
-    logging.getLogger("inst_run").setLevel(logging.DEBUG)
+    # logging.getLogger("inst_helper").setLevel(logging.DEBUG)
+    # logging.getLogger("inst_run_ext").setLevel(logging.DEBUG)
+    # logging.getLogger("inst_run").setLevel(logging.DEBUG)
 
     # Werkzeug's dev server logs one INFO line per HTTP request (static assets,
     # callbacks, etc.). Quiet it to WARNING so only real problems (4xx/5xx) show.

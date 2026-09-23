@@ -106,13 +106,14 @@ def _unlock_laser(laser):
         raise InstrumentError(f"[{inst_name(laser)}] cannot be unlocked.")
 
 def _check(inst):
-    """Drain the error queue, then wait for pending operations to finish.
-    Returns False if the device reported any error."""
+    """Drain the error queue, wait for pending operations, and re-unlock the
+    laser. Raises InstrumentError listing everything the device reported, so a
+    caller cannot carry on with a device that is already complaining."""
     if not inst:
-        return True
+        return
 
     ilog = inst_log(inst)
-    ok = True
+    errors = []
     for _ in range(ERR_DRAIN_MAX):
         reply = inst.query(":SYST:ERR?")
         code, _, msg = reply.partition(',')
@@ -123,25 +124,27 @@ def _check(inst):
                 f"[{inst_name(inst)}] bad :SYST:ERR? reply: {reply!r}")
         if code == 0:
             break
-        ilog.error("System error: %s,%s", code, msg)
-        ok = False
+        errors.append(f"{code},{msg}")
     else:
-        ilog.error("Error queue still not empty after %d reads", ERR_DRAIN_MAX)
-        ok = False
-    if not ok:
-        return False
+        errors.append(f"queue still not empty after {ERR_DRAIN_MAX} reads")
+
+    if errors:
+        raise InstrumentError(
+            f"[{inst_name(inst)}] system error: " + "; ".join(errors))
 
     wait_opc(inst)
-    
+
     if inst_name(inst) == LAS:
         _unlock_laser(inst)
-    
-    ilog.info("OK")
-    return True
+
+    ilog.debug("Ok")
 
 
 def check_inst(pm=None, laser=None):
-    return _check(pm) and _check(laser)
+    """Raise InstrumentError if either instrument is not ready. Returns nothing:
+    reaching the next line means both are clean."""
+    _check(pm)
+    _check(laser)
 
 
 def prep_inst(with_laser=True):

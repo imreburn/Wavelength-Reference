@@ -96,10 +96,13 @@ def logging_complete(pm, params):
 
 
 def read_pm(pm, params : Params):
+    ilog = inst_log(pm, log)
+    
     # The meter can lag a moment behind the laser's sweep-state flag, so give it
     # a short grace period before treating the log as failed.
     for _ in range(LOG_DONE_TRIES):
         if logging_complete(pm, params):
+            ilog.info("Logging completed")
             break
         time.sleep(LOG_DONE_INTERVAL)
     else:
@@ -108,8 +111,6 @@ def read_pm(pm, params : Params):
             f"logging still in progress after "
             f"{LOG_DONE_TRIES * LOG_DONE_INTERVAL:.1f} s")
 
-    ilog = inst_log(pm, log)
-    
     power_w_all = []
     upper_limit = POWER_LIMIT[str(params.pm_range)]
     

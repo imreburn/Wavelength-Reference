@@ -1,6 +1,6 @@
 # Changelog
 
-## [unreleased] (to be 2.0.0)
+## [2.0.0] - 2026-09-23
 
 ### Added
 
@@ -8,23 +8,23 @@
 - Added a "Close Window" button at the right end of the navigation bar in the graph window. Renamed the button "Repeat (Enter)" to "Close & Repeat (Enter)". ([#80](https://github.com/imreburn/Wavelength-Reference/issues/80))
 - Added a "Sweep Info..." button in the graph window that shows the parameters of the current sweep. ([#97](https://github.com/imreburn/Wavelength-Reference/issues/97))
 - Keyboard shortcuts (`s`, `f`, `i`, `w`) for the "Save Raw Data...(S)", "Apply Filter...(F)", "Sweep Info...(I)", and "Close Window (W)" buttons in the graph window.
-- "More Info (Optional)" section in the config window.
+- "Label & Auto-save (Optional)" section in the config window.
   - "Add label": builds a label from a prefix and an optional zero-padded counter (0-4 digits), with a live preview. The counter goes up by 1 on every Run, and Run is refused once it passes the digit limit.
-  - "Auto-save raw data": saves the raw data to `Raw Data/<label>_<time>.csv` (or `<time>.csv`) after every sweep.
+  - "Auto-save raw data": saves the raw data to `Raw Data/<label>_<time>.csv` (or `<time>.csv` with no given label) after every sweep.
   - The label is shown above the top-left corner of the plot and pre-fills "Label (SN)" in the "Save peak info" window.
 - A status line under the navigation bar in the graph window shows the latest save result (auto-save, "Save raw data...", "Save peak info...") with the file name.
 
 ### Changed
 
 - The power measurements are no longer multiplied by -1. Instead, the raw measurement with its sign is preserved. Y-axis of the plot is no longer inverted as a result. This doesn't change any relative measurements such as depth and width. ([#90](https://github.com/imreburn/Wavelength-Reference/issues/90))
-- Loading a preset now saves the parameters right away (locked, ready to Run). Pressing "Change" keeps the values but clears the preset name, so edited values are never run under the preset's name. ([#95](https://github.com/imreburn/Wavelength-Reference/issues/95))
+- Loading a preset now saves the parameters right away (locked, ready to Run). Pressing "Change" keeps the values but clears the preset name, so edited values are never run under the preset's name. Saving the current values with "Manage Presets..." (new or replaced) now shows that preset's name. ([#95](https://github.com/imreburn/Wavelength-Reference/issues/95))
 - The sweep time is now recorded when Run is pressed (not Save), in the format `YYYY-MM-DD_HH-MM-SS`.
 - Default setting for applying a filter is changed to ('Hamming', 40).
 - [PlotSweep]: The program loops until no file is selected.
 - Power readout ([#94](https://github.com/imreburn/Wavelength-Reference/issues/94))
   - Power readout is now shown on the config window directly, instead of a new pop-up window.
   - The user can turn on/off laser and control wavelength and power. The maximum measured power can be reset.
-  - The same functionality is added to the graph window, too. "Power Readout...(R)" button is added and its keyboard shortcut is `r`.
+  - The same functionality is also added to the graph window. "Power Readout...(R)" button is added and its keyboard shortcut is `r`.
 
 ## [1.1.12] - 2026-09-09
 

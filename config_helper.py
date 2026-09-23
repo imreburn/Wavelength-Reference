@@ -64,6 +64,10 @@ LABEL_DIGIT_DEFAULT = "0"
 LABEL_START_DEFAULT = "1"
 # The label goes into the auto-save filename, so reject what Windows forbids.
 FILENAME_BAD_CHARS  = '\\/:*?"<>|'
+# The auto-save filename's time part: the strftime format Run stamps onto
+# params.time, and how the config window spells it out before a time exists.
+TIME_FORMAT      = "%Y-%m-%d_%H-%M-%S"
+TIME_PLACEHOLDER = "YYYY-MM-DD_hh-mm-ss"
 
 
 def build_label(prefix, digits, n):

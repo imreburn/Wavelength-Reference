@@ -192,9 +192,9 @@ class PowerReadout:
 
     def _write_wavelength(self, wl):
         for i in range(1, 5):
-            self.pm.write(f":SENSE{i}:POW:WAVE {wl:.4f} NM")
+            self.pm.write(f":SENSE{i}:POW:WAVE {wl:.3f} NM")
         if self.laser:
-            self.laser.write(f":SOURCE0:WAVE {wl:.4f} NM")
+            self.laser.write(f":SOURCE0:WAVE {wl:.5f} NM")
 
     def _power_rule(self, wl):
         """The (lo, hi, max_dbm) band that applies at `wl`: of the source's
@@ -204,12 +204,19 @@ class PowerReadout:
         return max(applicable, key=lambda rule: rule[2]) if applicable else None
 
 
+def format_wl(wl_nm):
+    """The wavelength setting for the input field, shared by both panels: up to
+    the 5 decimals the laser takes (see _write_wavelength), trailing zeros
+    dropped. Not `:g`, which keeps 6 significant digits (1550.123 -> 1550.12)."""
+    return f"{wl_nm:.3f}".rstrip("0").rstrip(".")
+
+
 def format_actual(actual, has_laser):
     """Display strings (meter wavelength, laser wavelength, laser power) for
     the settings read-back, shared by both panels. None = not read yet;
     without a laser the two laser entries read "N/A"."""
     def wl(v):
-        return "—" if v is None else f"{v:.4f}"
+        return "—" if v is None else f"{v:.3f}"
     pm_s = wl(actual["pm_wl_nm"])
     if not has_laser:
         return pm_s, "N/A", "N/A"

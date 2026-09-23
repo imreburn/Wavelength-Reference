@@ -12,7 +12,7 @@ cancel path live here.
 import time
 import logging
 
-from inst_helper import prep_inst, check_inst, inst_log
+from inst_helper import prep_inst, check_inst, InstrumentError
 from inst_run import arm_pm, disarm_pm, logging_complete, read_pm, SweepCancelled
 from structs import Params
 import shutdown
@@ -131,7 +131,12 @@ def run_sweep_ext(pm, params : Params, scan_label=""):
 
     if not wait_for_sweep(pm, params):
         disarm_pm(pm)
-        check_inst(pm)
+        # An aborted log often leaves an entry in the meter's error queue.
+        # Drain it, but keep the cancel: the user's action is the real outcome.
+        try:
+            check_inst(pm)
+        except InstrumentError as e:
+            log.warning("After cancel: %s", e)
         raise SweepCancelled
     
     return read_pm(pm, params)

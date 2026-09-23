@@ -22,6 +22,7 @@ from config_helper import (
     preset_path, load_presets, save_preset, delete_preset, section_header, make_extra_widgets,
     validate_inputs, validate_extras, validate_passfail, validation_error,
     LABEL_DIGIT_OPTIONS, LABEL_DIGIT_DEFAULT, LABEL_START_DEFAULT, validate_label,
+    TIME_FORMAT, TIME_PLACEHOLDER,
 )
 
 
@@ -206,9 +207,18 @@ def get_inputs(readout=None, auto_run=False, source=None):
         # fields swallow Enter), so Enter now reaches the Run binding.
         root.focus_set()
 
-    # Set while clear_preset_name() writes "none", so on_preset_change leaves
-    # the fields alone instead of resetting them to defaults.
+    # Set while set_preset_name() writes a name, so on_preset_change leaves
+    # the fields alone instead of reloading them (or resetting them to defaults).
     _keep_fields = {"on": False}
+
+    def set_preset_name(name):
+        """Show `name` as the preset but keep every field value as it is."""
+        _keep_fields["on"] = True
+        try:
+            preset_var.set(name)
+        finally:
+            _keep_fields["on"] = False
+        params.name = "unknown" if name == "none" else name
 
     def clear_preset_name():
         """Show "none" as the preset but keep every field value as it is.
@@ -217,12 +227,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
         that failed Save, or the loaded preset being deleted), so a Run never
         reports edited values under the preset's name.
         """
-        _keep_fields["on"] = True
-        try:
-            preset_var.set("none")
-        finally:
-            _keep_fields["on"] = False
-        params.name = "unknown"
+        set_preset_name("none")
 
     def on_change_params():
         # Re-open the parameter fields for editing; require a fresh Save before Run.
@@ -322,7 +327,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
         # Stamped at Run, not Save, so the time (and the auto-save filename)
         # matches the sweep even if the window sat saved for a while.
         now = datetime.now()
-        params.time = now.strftime("%Y-%m-%d_%H-%M-%S")
+        params.time = now.strftime(TIME_FORMAT)
         params.date = now.strftime("%m/%d/%Y")
 
         # The counter advances on every Run, so the window reopens on the next
@@ -456,6 +461,9 @@ def get_inputs(readout=None, auto_run=False, source=None):
             if name not in names:
                 index = preset_names(presets).index(name) + 1
                 preset_menu["menu"].insert_command(index, label=name, command=tk._setit(preset_var, name))
+            # The on-screen values are now exactly this preset, so show its name
+            # (and run under it) without reloading the fields.
+            set_preset_name(name)
             top.destroy()
             result_label.config(text=f"Preset '{name}' saved.", fg="black")
 
@@ -639,7 +647,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # validates it. Not bound to on_entry_change, so edits keep the saved state.
     info_container = tk.Frame(right_col)
     info_container.pack(anchor="w", fill="x", pady=(16, 0))
-    section_header(info_container, "More Settings (Optional)", 0)
+    section_header(info_container, "Label & Auto-Save (Optional)", 0)
     init_info = _last.get("info", {})
 
     add_label_var = tk.IntVar(value=init_info.get("add_label", 0))
@@ -674,7 +682,10 @@ def get_inputs(readout=None, auto_run=False, source=None):
     save_raw_frame = tk.Frame(info_container)
     save_raw_frame.grid(row=5, column=0, columnspan=2, pady=4, sticky="w")
     tk.Checkbutton(save_raw_frame, text="Auto-save raw data", variable=save_raw_var).pack(side="left")
-    tk.Label(save_raw_frame, text="→ Raw Data/", fg="gray").pack(side="left", padx=(4, 0))
+    # Shows the name the file will get. The time part is only stamped at Run,
+    # so it stands in as its format (see save_csv.auto_raw_path).
+    save_note = tk.Label(save_raw_frame, text="", fg="gray")
+    save_note.pack(side="left", padx=(4, 0))
 
     def update_label_ui(*_):
         """Enable the label fields to match the checkbox/digits; refresh the preview."""
@@ -693,7 +704,18 @@ def get_inputs(readout=None, auto_run=False, source=None):
         else:
             label_preview.config(text=label, fg="black" if on else "gray")
 
-    for v in (add_label_var, prefix_var, digits_var, start_var):
+        # Filename preview: shown only while auto-save is on, and the label is
+        # included only when there is a valid one.
+        if not save_raw_var.get():
+            save_note.config(text="")
+        elif on and error:
+            save_note.config(text="→ Raw Data/")
+        elif on:
+            save_note.config(text=f"→ Raw Data/{label}_{TIME_PLACEHOLDER}.csv")
+        else:
+            save_note.config(text=f"→ Raw Data/{TIME_PLACEHOLDER}.csv")
+
+    for v in (add_label_var, prefix_var, digits_var, start_var, save_raw_var):
         v.trace_add("write", update_label_ui)
     update_label_ui()
 
