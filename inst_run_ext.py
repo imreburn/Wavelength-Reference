@@ -12,7 +12,7 @@ cancel path live here.
 import time
 import logging
 
-from inst_helper import prep_inst, check_inst
+from inst_helper import prep_inst, check_inst, inst_log
 from inst_run import arm_pm, disarm_pm, logging_complete, read_pm, SweepCancelled
 from structs import Params
 import shutdown
@@ -94,7 +94,7 @@ def wait_for_sweep(pm, params : Params):
         while not logging_complete(pm, params):
             if _esc_pressed():
                 print()
-                log.info("[PM] Cancelled by user (Esc)")
+                log.info("Cancelled by user (Esc)")
                 return False
             elapsed = time.time() - start
             if elapsed >= shutdown.IDLE_SECONDS:
@@ -106,10 +106,10 @@ def wait_for_sweep(pm, params : Params):
             time.sleep(0.5)
     except KeyboardInterrupt:
         print()
-        log.info("[PM] Cancelled by user (Ctrl+C)")
+        log.info("Cancelled by user (Ctrl+C)")
         return False
     print()
-    log.info("[PM] Logging completed")
+
     return True
 
 
@@ -125,16 +125,14 @@ def run_sweep_ext(pm, params : Params, scan_label=""):
 
     check_inst(pm)
     arm_pm(pm, params)
-    log.info("[PM] Waiting for the external laser sweep")
+    log.info("Waiting for the external laser sweep")
 
     _print_instructions(params, scan_label)
 
     if not wait_for_sweep(pm, params):
-        disarm_pm(pm, params)
+        disarm_pm(pm)
         check_inst(pm)
         raise SweepCancelled
-
-    # check_inst(pm)
     
     return read_pm(pm, params)
 

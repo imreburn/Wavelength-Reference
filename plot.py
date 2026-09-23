@@ -17,9 +17,8 @@ log = logging.getLogger(__name__)
 import shutdown
 from structs import Params, Dataset
 from analyze_data import peak_detection, find_bandwidth, exam_peak
-from save_csv import save_csv_raw, save_csv_peak_row, COL_CH, COL_REF, COL_SCAN, RAW_DIR
+from save_csv import save_csv_raw, save_csv_peak_row, COL_CH, COL_REF, COL_SCAN, RAW_DIR, PEAKS_DIR
 from plot_helper import lttb, lttb_multi, pre_process
-from datapath import data_path
 from filters import FILTER_LABELS, FILTER_PARAMS, apply_filter, FilterError
 from readout import READOUT_COLUMNS, DASH_REFRESH_MS, format_row, format_actual
 
@@ -60,7 +59,7 @@ def _add_label_annotation(fig, params):
         text=f'Label (SN): {params.label}',
         xref='paper', yref='paper', x=0, y=1,
         xanchor='left', yanchor='bottom',
-        showarrow=False, font=dict(size=13),
+        showarrow=False, font=dict(size=13, weight='bold'),
     )
 
 
@@ -523,8 +522,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         peak_options = []
     peak_options += [{'label': 'custom', 'value': 'custom'}]
 
-    # Directory where peak CSVs live, and the default filename to fall back on.
-    PEAKS_DIR = data_path("Peaks")
+    # Default filename for a new peak CSV (saved under PEAKS_DIR).
     DEFAULT_PEAK_FILENAME = '.csv'
 
     def _peak_file_options():
@@ -878,11 +876,9 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         if window is None:
             return dash.no_update
 
-        initial_dir = data_path(RAW_DIR)
-
         result = window.create_file_dialog(
             FileDialog.SAVE,
-            directory=os.path.abspath(initial_dir),
+            directory=os.path.abspath(RAW_DIR),
             save_filename='raw_data.csv',
             file_types=('CSV files (*.csv)', 'All files (*.*)'),
         )

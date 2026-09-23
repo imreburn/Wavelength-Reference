@@ -18,7 +18,8 @@ COL_X    = "Wavelength_nm"
 COL_CH   = "Ch"
 COL_REF  = "Ref_" + COL_CH
 COL_SCAN = "Scan"
-RAW_DIR  = "Raw Data"
+RAW_DIR   = data_path("Raw Data")
+PEAKS_DIR = data_path("Peaks")
 
 def auto_raw_path(params: Params):
     """Auto-save path: Raw Data/<label>_<time>.csv, or <time>.csv with no label.
@@ -27,18 +28,17 @@ def auto_raw_path(params: Params):
     already taken (two runs in the same second) gets _2, _3, ... appended.
     """
     stem = f"{params.label}_{params.time}" if params.label else params.time
-    raw_dir = data_path(RAW_DIR)
-    path = raw_dir / f"{stem}.csv"
+    path = RAW_DIR / f"{stem}.csv"
     n = 2
     while path.exists():
-        path = raw_dir / f"{stem}_{n}.csv"
+        path = RAW_DIR / f"{stem}_{n}.csv"
         n += 1
     return str(path)
 
 
 def save_csv_raw(raw_w: Dataset, params: Params, file_path=None):
     if file_path is None:
-        initial_dir = str(data_path(RAW_DIR))
+        initial_dir = str(RAW_DIR)
 
         root = tk.Tk()
         root.withdraw()

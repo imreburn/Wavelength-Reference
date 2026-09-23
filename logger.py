@@ -5,7 +5,7 @@ from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from datapath import data_path
+from datapath import data_path, data_dir, data_dir_fallback_reason
 
 
 def fast_exit(code=0):
@@ -49,9 +49,24 @@ def setup_logging(app_name, level=logging.INFO, max_files=20, max_bytes=10 * 102
         ],
     )
 
+
+    logging.getLogger("inst_helper").setLevel(logging.DEBUG)
+    logging.getLogger("inst_run_ext").setLevel(logging.DEBUG)
+    logging.getLogger("inst_run").setLevel(logging.DEBUG)
+
     # Werkzeug's dev server logs one INFO line per HTTP request (static assets,
     # callbacks, etc.). Quiet it to WARNING so only real problems (4xx/5xx) show.
     logging.getLogger("werkzeug").setLevel(logging.WARNING)
+
+    # datapath resolves the data directory silently (it runs before this
+    # function configures logging), so report it here, once per run.
+    reason = data_dir_fallback_reason()
+    if reason:
+        logging.getLogger(app_name).warning(
+            "Data directory: %s (default; %s)", data_dir(), reason)
+    else:
+        logging.getLogger(app_name).info(
+            "Data directory: %s (from data_dir.txt)", data_dir())
 
     # An exception that escapes a non-main thread's target (e.g. the werkzeug
     # serve_forever loop outside a request, or any library-spawned thread) is

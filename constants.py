@@ -10,8 +10,17 @@ can import these values without any instrument backend present.
 APP_VERSION = "2.0.0"
 
 # Instrument VISA addresses
-VISA_ADDRESS_POWER_METER    = 'USB0::0x0957::0x3718::DE53500131::0::INSTR'
-VISA_ADDRESS_TLS            = 'TCPIP0::100.65.2.45::inst0::INSTR'
+PM  = "POWER METER"
+LAS = "LASER"
+
+VISA_ADDR_POWER_METER_N7748A    = 'USB0::0x0957::0x3718::DE53500131::0::INSTR'
+VISA_ADDR_TLS_N7778C            = 'TCPIP0::100.65.2.45::inst0::INSTR'
+
+VISA_ADDRS = {
+        PM : VISA_ADDR_POWER_METER_N7748A,
+        LAS: VISA_ADDR_TLS_N7778C
+}
+
 
 # Laser sources offered at startup. "external": the app never talks to it —
 # the user sets it up by hand and its trigger starts the power meter's log.

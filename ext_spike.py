@@ -87,7 +87,7 @@ while True:
     pm.write(":TRIG1:INP  CME")
     pm.write(":TRIG:CONF DEF")
 
-    N = 20000
+    N = 40000
     at = 100
 
     pm.write(f":SENSE1:CHAN1:FUNC:PAR:LOGG {N}, {at} US")
@@ -125,7 +125,7 @@ while True:
     # N = 20000
     # at = 100
     speed = 0.5
-    w_start = 1312
+    w_start = 1311
     w_stop = 1313
     stp_nm = round(speed * at/1e6, 7)
 

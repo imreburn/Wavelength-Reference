@@ -8,10 +8,8 @@ import json
 from constants import APP_VERSION
 from plot import display_plot
 from structs import Params, Dataset
-from save_csv import (COL_CH, COL_REF, COL_SCAN)
+from save_csv import (COL_CH, COL_REF, COL_SCAN, RAW_DIR)
 from logger import setup_logging, fast_exit
-
-from datapath import data_path
 
 def plot_raw(filepath=None, readout=None):
     """Plot a saved raw CSV. `readout` (a readout.PowerReadout) is passed
@@ -20,7 +18,7 @@ def plot_raw(filepath=None, readout=None):
         root = tk.Tk()
         root.withdraw()
         csv_path = filedialog.askopenfilename(
-            initialdir=str(data_path("Raw Data")),
+            initialdir=str(RAW_DIR),
             title="Select CSV file",
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
         )

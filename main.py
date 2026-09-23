@@ -1,4 +1,4 @@
-from inst_helper import prep_inst, close_inst
+from inst_helper import prep_inst, close_inst, InstrumentError
 from config_window import get_inputs
 from inst_run import run_sweep, SweepCancelled
 from inst_run_ext import run_sweep_ext
@@ -17,7 +17,6 @@ log.info(f"Version_{APP_VERSION}")
 
 def select_source():
     """Console menu for the laser source. Returns a TLS_SOURCES key.
-
     Enter alone picks the first entry. Ctrl+C (or a closed stdin) exits
     cleanly — nothing is connected yet, so there is nothing to release.
     """
@@ -45,6 +44,8 @@ def select_source():
         fast_exit(0)
     print()
 
+
+pm = laser = None   # bound before the try, so the finally below can close them
 
 try:
     # The source is fixed for the whole session: it decides what to connect
@@ -93,6 +94,13 @@ try:
             if shutdown.requested():          # idle timeout while armed
                 break
             continue
+        except InstrumentError as e:
+            # SweepFailed and every other instrument complaint (stuck *OPC?, a
+            # laser that re-locked, a jammed error queue). The session is still
+            # usable, so drop the run and let the user try again.
+            auto_run = False
+            log.error("Sweep failed: %s — back to the configuration window.", e)
+            continue
 
         params.pm_range = saved_pm_range
         raw_w.data = combine_scans(raw_w.scans)
@@ -121,11 +129,15 @@ try:
         if shutdown.requested():
             break
 
-    close_inst(pm, laser)
-
 except Exception:
     log.exception("Unhandled error")
     raise
+
+finally:
+    # Runs on the normal exit and on any escaping error, so the shutter never
+    # stays open: with the per-sweep power-off disabled, this is the only
+    # place the laser is turned off.
+    close_inst(pm, laser)
 
 # Skip the slow pywebview/.NET native teardown — all work is done and
 # instruments are closed, so hard-exit instead of letting the console linger.
