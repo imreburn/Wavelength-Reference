@@ -10,6 +10,7 @@ from logger import setup_logging, fast_exit
 from structs import Dataset
 from constants import APP_VERSION, TLS_SOURCES
 import shutdown
+import gc
 
 log = setup_logging("WavelengthSweep")
 log.info(f"Version_{APP_VERSION}")
@@ -68,6 +69,12 @@ try:
 
     while True:
         params = get_inputs(readout, auto_run=auto_run, source=source)
+        # The closed config window leaves Tk variables in reference cycles (the
+        # readout section's 19, via the self-rescheduling idle poll). Free them
+        # here, on the thread that owns Tcl. Left to the GC, they can be freed on
+        # a Dash worker thread while the plot loads, where each one blocks ~1 s
+        # and raises "main thread is not in main loop".
+        gc.collect()
         if not params:
             break
 

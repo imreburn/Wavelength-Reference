@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 import threading
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
@@ -86,5 +87,21 @@ def setup_logging(app_name, level=logging.INFO, max_files=20, max_bytes=10 * 102
         )
 
     threading.excepthook = _log_thread_exception
+
+    # An exception raised where Python can't propagate it (e.g. in a __del__
+    # run by the garbage collector) goes to sys.unraisablehook, which by
+    # default also prints only to stderr ("Exception ignored while ..."). Log
+    # it with the thread it happened on, since a finalizer runs on whichever
+    # thread triggered the collection.
+    def _log_unraisable(args):
+        msg = args.err_msg or "Exception ignored in"
+        if args.object is not None:
+            msg = f"{msg}: {args.object!r}"
+        logging.getLogger(app_name).error(
+            "%s (thread %s)", msg, threading.current_thread().name,
+            exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+        )
+
+    sys.unraisablehook = _log_unraisable
 
     return logging.getLogger(app_name)
