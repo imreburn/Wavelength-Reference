@@ -1,6 +1,8 @@
 import csv
 import math
+import sys
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk
 from datapath import data_path
 
@@ -218,12 +220,83 @@ def delete_preset(path, name):
         return f"Could not write {path}: {e}"
 
 
-def section_header(frame, text, row):
-    """Place a bold section title plus a horizontal separator line below it."""
-    tk.Label(frame, text=text, font=("TkDefaultFont", 10, "bold"), anchor="w").grid(
-        row=row, column=0, columnspan=2, sticky="w", pady=(10, 0))
+def section_header(frame, text, row, info=None):
+    """Place a bold section title plus a horizontal separator line below it.
+
+    `info`  optional help text; adds an ⓘ icon after the title that shows it
+            in a popup.
+    """
+    title = tk.Frame(frame)
+    title.grid(row=row, column=0, columnspan=2, sticky="w", pady=(10, 0))
+    tk.Label(title, text=text, font=("TkDefaultFont", 10, "bold"), anchor="w").pack(side="left")
+    if info:
+        info_icon(title, text, info).pack(side="left", padx=(4, 0))
     ttk.Separator(frame, orient="horizontal").grid(
         row=row + 1, column=0, columnspan=2, sticky="ew", pady=(0, 6))
+
+
+INFO_FG       = "gray40"
+INFO_HOVER_FG = "blue"
+INFO_WRAP_CHARS = 80     # popup lines wrap after about this many characters
+INFO_POS      = (100, 100)   # popup's top-left corner on screen (x, y)
+
+# Windows' interface font (Segoe UI) has no ⓘ, so Tk borrows one from another
+# font and it looks off. Windows' own icon font has an Info glyph instead: the
+# circled "i" used in Windows Settings. It ships with Windows 10 and 11.
+WIN_ICON_FONT  = "Segoe MDL2 Assets"
+WIN_INFO_GLYPH = "\ue946"   # Segoe MDL2 "Info"
+
+
+def _info_glyph(widget):
+    """The circled "i" character and font for this platform."""
+    if sys.platform.startswith("win") and WIN_ICON_FONT in tkfont.families(widget):
+        return WIN_INFO_GLYPH, (WIN_ICON_FONT, 12)
+    return "ⓘ", ("TkDefaultFont", 13)
+
+
+def info_icon(parent, title, text):
+    """Return a clickable ⓘ label (for the caller to place) that opens `text` in a popup."""
+    glyph, font = _info_glyph(parent)
+    # No padding/border, so it is no taller than the header text next to it and
+    # doesn't push that header lower than the others.
+    icon = tk.Label(parent, text=glyph, font=font, fg=INFO_FG, cursor="hand2",
+                    pady=0, bd=0)
+    icon.bind("<Button-1>", lambda _e: show_info(icon, title, text))
+    icon.bind("<Enter>", lambda _e: icon.config(fg=INFO_HOVER_FG))
+    icon.bind("<Leave>", lambda _e: icon.config(fg=INFO_FG))
+    return icon
+
+
+def show_info(widget, title, text):
+    """Show `text` in a small modal popup over the window that holds `widget`.
+
+    It always opens at INFO_POS on screen. Close or Escape closes it. Enter
+    does nothing here: the config window's Enter→Run binding belongs to that
+    window, so it never fires in this one.
+    """
+    top = tk.Toplevel(widget.winfo_toplevel())
+    top.title(title)
+    top.resizable(False, False)
+    top.transient(widget.winfo_toplevel())
+    top.geometry(f"+{INFO_POS[0]}+{INFO_POS[1]}")
+
+    text = text.strip()
+    body = tk.Label(top, text=text, justify="left")
+    # Wrap after about INFO_WRAP_CHARS characters, so lines break near where an
+    # 80-column editor would. The font is proportional and Tk's usual character
+    # unit (the width of "0") is much wider than average text, so use this
+    # text's own average character width instead.
+    flat = text.replace("\n", "")
+    avg_char = tkfont.Font(font=body["font"]).measure(flat) / max(len(flat), 1)
+    body.config(wraplength=round(avg_char * INFO_WRAP_CHARS))
+    body.pack(anchor="w", padx=16, pady=(14, 10))
+    tk.Button(top, text="Close (Esc)", command=top.destroy, width=10).pack(pady=(0, 12))
+    top.bind("<Escape>", lambda _e: top.destroy())
+
+    top.grab_set()
+    # Focus the popup itself so Escape reaches it. Focusing the Close button
+    # would draw a focus ring around it that the other buttons don't have.
+    top.focus_set()
 
 
 def make_extra_widgets(frame, start_row, init, on_change, enable_dynamic=True):

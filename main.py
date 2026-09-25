@@ -1,5 +1,5 @@
 from inst_helper import prep_inst, close_inst, InstrumentError
-from config_window import get_inputs
+from config_window import get_inputs, mark_ref_available
 from inst_run import run_sweep, SweepCancelled
 from inst_run_ext import run_sweep_ext
 from analyze_data import combine_scans
@@ -116,6 +116,7 @@ try:
             raw_w.ref = ref_data
         else:
             ref_data = raw_w.data.copy()
+            mark_ref_available()
 
         # Auto-save after the reference is attached, so the file matches what
         # "Save raw data..." would write. A failure is shown on the plot rather

@@ -61,10 +61,12 @@ def peak_detection(x: np.ndarray, tmp_y: np.ndarray, tune=None):
     # left_ips, right_ips are fractional indices (interpolated positions)
     # Find peak depths - Max
     max_peak_depths = np.array([max(p-l, p-r) for p, l, r in zip(y[peak_indices], y[left_bases_is], y[right_bases_is])])
+    
     max_widths, max_fwhm_dbm, max_l_ips, max_r_ips = peak_widths(y, peak_indices, rel_height=0.5, prominence_data=(max_peak_depths, left_bases_is, right_bases_is))
     
     # Find peak depths - Averaged
     avg_peak_depths = np.array([round(p-(l+r)/2, 7) for p, l, r in zip(y[peak_indices], y[left_bases_is], y[right_bases_is])])
+    
     avg_widths, avg_fwhm_dbm, avg_l_ips, avg_r_ips = peak_widths(y, peak_indices, rel_height=0.5, prominence_data=(avg_peak_depths, left_bases_is, right_bases_is))
 
     return Peak(

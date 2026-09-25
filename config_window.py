@@ -24,6 +24,7 @@ from config_helper import (
     LABEL_DIGIT_OPTIONS, LABEL_DIGIT_DEFAULT, LABEL_START_DEFAULT, validate_label,
     TIME_FORMAT, TIME_PLACEHOLDER,
 )
+from info_text import PASSFAIL_INFO, REFERENCE_INFO
 
 
 
@@ -33,11 +34,19 @@ _last = {}  # persists raw field values within one execution
 WINDOW_POS = (50, 10)
 
 # Persists across get_inputs() calls (the window is recreated each loop):
-#   has_run   — at least one Run has happened this session
-#   reference — current reference status (True/False)
-#   pos       — last window position (x, y); None until first close, then
-#               tracks wherever the user moved it
-_state = {"has_run": False, "reference": False, "pos": None}
+#   ref_available — a sweep without a reference has finished since startup or
+#                   the last Change, so Set Reference has data to use
+#   reference     — current reference status (True/False)
+#   pos           — last window position (x, y); None until first close, then
+#                   tracks wherever the user moved it
+_state = {"ref_available": False, "reference": False, "pos": None}
+
+
+def mark_ref_available():
+    """Mark the last sweep's data as usable for Set Reference. main.py calls
+    this once a sweep without a reference has finished; a cancelled or failed
+    sweep never gets here, so it can't leave stale or empty data selectable."""
+    _state["ref_available"] = True
 
 
 def preset_names(presets):
@@ -237,7 +246,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
         # Changing parameters invalidates any reference taken against them, and
         # resets the reference section to its pre-first-run state.
         _state["reference"] = False
-        _state["has_run"] = False
+        _state["ref_available"] = False
         params.reference = False
         update_ref_ui()
         result_label.config(text="Parameters unlocked. Edit and Save again; the reference has been cleared.", fg="red")
@@ -348,7 +357,6 @@ def get_inputs(readout=None, auto_run=False, source=None):
         _last["passfail"] = {label: (mn.get(), mx.get()) for label, (mn, mx) in passfail_entries.items()}
 
         ran["ok"] = True
-        _state["has_run"] = True
         _state["pos"] = (root.winfo_x(), root.winfo_y())
         log.info("params: %s", params)
         # Stop the readout (and its tick) first, so no `after` callback fires
@@ -467,7 +475,11 @@ def get_inputs(readout=None, auto_run=False, source=None):
             top.destroy()
             result_label.config(text=f"Preset '{name}' saved.", fg="black")
 
-        tk.Button(top, text="Save/Delete", command=do_action, width=12).grid(row=7, column=0, pady=10)
+        btn_frame = tk.Frame(top)
+        btn_frame.grid(row=7, column=0, pady=10)
+        tk.Button(btn_frame, text="Save/Delete", command=do_action, width=12).pack(side="left", padx=5)
+        tk.Button(btn_frame, text="Cancel (Esc)", command=top.destroy, width=12).pack(side="left", padx=5)
+        top.bind("<Escape>", lambda _e: top.destroy())
 
         new_entry.focus_set()
 
@@ -477,7 +489,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
             # A set reference can always be unset.
             ref_btn.config(text="Unset Reference", state="normal")
         else:
-            if _state["has_run"]:    
+            if _state["ref_available"]:
                 status_value.config(text="Not Set / Available", fg="blue")
                 ref_btn.config(text="Set Reference", state="normal")
             else:
@@ -622,7 +634,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # alongside the parameters.
     pf_container = tk.Frame(right_col)
     pf_container.pack(anchor="w")
-    section_header(pf_container, "Pass/Fail Criteria (Optional)", 0)
+    section_header(pf_container, "Pass/Fail Criteria (Optional)", 0, info=PASSFAIL_INFO)
     init_passfail = _last.get("passfail", {})
     passfail_entries = {}   # label -> (min_entry, max_entry)
     passfail_widgets = []   # flat list for lock/unlock
@@ -735,7 +747,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     preset_save_btn.pack(side="left", padx=5)
 
     # ---- Reference -------------------------------------------------------
-    section_header(frame, "Reference", HEADER2_ROW)
+    section_header(frame, "Reference", HEADER2_ROW, info=REFERENCE_INFO)
     ref_frame = tk.Frame(frame)
     ref_frame.grid(row=REFBTN_ROW, column=0, columnspan=2, pady=4)
     ref_btn = tk.Button(ref_frame, text="Set Reference", command=on_toggle_ref, state="disabled")
