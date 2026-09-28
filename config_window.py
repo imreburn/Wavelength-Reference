@@ -632,6 +632,9 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # ---- Right column: Pass/Fail Criteria, then the live Power Readout ----
     # One sub-frame spanning every row of the main grid, so however tall the
     # readout gets it never stretches the rows of the Parameters column.
+    # Each section fills the column's width and hands the spare width to a
+    # grid column whose widgets stay put, so every header line runs the full
+    # width of the column, however wide its widest section makes it.
     right_col = tk.Frame(frame)
     right_col.grid(row=0, column=2, rowspan=RESULT_ROW + 1, sticky="n", padx=(40, 0))
 
@@ -639,13 +642,17 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # side by side; values are validated and saved (and stored in presets)
     # alongside the parameters.
     pf_container = tk.Frame(right_col)
-    pf_container.pack(anchor="w")
+    pf_container.pack(anchor="w", fill="x")
+    pf_container.columnconfigure(1, weight=1)
     section_header(pf_container, "Pass/Fail Criteria (Optional)", 0, info=PASSFAIL_INFO)
     init_passfail = _last.get("passfail", {})
     passfail_entries = {}   # label -> (min_entry, max_entry)
     passfail_widgets = []   # flat list for lock/unlock
+    pf_labels = []          # their widths line up the Label & Auto-Save fields below
     for j, label in enumerate(PASSFAIL_LABELS):
-        tk.Label(pf_container, text=label, anchor="e").grid(row=j + 2, column=0, pady=4, padx=(0, 8), sticky="e")
+        pf_label = tk.Label(pf_container, text=label, anchor="e")
+        pf_label.grid(row=j + 2, column=0, pady=4, padx=(0, 8), sticky="e")
+        pf_labels.append(pf_label)
         pf_frame = tk.Frame(pf_container)
         pf_frame.grid(row=j + 2, column=1, pady=4, sticky="w")
         lo_init, hi_init = init_passfail.get(label, (PASSFAIL_DEFAULT, PASSFAIL_DEFAULT))
@@ -666,6 +673,12 @@ def get_inputs(readout=None, auto_run=False, source=None):
     info_container = tk.Frame(right_col)
     info_container.pack(anchor="w", fill="x", pady=(16, 0))
     section_header(info_container, "Label & Auto-Save (Optional)", 0)
+    # Column 1 starts where the Pass/Fail entries do (label width + its 8 px
+    # padding), so the fields line up with them. Column 1's weight gives it all
+    # the extra width the Auto-save row needs, so the filename preview grows to
+    # the right instead of shifting the fields each time its text changes.
+    info_container.columnconfigure(0, minsize=max(l.winfo_reqwidth() for l in pf_labels) + 8)
+    info_container.columnconfigure(1, weight=1)
     init_info = _last.get("info", {})
 
     add_label_var = tk.IntVar(value=init_info.get("add_label", 0))
@@ -696,7 +709,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     start_entry.pack(side="left")
 
     # Spans both columns so its long text doesn't widen column 0 (which would
-    # push the Prefix/Digits fields far to the right).
+    # push the Prefix/Digits fields to the right); column 1 takes the extra.
     save_raw_frame = tk.Frame(info_container)
     save_raw_frame.grid(row=5, column=0, columnspan=2, pady=4, sticky="w")
     tk.Checkbutton(save_raw_frame, text="Auto-save raw data", variable=save_raw_var).pack(side="left")
@@ -741,7 +754,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # Started once the window is up (below); Run and Close stop it.
     if readout is not None:
         readout_section = ReadoutSection(right_col, readout)
-        readout_section.frame.pack(anchor="w", pady=(16, 0))
+        readout_section.frame.pack(anchor="w", fill="x", pady=(16, 0))
 
     save_frame = tk.Frame(frame)
     save_frame.grid(row=SAVEBTN_ROW, column=0, columnspan=2, pady=10)

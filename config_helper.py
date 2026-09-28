@@ -1,5 +1,6 @@
 import csv
 import math
+import re
 import sys
 import tkinter as tk
 import tkinter.font as tkfont
@@ -220,25 +221,29 @@ def delete_preset(path, name):
         return f"Could not write {path}: {e}"
 
 
-def section_header(frame, text, row, info=None):
+def section_header(frame, text, row, info=None, span=2):
     """Place a bold section title plus a horizontal separator line below it.
 
     `info`  optional help text; adds an ⓘ icon after the title that shows it
             in a popup.
+    `span`  grid columns the title and line cover. The line stretches across
+            them, so pass every column the section uses.
     """
     title = tk.Frame(frame)
-    title.grid(row=row, column=0, columnspan=2, sticky="w", pady=(10, 0))
+    title.grid(row=row, column=0, columnspan=span, sticky="w", pady=(10, 0))
     tk.Label(title, text=text, font=("TkDefaultFont", 10, "bold"), anchor="w").pack(side="left")
     if info:
         info_icon(title, text, info).pack(side="left", padx=(4, 0))
     ttk.Separator(frame, orient="horizontal").grid(
-        row=row + 1, column=0, columnspan=2, sticky="ew", pady=(0, 6))
+        row=row + 1, column=0, columnspan=span, sticky="ew", pady=(0, 6))
 
 
 INFO_FG       = "gray40"
 INFO_HOVER_FG = "blue"
 INFO_WRAP_CHARS = 80     # popup lines wrap after about this many characters
 INFO_POS      = (100, 100)   # popup's top-left corner on screen (x, y)
+INFO_BOLD     = re.compile(r"\*\*(.+?)\*\*")   # **bold** in the help text
+INFO_BULLET   = "• "         # shown in place of a line's leading "- "
 
 # Windows' interface font (Segoe UI) has no ⓘ, so Tk borrows one from another
 # font and it looks off. Windows' own icon font has an Info glyph instead: the
@@ -280,17 +285,58 @@ def show_info(widget, title, text):
     top.transient(widget.winfo_toplevel())
     top.geometry(f"+{INFO_POS[0]}+{INFO_POS[1]}")
 
+    # A read-only Text rather than a Label: a Label has one font for all its
+    # text, while a Text can bold parts of it and hang-indent bullets.
     text = text.strip()
-    body = tk.Label(top, text=text, justify="left")
+    base = tkfont.nametofont("TkDefaultFont")
+    bold = base.actual()
+    body = tk.Text(top, font=base, wrap="word", bg=top.cget("bg"), cursor="arrow",
+                   bd=0, highlightthickness=0, padx=0, pady=0, takefocus=0)
+    body.tag_configure("bold", font=(bold["family"], bold["size"], "bold"))
+    # A "- " bullet shows as INFO_BULLET, and its wrapped lines line up under
+    # its text, not under the bullet.
+    body.tag_configure("bullet", lmargin2=base.measure(INFO_BULLET))
+    for i, line in enumerate(text.split("\n")):
+        if i:
+            body.insert("end", "\n")
+        start = body.index("end-1c")
+        is_bullet = line.startswith("- ")
+        if is_bullet:
+            line = INFO_BULLET + line[2:]
+        # re.split with a group puts the **bold** parts at the odd indexes.
+        for j, part in enumerate(INFO_BOLD.split(line)):
+            body.insert("end", part, ("bold",) if j % 2 else ())
+        if is_bullet:
+            body.tag_add("bullet", start, "end-1c")
+
     # Wrap after about INFO_WRAP_CHARS characters, so lines break near where an
-    # 80-column editor would. The font is proportional and Tk's usual character
-    # unit (the width of "0") is much wider than average text, so use this
-    # text's own average character width instead.
-    flat = text.replace("\n", "")
-    avg_char = tkfont.Font(font=body["font"]).measure(flat) / max(len(flat), 1)
-    body.config(wraplength=round(avg_char * INFO_WRAP_CHARS))
+    # 80-column editor would. The font is proportional and a Text's width unit
+    # (the width of "0") is much wider than average text, so convert from this
+    # text's own average character width.
+    flat = INFO_BOLD.sub(r"\1", text).replace("\n", "")
+    avg_char = base.measure(flat) / max(len(flat), 1)
+    body.config(width=round(avg_char * INFO_WRAP_CHARS / base.measure("0")), height=1)
     body.pack(anchor="w", padx=16, pady=(14, 10))
     tk.Button(top, text="Close (Esc)", command=top.destroy, width=10).pack(pady=(0, 12))
+
+    # Unlike a Label, a Text doesn't shrink to fit, so count its wrapped lines
+    # and make it exactly that tall. The count is only right once the Text has
+    # its full width: macOS gives it that width by update_idletasks() below,
+    # Windows only once the popup is on screen. A count taken earlier wraps at
+    # the narrower width and makes the popup taller than the screen. So skip
+    # counts until the width is full, and recount whenever the width changes.
+    def fit(_e=None):
+        if body.winfo_width() < body.winfo_reqwidth():
+            return
+        lines = body.count("1.0", "end", "update", "displaylines")
+        lines = int(lines[0] if isinstance(lines, tuple) else lines or 1)
+        if lines != int(body.cget("height")):
+            body.config(height=lines)
+
+    body.bind("<Configure>", fit)
+    top.update_idletasks()
+    fit()
+    body.config(state="disabled")
     top.bind("<Escape>", lambda _e: top.destroy())
 
     top.grab_set()

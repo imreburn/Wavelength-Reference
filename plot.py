@@ -731,6 +731,10 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
     # the button is disabled and none of this runs.
     # ------------------------------------------------------------------
     _ro_has_laser = readout is not None and readout.has_laser
+    # The emission state the Laser on box last showed. refresh_readout pushes
+    # the box only when readout.emission moves away from this (front-panel
+    # button). Pushing it every tick could undo a click still in flight.
+    _ro_shown = {'emission': readout is not None and readout.emission}
     _ro_cell  = {'padding': '2px 10px', 'textAlign': 'right', 'whiteSpace': 'nowrap',
                  'fontSize': '16px', 'fontVariantNumeric': 'tabular-nums'}
     _ro_head  = {**_ro_cell, 'fontSize': '13px', 'color': '#555', 'borderBottom': '1px solid #ccc'}
@@ -1327,6 +1331,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         Output('readout-rows', 'children'),
         Output('readout-wl-actual', 'children'),
         Output('readout-dbm-actual', 'children'),
+        Output('readout-laser', 'value'),
         Input('readout-tick', 'n_intervals'),
         prevent_initial_call=True,
     )
@@ -1335,8 +1340,12 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         # still mid-query (Dash runs callbacks on a pool, so ticks can overlap).
         rows = readout.read(wait=False) if readout is not None else None
         if rows is None:
-            return dash.no_update, dash.no_update, dash.no_update
-        return (_readout_rows(rows), *_readout_actual())
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        laser = dash.no_update
+        if readout.emission != _ro_shown['emission']:
+            _ro_shown['emission'] = readout.emission
+            laser = ['on'] if readout.emission else []
+        return (_readout_rows(rows), *_readout_actual(), laser)
 
     @app.callback(
         Output('readout-msg', 'children'),
@@ -1352,7 +1361,13 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
             return dash.no_update
         triggered = callback_context.triggered[0]['prop_id']
         if 'readout-laser' in triggered:
-            readout.set_emission('on' in (laser_value or []))
+            on = 'on' in (laser_value or [])
+            # Equal when refresh_readout pushed the box itself: nothing to send.
+            # Update _ro_shown only after set_emission, so a tick in between
+            # can't push the old state back over this click.
+            if on != readout.emission:
+                readout.set_emission(on)
+            _ro_shown['emission'] = on
             return ''
         if 'readout-reset' in triggered:
             readout.reset_max()

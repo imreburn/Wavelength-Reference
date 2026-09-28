@@ -28,7 +28,11 @@ class ReadoutSection:
         self._started = False
 
         f = self.frame = tk.Frame(parent)
-        section_header(f, "Power Readout", 0)
+        # The line spans the table plus an empty last column that takes any
+        # width the parent stretches the frame to, so the line runs its full
+        # width without moving the table.
+        section_header(f, "Power Readout", 0, span=len(READOUT_COLUMNS) + 1)
+        f.columnconfigure(len(READOUT_COLUMNS), weight=1)
 
         # ---- controls: Laser on, the wavelength and power fields with what
         # the instruments currently report to their right, then Apply and
@@ -119,6 +123,10 @@ class ReadoutSection:
                 for var, text in zip(row_vars, format_row(rng, w, max_w)):
                     var.set(text)
             self._show_actual()
+            # Follow the laser if its front-panel button changed emission.
+            # set() does not fire the Checkbutton's command, so this sends
+            # nothing back to the laser.
+            self.laser_var.set(int(self.readout.emission))
         self._job = self.frame.after(TK_REFRESH_MS, self._tick)
 
     def stop(self):

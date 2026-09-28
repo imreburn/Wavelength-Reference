@@ -32,7 +32,7 @@ TK_REFRESH_MS   = 50
 DASH_REFRESH_MS = 100
 
 # Ranges and the settings read-back change rarely; refetch them every Nth read
-# so a tick is one query, not eight.
+# so a tick is one query, not nine.
 RANGE_EVERY = 10
 
 ATIME_MS    = 25
@@ -174,7 +174,9 @@ class PowerReadout:
             return
         with self._lock:
             self.laser.write(f":SOURCE0:POW:STATE {1 if on else 0}")
-        self.emission = bool(on)
+            # Inside the lock, so _read_actual never sees the new state with
+            # the old flag and logs it as a front-panel change.
+            self.emission = bool(on)
 
     def reset_max(self):
         with self._lock:
@@ -184,11 +186,17 @@ class PowerReadout:
 
     def _read_actual(self):
         """Refresh `actual` from the instruments. Both report metres; the
-        laser's power comes back in the unit start() selected (dBm)."""
+        laser's power comes back in the unit start() selected (dBm). Also
+        syncs `emission` with the laser, since its front-panel button can
+        switch emission without going through set_emission()."""
         self.actual["pm_wl_nm"] = float(self.pm.query(":SENSE1:POW:WAV?")) * 1e9
         if self.laser:
             self.actual["laser_wl_nm"] = float(self.laser.query(":SOURCE0:WAV?")) * 1e9
             self.actual["laser_dbm"]   = float(self.laser.query(":SOURCE0:POW?"))
+            on = bool(int(self.laser.query(":SOURCE0:POW:STATE?")))
+            if on != self.emission:
+                log.info("[READOUT] laser turned %s at the instrument", "on" if on else "off")
+                self.emission = on
 
     def _write_wavelength(self, wl):
         for i in range(1, 5):

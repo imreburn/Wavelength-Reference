@@ -1,11 +1,16 @@
 # Changelog
 
-## [unreleased]
+## [2.0.1] - 2026-09-28
 
 ### Added
 
-- Added info icons (a circled "i") next to the "Reference" and "Pass/Fail Criteria" sections. Clicking an icon opens a popup with more details. To close the popup, click "Close" or press Esc. More info icons may be added later. ([#104](https://github.com/imreburn/Wavelength-Reference/issues/104))
+- Added info icons (a circled "i") next to some section titles. Clicking an icon opens a popup with more details. To close the popup, click "Close" or press Esc. More info icons may be added later. ([#104](https://github.com/imreburn/Wavelength-Reference/issues/104))
 - Added a "Duration / Sweep (s)" field below the "Averaging Time (us)" field. It shows the total time per sweep, which is the averaging time multiplied by the log count.
+
+### Fixed
+
+- The "Laser on" checkbox in the "Power Readout" section is updated if the on/off button on the front panel is pushed by users.
+- The fields in the "Label & Auto-Save" section no longer move when "Auto-save raw data" is turned on or off, or when the label changes. They now line up with the fields in the "Pass/Fail Criteria" section.
 
 
 ## [2.0.0] - 2026-09-23
