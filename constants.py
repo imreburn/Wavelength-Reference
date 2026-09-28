@@ -7,7 +7,7 @@ can import these values without any instrument backend present.
 """
 
 # Application version (keep in sync with CHANGELOG.md)
-APP_VERSION = "2.0.1"
+APP_VERSION = "2.0.2"
 
 # Instrument VISA addresses
 PM  = "POWER METER"

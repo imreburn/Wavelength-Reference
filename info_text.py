@@ -9,52 +9,10 @@ shown. A line that starts with "- " is a bullet: the popup shows "•" in place
 of the "-", and the bullet's wrapped lines line up under its text.
 """
 
-PASSFAIL_INFO = """
-After each sweep, the program automatically detects peaks in the absorption spectrum. If the pass/fail test is on, one peak is checked against the wavelength, depth, and width ranges you set. The result is shown in the graph window.
-
-**How it works**
-
-- Set a min and max for the peak wavelength, depth, and width.
-
-- All fields are 0 by default. An empty field counts as 0.
-
-- If you enter a min and leave the max at 0, the max is set to infinity. The field then shows "inf".
-
-- The wavelength range selects which peak to test. If more than one peak falls inside it, the deepest one is used. If no peak falls inside it, the test fails.
-
-- Depth and width are checked on that peak. To skip either check, leave both its min and max at 0.
-
-- Each peak has three depths and widths, one for each base: max, min, and avg. The pass/fail test uses the max base (Depth_max and FWHM_max in the peak table).
-
-- A wavelength range of 0 to 0 selects no peak. So if depth or width is set without a wavelength range, the test always fails.
-
-- When every field is 0, the test is off.
-
-- The criteria are saved with the other parameters in a preset.
-"""
-
-REFERENCE_INFO="""
-**Setting a reference**
-
-- The most recent measurement taken without a reference can be used as the reference for later measurements. Click "Set Reference" to use it.
-
-- Once the reference is set, the button changes to "Unset Reference". Clicking it unloads the reference but doesn't delete it. Click "Set Reference" to load it again.
-
-- The reference and later measurements must use the same parameters. So clicking "Change" is taken to mean the parameters are about to change, and it deletes the reference right away. Then a new measurement should be taken to set a reference.
-
-**Status messages**
-
-- **Not Set / Not Available:** No data is available to use as a reference. This appears right after the program starts and after "Change" is clicked. The "Set Reference" button is disabled.
-
-- **Not Set / Available:** Measured data is available but isn't set as the reference. Click "Set Reference" to set it.
-
-- **Set:** A reference is set.
-"""
-
 PARAMETERS_INFO="""
 **Step Size and Averaging Time**
 
-- The averaging time is the step size divided by the sweep speed.
+- Averaging Time = (Step Size / Sweep Speed)
 
 - The step size may be adjusted automatically so that the averaging time is a whole number of microseconds, between 25 µs and 10 s.
 
@@ -70,4 +28,93 @@ PARAMETERS_INFO="""
 - With the N7778C, the default is 50 pm, the same as in Keysight IL software. Keysight IL doesn't let you change it, but here you can set it from 0 to 50 pm in 10 pm steps.
 
 - With any other source, padding is fixed at 0 and the field is disabled.
+"""
+
+
+REFERENCE_INFO="""
+**Setting a reference**
+
+- The most recent measurement taken without a reference can be used as the reference for later measurements. Click "Set Reference" to use it.
+
+- Once the reference is set, the button changes to "Unset Reference". Clicking it unloads the reference but doesn't delete it. Click "Set Reference" to load it again.
+
+- The reference and later measurements must use the same parameters. So clicking "Change" is taken to mean the parameters are about to change, and it deletes the reference right away. Then a new measurement should be taken to set a reference.
+
+
+**Status messages**
+
+- **Not Set / Not Available:** No data is available to use as a reference. This appears right after the program starts and after "Change" is clicked. The "Set Reference" button is disabled.
+
+- **Not Set / Available:** Measured data is available but isn't set as the reference. Click "Set Reference" to set it.
+
+- **Set:** A reference is set.
+"""
+
+
+PASSFAIL_INFO = """
+After each sweep, the program automatically detects peaks in the absorption spectrum. If the pass/fail test is on, one peak is checked against the wavelength, depth, and width ranges you set. The result is shown in the graph window.
+
+
+**Depth and width**
+
+Each peak has two base points, one on each side (left and right). Depth and width (FWHM) are measured from a base level, and this program calculates them three ways:
+
+- max: the base with the higher power, which gives the largest depth.
+- min: the base with the lower power, which gives the smallest depth. This is the standard peak prominence, as in SciPy.
+- avg: the average of the two bases.
+
+The pass/fail test uses **max** (Depth_max and FWHM_max in the peak table).
+
+
+**Setting the criteria**
+
+- Set a min and max for the peak wavelength, depth, and width.
+
+- All fields are 0 by default. An empty field counts as 0.
+
+- If you enter a min and leave the max at 0, the max is set to infinity. The field then shows "inf".
+
+- To skip the depth or width check, leave both its min and max at 0.
+
+- When every field is 0, the test is off.
+
+- Like the other parameters, the criteria lock when you click Save and are stored in presets.
+
+
+**How a peak is tested**
+
+- The wavelength range selects which peak to test. If more than one peak falls inside it, the one with the largest Depth_max is used. If no peak falls inside it, the test fails.
+
+- Depth and width are then checked on that peak.
+
+- A wavelength range of 0 to 0 selects no peak. So if depth or width is set without a wavelength range, the test always fails.
+"""
+
+
+AUTOSAVE_INFO="""
+The fields in this section don't lock after Save, so you can change them without clicking Change. They aren't saved in presets and are kept until the program closes.
+
+
+**Label**
+
+- Check "Add label (SN)" to give each sweep a label: a prefix followed by a counter. For example, in SN007, SN is the prefix and 007 is the counter. The label is previewed next to the checkbox.
+
+- You can leave out either the prefix or the counter, but not both. The prefix can be any text, even just numbers, but it can't contain \\ / : * ? " < > | or end with a space or a dot, because the label can become part of a file name.
+
+- The counter is set with two fields: "Digits" and "Starting from". "Digits" (0 to 4) sets how many digits the counter has, and 0 means no counter. The counter is padded with zeros, so 3 digits starting from 7 gives 007.
+
+- "Digits" also sets the range for "Starting from". With 2 digits, for example, you can enter 0 to 99.
+
+- **The counter automatically increases by 1 after each sweep finishes. Numbers in the prefix never change.** After a cancelled or failed sweep, the counter stays the same, so you can try again with the same label. Once the last value is used (99 with 2 digits), the window shows an error, and Run won't start until you change "Digits" or "Starting from".
+
+- The label is shown above the top-left corner of the plot in the graph window. It also fills in the "Label / Serial number" field in the "Save peak info" window.
+
+
+**Auto-save raw data**
+
+- If "Auto-save raw data" is checked, the raw data is saved to the Raw Data folder after each sweep. The file is the same as the one "Save raw data..." saves in the graph window.
+
+- The graph window shows a status message with the file name, or an error if the save failed.
+
+- With a label, the file name is "<label>_<time>.csv". Without one, it's "<time>.csv". The time is when you click Run, in the form YYYY-MM-DD_hh-mm-ss. The name is previewed next to the checkbox.
 """

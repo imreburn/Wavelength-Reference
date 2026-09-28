@@ -242,6 +242,7 @@ INFO_FG       = "gray40"
 INFO_HOVER_FG = "blue"
 INFO_WRAP_CHARS = 80     # popup lines wrap after about this many characters
 INFO_POS      = (100, 100)   # popup's top-left corner on screen (x, y)
+INFO_BOTTOM_MARGIN = 80  # px kept free at the screen's bottom for the taskbar or Dock
 INFO_BOLD     = re.compile(r"\*\*(.+?)\*\*")   # **bold** in the help text
 INFO_BULLET   = "• "         # shown in place of a line's leading "- "
 
@@ -275,9 +276,10 @@ def info_icon(parent, title, text):
 def show_info(widget, title, text):
     """Show `text` in a small modal popup over the window that holds `widget`.
 
-    It always opens at INFO_POS on screen. Close or Escape closes it. Enter
-    does nothing here: the config window's Enter→Run binding belongs to that
-    window, so it never fires in this one.
+    It always opens at INFO_POS on screen and is never taller than the screen:
+    a text too long to fit scrolls, and the Close button stays visible. Close
+    or Escape closes it. Enter does nothing here: the config window's
+    Enter→Run binding belongs to that window, so it never fires in this one.
     """
     top = tk.Toplevel(widget.winfo_toplevel())
     top.title(title)
@@ -285,59 +287,96 @@ def show_info(widget, title, text):
     top.transient(widget.winfo_toplevel())
     top.geometry(f"+{INFO_POS[0]}+{INFO_POS[1]}")
 
-    # A read-only Text rather than a Label: a Label has one font for all its
-    # text, while a Text can bold parts of it and hang-indent bullets.
     text = text.strip()
     base = tkfont.nametofont("TkDefaultFont")
-    bold = base.actual()
-    body = tk.Text(top, font=base, wrap="word", bg=top.cget("bg"), cursor="arrow",
-                   bd=0, highlightthickness=0, padx=0, pady=0, takefocus=0)
-    body.tag_configure("bold", font=(bold["family"], bold["size"], "bold"))
+    spec = base.actual()
+    # Wrap after about INFO_WRAP_CHARS characters, so lines break near where an
+    # 80-column editor would. The font is proportional, so use this text's own
+    # average character width rather than a fixed character unit.
+    flat = INFO_BOLD.sub(r"\1", text).replace("\n", "")
+    text_w = round(base.measure(flat) / max(len(flat), 1) * INFO_WRAP_CHARS)
+
+    # Packed first, at the bottom, so a long text can never push it off.
+    text_pady, close_pady = (14, 10), (0, 12)
+    close = tk.Button(top, text="Close (Esc)", command=top.destroy, width=10)
+    close.pack(side="bottom", pady=close_pady)
+    row = tk.Frame(top)
+    row.pack(side="top", anchor="w", padx=16, pady=text_pady)
+    # The text sits in a box sized in pixels by fit() below. The scrollbar
+    # beside it only shows when the text is taller than the screen allows.
+    box = tk.Frame(row, width=text_w, height=1)
+    box.pack_propagate(False)
+    box.pack(side="left")
+    bar = ttk.Scrollbar(row, orient="vertical")
+
+    # A read-only Text rather than a Label: a Label has one font for all its
+    # text, while a Text can bold parts of it and hang-indent bullets.
+    body = tk.Text(box, font=base, wrap="word", bg=top.cget("bg"), cursor="arrow",
+                   bd=0, highlightthickness=0, padx=0, pady=0, takefocus=0,
+                   yscrollcommand=bar.set)
+    body.pack(fill="both", expand=True)
+    bar.config(command=body.yview)
+    body.tag_configure("bold", font=(spec["family"], spec["size"], "bold"))
+    # A blank line shows at about half height: paragraphs stay apart, but a
+    # long text takes less room.
+    body.tag_configure("gap", font=(spec["family"], round(spec["size"] / 2)))
     # A "- " bullet shows as INFO_BULLET, and its wrapped lines line up under
     # its text, not under the bullet.
     body.tag_configure("bullet", lmargin2=base.measure(INFO_BULLET))
-    for i, line in enumerate(text.split("\n")):
-        if i:
-            body.insert("end", "\n")
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        blank = not line.strip()
         start = body.index("end-1c")
         is_bullet = line.startswith("- ")
         if is_bullet:
             line = INFO_BULLET + line[2:]
         # re.split with a group puts the **bold** parts at the odd indexes.
-        for j, part in enumerate(INFO_BOLD.split(line)):
+        for j, part in enumerate(INFO_BOLD.split("" if blank else line)):
             body.insert("end", part, ("bold",) if j % 2 else ())
         if is_bullet:
             body.tag_add("bullet", start, "end-1c")
+        if i < len(lines) - 1:
+            # A line is as tall as its fonts. A blank line holds only its
+            # newline, so the small font on that makes the line short.
+            body.insert("end", "\n", ("gap",) if blank else ())
 
-    # Wrap after about INFO_WRAP_CHARS characters, so lines break near where an
-    # 80-column editor would. The font is proportional and a Text's width unit
-    # (the width of "0") is much wider than average text, so convert from this
-    # text's own average character width.
-    flat = INFO_BOLD.sub(r"\1", text).replace("\n", "")
-    avg_char = base.measure(flat) / max(len(flat), 1)
-    body.config(width=round(avg_char * INFO_WRAP_CHARS / base.measure("0")), height=1)
-    body.pack(anchor="w", padx=16, pady=(14, 10))
-    tk.Button(top, text="Close (Esc)", command=top.destroy, width=10).pack(pady=(0, 12))
-
-    # Unlike a Label, a Text doesn't shrink to fit, so count its wrapped lines
-    # and make it exactly that tall. The count is only right once the Text has
-    # its full width: macOS gives it that width by update_idletasks() below,
-    # Windows only once the popup is on screen. A count taken earlier wraps at
-    # the narrower width and makes the popup taller than the screen. So skip
-    # counts until the width is full, and recount whenever the width changes.
-    def fit(_e=None):
-        if body.winfo_width() < body.winfo_reqwidth():
+    # Size the box to the text's height in pixels, capped at the room left on
+    # the screen below it. The height is only right once the Text has its full
+    # width: macOS gives it that width by update_idletasks() below, Windows
+    # only once the popup is on screen. A count taken earlier wraps at the
+    # narrower width and makes the popup far too tall. So skip counts until
+    # the width is full, and refit whenever the Text or the popup changes;
+    # the popup's own <Configure> also comes once its screen position is set.
+    def fit():
+        if body.winfo_width() < text_w:
             return
-        lines = body.count("1.0", "end", "update", "displaylines")
-        lines = int(lines[0] if isinstance(lines, tuple) else lines or 1)
-        if lines != int(body.cget("height")):
-            body.config(height=lines)
+        need = body.count("1.0", "end", "update", "ypixels")
+        need = int(need[0] if isinstance(need, tuple) else need or 0)
+        room = (top.winfo_screenheight() - INFO_BOTTOM_MARGIN - box.winfo_rooty()
+                - text_pady[1] - close.winfo_reqheight() - close_pady[1])
+        height = max(min(need, room), 3 * base.metrics("linespace"))
+        if height != int(box.cget("height")):
+            box.config(height=height)
+        if need > height and not bar.winfo_manager():
+            bar.pack(side="left", fill="y")
+        elif need <= height and bar.winfo_manager():
+            bar.pack_forget()
 
-    body.bind("<Configure>", fit)
+    top.bind("<Configure>", lambda e: fit() if e.widget in (top, body) else None)
     top.update_idletasks()
     fit()
     body.config(state="disabled")
     top.bind("<Escape>", lambda _e: top.destroy())
+
+    # The mouse wheel scrolls the text from anywhere in the popup. Over the
+    # text, Tk's own Text binding already does it. Elsewhere (and on Windows,
+    # which may send the wheel to the focused popup instead), pass the event
+    # on to the Text, so that binding scrolls it: its step size differs
+    # between platforms and Tk versions.
+    def wheel(e):
+        if e.widget is not body:
+            body.event_generate("<MouseWheel>", delta=e.delta)
+    top.bind("<MouseWheel>", wheel)
 
     top.grab_set()
     # Focus the popup itself so Escape reaches it. Focusing the Close button

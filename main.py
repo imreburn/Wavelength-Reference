@@ -1,5 +1,5 @@
 from inst_helper import prep_inst, close_inst, InstrumentError
-from config_window import get_inputs, mark_ref_available
+from config_window import get_inputs, mark_ref_available, advance_label
 from inst_run import run_sweep, SweepCancelled
 from inst_run_ext import run_sweep_ext
 from analyze_data import combine_scans
@@ -111,7 +111,9 @@ try:
 
         params.pm_range = saved_pm_range
         raw_w.data = combine_scans(raw_w.scans)
-        
+        # The sweep finished, so its label is used: move the counter on.
+        advance_label()
+
         if params.reference:
             raw_w.ref = ref_data
         else:

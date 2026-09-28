@@ -24,7 +24,7 @@ from config_helper import (
     LABEL_DIGIT_OPTIONS, LABEL_DIGIT_DEFAULT, LABEL_START_DEFAULT, validate_label,
     TIME_FORMAT, TIME_PLACEHOLDER,
 )
-from info_text import PASSFAIL_INFO, REFERENCE_INFO, PARAMETERS_INFO
+from info_text import PASSFAIL_INFO, REFERENCE_INFO, PARAMETERS_INFO, AUTOSAVE_INFO
 
 
 
@@ -37,9 +37,11 @@ WINDOW_POS = (50, 10)
 #   ref_available — a sweep without a reference has finished since startup or
 #                   the last Change, so Set Reference has data to use
 #   reference     — current reference status (True/False)
+#   label_n       — the label counter value the last Run used; None when its
+#                   label had no number (or there was no label)
 #   pos           — last window position (x, y); None until first close, then
 #                   tracks wherever the user moved it
-_state = {"ref_available": False, "reference": False, "pos": None}
+_state = {"ref_available": False, "reference": False, "label_n": None, "pos": None}
 
 
 def mark_ref_available():
@@ -47,6 +49,15 @@ def mark_ref_available():
     this once a sweep without a reference has finished; a cancelled or failed
     sweep never gets here, so it can't leave stale or empty data selectable."""
     _state["ref_available"] = True
+
+
+def advance_label():
+    """Move the label counter past the number the last Run used, so the window
+    reopens on the next label. main.py calls this once a sweep has finished; a
+    cancelled or failed sweep never gets here, so its number is kept for the
+    retry. Past the digit limit, the reopened window refuses to Run."""
+    if _state["label_n"] is not None:
+        _last["info"]["start"] = str(_state["label_n"] + 1)
 
 
 def preset_names(presets):
@@ -340,13 +351,13 @@ def get_inputs(readout=None, auto_run=False, source=None):
         params.time = now.strftime(TIME_FORMAT)
         params.date = now.strftime("%m/%d/%Y")
 
-        # The counter advances on every Run, so the window reopens on the next
-        # label. Past the digit limit, the reopened window refuses to Run.
+        # The counter moves on only once the sweep finishes (main.py calls
+        # advance_label()), so a cancelled or failed sweep keeps its number.
         if label_n is not None:
             digits = int(digits_var.get())
             if label_n == 10 ** digits - 1:
                 log.warning("Label %s is the last one for %d digits.", label, digits)
-            start_var.set(str(label_n + 1))
+        _state["label_n"] = label_n
         _last["info"] = {"add_label": add_label_var.get(), "prefix": prefix_var.get(),
                          "digits": digits_var.get(), "start": start_var.get(),
                          "save_raw": save_raw_var.get()}
@@ -672,7 +683,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # validates it. Not bound to on_entry_change, so edits keep the saved state.
     info_container = tk.Frame(right_col)
     info_container.pack(anchor="w", fill="x", pady=(16, 0))
-    section_header(info_container, "Label & Auto-Save (Optional)", 0)
+    section_header(info_container, "Label & Auto-Save (Optional)", 0, info=AUTOSAVE_INFO)
     # Column 1 starts where the Pass/Fail entries do (label width + its 8 px
     # padding), so the fields line up with them. Column 1's weight gives it all
     # the extra width the Auto-save row needs, so the filename preview grows to
@@ -699,9 +710,11 @@ def get_inputs(readout=None, auto_run=False, source=None):
     prefix_entry = tk.Entry(info_container, textvariable=prefix_var, width=20)
     prefix_entry.grid(row=3, column=1, pady=4, sticky="w")
 
-    tk.Label(info_container, text="Digits", anchor="w").grid(row=4, column=0, pady=4, padx=(24, 8), sticky="w")
+    # The counter row: its two fields each carry their own name, like Starting from.
+    tk.Label(info_container, text="Counter", anchor="w").grid(row=4, column=0, pady=4, padx=(24, 8), sticky="w")
     digits_frame = tk.Frame(info_container)
     digits_frame.grid(row=4, column=1, pady=4, sticky="w")
+    tk.Label(digits_frame, text="Digits").pack(side="left", padx=(0, 2))
     digits_menu = tk.OptionMenu(digits_frame, digits_var, *LABEL_DIGIT_OPTIONS)
     digits_menu.pack(side="left")
     tk.Label(digits_frame, text="Starting from").pack(side="left", padx=(12, 2))
@@ -799,7 +812,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     if "fields" in _last:
         on_save()
 
-    # The previous Run may have pushed the label counter past its digit limit.
+    # The previous sweep may have pushed the label counter past its digit limit.
     # Say so now rather than only when Run is pressed (or a Repeat stalls).
     if add_label_var.get():
         _, _, label_error = validate_label(prefix_var.get(), digits_var.get(), start_var.get())

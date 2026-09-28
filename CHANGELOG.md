@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.0.2] - 2026-09-28
+
+### Added
+
+- Added an info icon next to the "Label & Auto-Save" section title. Its popup explains how the section works.
+
+### Changed
+
+- Updated some explanations in the info popups.
+
 ## [2.0.1] - 2026-09-28
 
 ### Added
