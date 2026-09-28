@@ -24,7 +24,7 @@ from config_helper import (
     LABEL_DIGIT_OPTIONS, LABEL_DIGIT_DEFAULT, LABEL_START_DEFAULT, validate_label,
     TIME_FORMAT, TIME_PLACEHOLDER,
 )
-from info_text import PASSFAIL_INFO, REFERENCE_INFO
+from info_text import PASSFAIL_INFO, REFERENCE_INFO, PARAMETERS_INFO
 
 
 
@@ -143,7 +143,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
 
         padding = padding_nm(extra_strs[PADDING_LABEL])
 
-        values, error = validate_inputs([e.get() for e in entries], num_data, avg_time, padding, source_spec)
+        values, error = validate_inputs([e.get() for e in entries], num_data, avg_time, duration, padding, source_spec)
         if error:
             validation_error(error, result_label, num_data, avg_time, saved, run_btn)
             return
@@ -283,6 +283,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
                 vals[col] = PASSFAIL_DEFAULT
             num_data.set("0")
             avg_time.set("0")
+            duration.set("0")
         elif name in presets:
             vals = presets[name]
         else:
@@ -541,7 +542,8 @@ def get_inputs(readout=None, auto_run=False, source=None):
     EXTRAS_START = FIELDS_START + N + 2   # one row per extra dropdown
     LOGCOUNT_ROW = EXTRAS_START + len(EXTRA_LABELS)
     AVGTIME_ROW  = LOGCOUNT_ROW + 1
-    SAVEBTN_ROW  = AVGTIME_ROW + 1
+    DURATION_ROW = AVGTIME_ROW + 1
+    SAVEBTN_ROW  = DURATION_ROW + 1
     HEADER2_ROW  = SAVEBTN_ROW + 1   # Reference
     REFBTN_ROW   = HEADER2_ROW + 2   # +2 leaves room for the separator line
     HEADER3_ROW  = REFBTN_ROW + 1    # Instruments
@@ -551,7 +553,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # column 2 (right of the Parameters section), so they consume no rows here.
 
     # ---- Set Parameters --------------------------------------------------
-    section_header(frame, "Parameters", 0)
+    section_header(frame, "Parameters", 0, info=PARAMETERS_INFO)
 
     # Laser source: chosen in the console at startup and fixed for the session,
     # so this is display only. The range is shown because it is what Save
@@ -616,12 +618,16 @@ def get_inputs(readout=None, auto_run=False, source=None):
 
     num_data = tk.StringVar(value="0")
     avg_time = tk.StringVar(value="0")
+    duration = tk.StringVar(value="0")
 
     tk.Label(frame, text="Log Count / Sweep", anchor="e").grid(row=LOGCOUNT_ROW, column=0, sticky="e", pady=4, padx=(0, 8))
     tk.Label(frame, textvariable=num_data, anchor="w").grid(row=LOGCOUNT_ROW, column=1, sticky="w", pady=4)
 
     tk.Label(frame, text="Averaging Time (μs)", anchor="e").grid(row=AVGTIME_ROW, column=0, sticky="e", pady=4, padx=(0, 8))
     tk.Label(frame, textvariable=avg_time, anchor="w").grid(row=AVGTIME_ROW, column=1, sticky="w", pady=4)
+
+    tk.Label(frame, text="Duration / Sweep (s)", anchor="e").grid(row=DURATION_ROW, column=0, sticky="e", pady=4, padx=(0, 8))
+    tk.Label(frame, textvariable=duration, anchor="w").grid(row=DURATION_ROW, column=1, sticky="w", pady=4)
 
     # ---- Right column: Pass/Fail Criteria, then the live Power Readout ----
     # One sub-frame spanning every row of the main grid, so however tall the

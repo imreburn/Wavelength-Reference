@@ -334,7 +334,7 @@ def make_extra_widgets(frame, start_row, init, on_change, enable_dynamic=True):
     return vars_, menus
 
 
-def validate_inputs(raw_strings, num_data, avg_time, padding, source_spec):
+def validate_inputs(raw_strings, num_data, avg_time, duration, padding, source_spec):
     """Return (values, None) on success or (None, error_msg) on failure.
 
     `padding` is the extra sweep range added on each side, in nm (0 for none).
@@ -391,7 +391,9 @@ def validate_inputs(raw_strings, num_data, avg_time, padding, source_spec):
     
     num_data.set(f"{num_data_log:,d}")
     avg_time.set(f"{avg_t:,d}")
-    
+    # Logging time of one sweep (padding included); excludes setup and readback.
+    duration.set(f"{num_data_log * avg_t / 1e6:,.2f}")
+
     if num_data_log > 1000000:
         return None, "Log count exceeds the maximum (max: 1M)"
     

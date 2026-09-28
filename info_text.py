@@ -41,3 +41,13 @@ Status messages
 
 - Set: A reference is set.
 """
+
+PARAMETERS_INFO="""
+Wavelength Padding (pm)
+
+- Extra range added before the start wavelength and after the stop wavelength. The laser actually sweeps from (start - padding) to (stop + padding). The result is trimmed to the range from start to stop.
+
+- With the N7778C, the default is 50 pm, the same as in Keysight IL software. Keysight IL doesn't let you change it, but here you can set it from 0 to 50 pm in 10 pm steps.
+
+- With any other source, padding is fixed at 0 and the field is disabled.
+"""

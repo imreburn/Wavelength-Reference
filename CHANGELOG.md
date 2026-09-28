@@ -1,5 +1,13 @@
 # Changelog
 
+## [unreleased]
+
+### Added
+
+- Added info icons (a circled "i") next to the "Reference" and "Pass/Fail Criteria" sections. Clicking an icon opens a popup with more details. To close the popup, click "Close" or press Esc. More info icons may be added later. ([#104](https://github.com/imreburn/Wavelength-Reference/issues/104))
+- Added a "Duration / Sweep (s)" field below the "Averaging Time (us)" field. It shows the total time per sweep, which is the averaging time multiplied by the log count.
+
+
 ## [2.0.0] - 2026-09-23
 
 ### Added
