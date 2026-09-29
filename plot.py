@@ -417,8 +417,8 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
                            style={**NOTE_STYLE, 'marginTop': '12px', 'marginBottom': '4px'}),
                 dcc.Input(
                     id='mode2-offset-input',
-                    type='number', step='any',
-                    value=1,
+                    type='number', step=0.01,
+                    min=0, max=50, value=1,
                     debounce=True,
                     style=INPUT_STYLE_FULL,
                 ),
@@ -427,6 +427,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
                 dcc.Input(
                     id='slider-range-input',
                     type='number', step='any', value=SLIDER_RANGE * 1000,
+                    min=0, max=100,
                     debounce=True,
                     style=INPUT_STYLE_FULL,
                 ),
@@ -437,6 +438,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
                 dcc.Input(
                     id='mode2-search-range-input',
                     type='number', step=5,
+                    min=0, max=1000,
                     value=OFFSET_RANGE,
                     debounce=True,
                     style=INPUT_STYLE_FULL,
@@ -1534,7 +1536,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         # would return a zero width), so keep the current value instead.
         if depth <= 0:
             return dash.no_update
-        return round(depth / 2, 5)
+        return round(depth / 2, 2)
 
     @app.callback(
         Output('spectrum', 'figure', allow_duplicate=True),
