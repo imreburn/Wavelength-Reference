@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- In the graph window, the -/+ buttons on the "Bandwidth amplitude (dB)" field now change the value by 0.01 instead of 1. ([#107](https://github.com/imreburn/Wavelength-Reference/issues/107))
+
+### Fixed
+
+- Fixed a bug where the "Bandwidth amplitude (dB)", "Slider range (pm)", and "Search range (pm)" fields in the graph window accepted negative values. ([#108](https://github.com/imreburn/Wavelength-Reference/issues/108))
+
 ## [2.0.2] - 2026-09-28
 
 ### Added
