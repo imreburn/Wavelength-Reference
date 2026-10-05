@@ -5,6 +5,7 @@
 ### Changed
 
 - In the graph window, the -/+ buttons on the "Bandwidth amplitude (dB)" field now change the value by 0.001 instead of 1. ([#107](https://github.com/imreburn/Wavelength-Reference/issues/107))
+- When saving raw data, the default file name is `<label>_<time>.csv` (or `<time>.csv` with no given label), instead of the fixed name `raw_data.csv`
 
 ### Fixed
 

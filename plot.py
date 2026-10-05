@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 import shutdown
 from structs import Params, Dataset
 from analyze_data import peak_detection, find_bandwidth, exam_peak
-from save_csv import save_csv_raw, save_csv_peak_row, COL_CH, COL_REF, COL_SCAN, RAW_DIR, PEAKS_DIR
+from save_csv import save_csv_raw, save_csv_peak_row, auto_raw_path,COL_CH, COL_REF, COL_SCAN, RAW_DIR, PEAKS_DIR
 from plot_helper import lttb, lttb_multi, pre_process
 from filters import FILTER_LABELS, FILTER_PARAMS, apply_filter, FilterError
 from readout import READOUT_COLUMNS, DASH_REFRESH_MS, format_row, format_actual, format_wl
@@ -886,10 +886,11 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         if window is None:
             return dash.no_update
 
+        stem = f"{params.label}_{params.time}" if params.label else params.time
         result = window.create_file_dialog(
             FileDialog.SAVE,
             directory=os.path.abspath(RAW_DIR),
-            save_filename='raw_data.csv',
+            save_filename=f"{stem}.csv",
             file_types=('CSV files (*.csv)', 'All files (*.*)'),
         )
         if not result:
