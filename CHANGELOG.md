@@ -2,14 +2,21 @@
 
 ## [Unreleased]
 
+### Added
+
+- In the graph window, pressing Esc closes the open dialog (Save peak info, Apply filter, Sweep info, or Power readout). Their Cancel and Close buttons now show "(Esc)".
+- Added a "Close & Repeat (Enter)" button to the Power readout dialog. It closes the dialog and the graph window, then runs the same sweep again. Pressing Enter in the dialog does the same.
+
 ### Changed
 
 - In the graph window, the -/+ buttons on the "Bandwidth amplitude (dB)" field now change the value by 0.001 instead of 1. ([#107](https://github.com/imreburn/Wavelength-Reference/issues/107))
 - When saving raw data, the default file name is `<label>_<time>.csv` (or `<time>.csv` with no given label), instead of the fixed name `raw_data.csv`
+- In the graph window, keyboard shortcuts now also work right after you click a checkbox or a radio button.
 
 ### Fixed
 
 - Fixed a bug where the "Bandwidth amplitude (dB)", "Slider range (pm)", and "Search range (pm)" fields in the graph window accepted negative values. ([#108](https://github.com/imreburn/Wavelength-Reference/issues/108))
+- Fixed a bug where pressing Enter in a dialog in the graph window (for example, on the file list in "Save peak info") closed the window and started the next sweep. Enter now runs "Close & Repeat" only from the main window or the Power readout dialog, and not while you're typing in a field or using a dropdown.
 
 ## [2.0.2] - 2026-09-28
 

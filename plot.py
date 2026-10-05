@@ -618,7 +618,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
                      style={'color': '#C0392B', 'fontSize': '12px',
                             'minHeight': '16px', 'marginBottom': '8px'}),
             html.Div([
-                html.Button('Cancel', id='peak-cancel', n_clicks=0),
+                html.Button('Cancel (Esc)', id='peak-cancel', n_clicks=0),
                 html.Button('Save', id='peak-save-confirm', n_clicks=0,
                             style={'marginLeft': '8px'}),
             ], style={'textAlign': 'right'}),
@@ -670,7 +670,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
                      style={'color': '#C0392B', 'fontSize': '12px',
                             'minHeight': '16px', 'marginBottom': '8px'}),
             html.Div([
-                html.Button('Cancel', id='filter-cancel', n_clicks=0),
+                html.Button('Cancel (Esc)', id='filter-cancel', n_clicks=0),
                 html.Button('Apply', id='filter-apply-confirm', n_clicks=0,
                             style={'marginLeft': '8px'}),
             ], style={'textAlign': 'right'}),
@@ -717,7 +717,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         children=html.Div([
             html.H4('Sweep info', style={'marginTop': 0}),
             html.Table(_info_rows, style={'borderCollapse': 'collapse', 'fontSize': '13px'}),
-            html.Div(html.Button('Close', id='sweep-info-close', n_clicks=0),
+            html.Div(html.Button('Close (Esc)', id='sweep-info-close', n_clicks=0),
                      style={'textAlign': 'right', 'marginTop': '12px'}),
         ], style={'backgroundColor': 'white', 'padding': '20px 24px',
                   'borderRadius': '8px', 'width': '360px',
@@ -799,8 +799,13 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
                 html.Thead(html.Tr([html.Th(c, style=_ro_head) for c in READOUT_COLUMNS])),
                 html.Tbody(id='readout-rows', children=_readout_rows(None)),
             ], style={'borderCollapse': 'collapse', 'marginTop': '6px'}),
-            html.Div(html.Button('Close', id='readout-close', n_clicks=0),
-                     style={'textAlign': 'right', 'marginTop': '12px'}),
+            # Close & Repeat here does the same as the menu bar's button (and
+            # Enter): close the window and auto-Run the next sweep.
+            html.Div([
+                html.Button('Close (Esc)', id='readout-close', n_clicks=0),
+                html.Button('Close & Repeat (Enter)', id='readout-repeat-btn', n_clicks=0,
+                            style={'marginLeft': '8px'}),
+            ], style={'textAlign': 'right', 'marginTop': '12px'}),
             dcc.Interval(id='readout-tick', interval=DASH_REFRESH_MS, n_intervals=0, disabled=True),
         # fit-content still lets an unusually wide reading widen the box, but
         # minWidth holds it at about the width the full table needs, so the
@@ -972,12 +977,15 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
     @app.callback(
         Output('repeat-keybind-dummy', 'children'),
         Input('repeat-btn', 'n_clicks'),
+        Input('readout-repeat-btn', 'n_clicks'),
         prevent_initial_call=True,
     )
-    def on_repeat(n_clicks):
+    def on_repeat(_menu_clicks, _readout_clicks):
         # Remember the request, then close the window. webview.start() returns,
         # the function below shuts the server down, and display_plot() returns
         # _repeat['flag'] to the caller (main_sweep), which auto-Runs next loop.
+        # From the Power Readout modal, the readout.stop() after webview.start()
+        # stops the readout, as the modal's Close would.
         _repeat['flag'] = True
         window = _window_holder.get('window')
         if window is not None:
@@ -998,38 +1006,103 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
             window.destroy()
         return dash.no_update
 
-    # Enter triggers Repeat — but only when focus isn't in a text/number field
-    # or open dropdown, so typing a label/temperature and pressing Enter there
-    # doesn't fire it. Installed once via a document-level keydown listener.
+    # Each modal overlay -> the button that dismisses it (Esc clicks it). The
+    # keybinds below look up which modal, if any, is open.
+    MODAL_CLOSE_BTNS = {
+        'peak-modal': 'peak-cancel',
+        'filter-modal': 'filter-cancel',
+        'sweep-info-modal': 'sweep-info-close',
+        'readout-modal': 'readout-close',
+    }
+    MODAL_IDS = list(MODAL_CLOSE_BTNS)
+    # Modals where Enter still means Close & Repeat, through the modal's own
+    # button. In any other open modal, Enter is left to the modal.
+    MODAL_REPEAT_BTNS = {'readout-modal': 'readout-repeat-btn'}
+
+    # Enter triggers Repeat, except while typing in a text/number field (e.g. a
+    # label or temperature), in a dcc.Dropdown (Dash 4 renders its trigger as a
+    # <button> with class dash-dropdown and its open menu as
+    # dash-dropdown-content; it also preventDefaults Enter), or while a modal
+    # not in MODAL_REPEAT_BTNS is open (Enter belongs to that modal's own
+    # buttons and fields). A focused button or checkbox doesn't block Repeat:
+    # WebView2 keeps a clicked button focused, and preventDefault stops that
+    # button from also firing. Installed once via a document-level keydown
+    # listener.
     app.clientside_callback(
         """
         function(n) {
             if (!window._repeatKeyBound) {
                 window._repeatKeyBound = true;
+                var modals = __MODALS__;
+                var repeatBtns = __REPEAT_BTNS__;
                 document.addEventListener('keydown', function(e) {
-                    if (e.key !== 'Enter') return;
+                    if (e.key !== 'Enter' || e.defaultPrevented) return;
+                    var target = 'repeat-btn';
+                    for (var i = 0; i < modals.length; i++) {
+                        var m = document.getElementById(modals[i]);
+                        if (m && m.style.display !== 'none') {
+                            target = repeatBtns[modals[i]];
+                            if (!target) return;
+                            break;
+                        }
+                    }
                     var t = e.target;
                     var tag = t && t.tagName ? t.tagName.toUpperCase() : '';
-                    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-                    if (t && t.closest && t.closest('.Select')) return;  // dcc.Dropdown
-                    var btn = document.getElementById('repeat-btn');
+                    if (tag === 'TEXTAREA' || tag === 'SELECT') return;
+                    if (tag === 'INPUT' && !/^(checkbox|radio)$/i.test(t.type)) return;
+                    if (t && t.closest && t.closest('.dash-dropdown, .dash-dropdown-content')) return;
+                    e.preventDefault();
+                    var btn = document.getElementById(target);
                     if (btn) btn.click();
                 });
             }
             return '';
         }
-        """,
+        """.replace('__MODALS__', json.dumps(MODAL_IDS))
+           .replace('__REPEAT_BTNS__', json.dumps(MODAL_REPEAT_BTNS)),
         Output('repeat-btn', 'title'),
         Input('repeat-btn', 'n_clicks'),
     )
 
+    # Esc dismisses the open modal by clicking its button in MODAL_CLOSE_BTNS,
+    # even while typing in one of its fields. An open dcc.Dropdown menu gets Esc
+    # first: Dash 4's menu closes on it and preventDefaults the event, so the
+    # modal stays open until the next Esc.
+    app.clientside_callback(
+        """
+        function(n) {
+            if (!window._escKeyBound) {
+                window._escKeyBound = true;
+                var closers = __CLOSERS__;
+                document.addEventListener('keydown', function(e) {
+                    if (e.key !== 'Escape' || e.defaultPrevented) return;
+                    for (var id in closers) {
+                        var m = document.getElementById(id);
+                        if (m && m.style.display !== 'none') {
+                            var btn = document.getElementById(closers[id]);
+                            if (btn) {
+                                e.preventDefault();
+                                btn.click();
+                            }
+                            return;
+                        }
+                    }
+                });
+            }
+            return '';
+        }
+        """.replace('__CLOSERS__', json.dumps(MODAL_CLOSE_BTNS)),
+        Output('sweep-info-close', 'title'),
+        Input('sweep-info-close', 'n_clicks'),
+    )
+
     # Letter shortcuts for the menu buttons: the key shown in a button's "(X)"
     # suffix clicks that button. Same focus guard as Enter (skipped while typing
-    # in an input/textarea/select or an open dropdown), ignored when a modifier
-    # is held so e.g. Cmd/Ctrl+P (print) still works, and ignored while any
-    # modal is open so a second one can't stack on top. One document-level
-    # keydown listener serves every entry; add a key here and a "(X)" to the
-    # button label to bind a new one.
+    # in a text/number field or in a dropdown), ignored when a modifier is held
+    # so e.g. Cmd/Ctrl+P (print) still works, and ignored while any modal is
+    # open so a second one can't stack on top. One document-level keydown
+    # listener serves every entry; add a key here and a "(X)" to the button
+    # label to bind a new one.
     KEY_SHORTCUTS = {
         's': 'save-raw-btn',
         'p': 'save-peak-btn',
@@ -1038,7 +1111,6 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         'r': 'readout-btn',
         'w': 'close-btn',
     }
-    MODAL_IDS = ['peak-modal', 'filter-modal', 'sweep-info-modal', 'readout-modal']
     app.clientside_callback(
         """
         function(n) {
@@ -1052,8 +1124,9 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
                     if (e.metaKey || e.ctrlKey || e.altKey) return;
                     var t = e.target;
                     var tag = t && t.tagName ? t.tagName.toUpperCase() : '';
-                    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-                    if (t && t.closest && t.closest('.Select')) return;  // dcc.Dropdown
+                    if (tag === 'TEXTAREA' || tag === 'SELECT') return;
+                    if (tag === 'INPUT' && !/^(checkbox|radio)$/i.test(t.type)) return;
+                    if (t && t.closest && t.closest('.dash-dropdown, .dash-dropdown-content')) return;
                     for (var i = 0; i < modals.length; i++) {
                         var m = document.getElementById(modals[i]);
                         if (m && m.style.display !== 'none') return;
