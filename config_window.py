@@ -35,7 +35,7 @@ WINDOW_POS = (50, 10)
 
 # Persists across get_inputs() calls (the window is recreated each loop):
 #   ref_available — a sweep without a reference has finished since startup or
-#                   the last Change, so Set Reference has data to use
+#                   the last Change, so "Use reference" has data to use
 #   reference     — current reference status (True/False)
 #   label_n       — the label counter value the last Run used; None when its
 #                   label had no number (or there was no label)
@@ -45,7 +45,7 @@ _state = {"ref_available": False, "reference": False, "label_n": None, "pos": No
 
 
 def mark_ref_available():
-    """Mark the last sweep's data as usable for Set Reference. main.py calls
+    """Mark the last sweep's data as usable for "Use reference". main.py calls
     this once a sweep without a reference has finished; a cancelled or failed
     sweep never gets here, so it can't leave stale or empty data selectable."""
     _state["ref_available"] = True
@@ -496,20 +496,21 @@ def get_inputs(readout=None, auto_run=False, source=None):
         new_entry.focus_set()
 
     def update_ref_ui():
+        # Also syncs the check mark, since Change turns the reference off.
+        ref_var.set(1 if _state["reference"] else 0)
         if _state["reference"]:
-            status_value.config(text="Set", fg="red")
-            # A set reference can always be unset.
-            ref_btn.config(text="Unset Reference", state="normal")
+            status_value.config(text="In use", fg="red")
+            # A reference in use can always be turned off.
+            ref_check.config(state="normal")
+        elif _state["ref_available"]:
+            status_value.config(text="Data ready", fg="blue")
+            ref_check.config(state="normal")
         else:
-            if _state["ref_available"]:
-                status_value.config(text="Not Set / Available", fg="blue")
-                ref_btn.config(text="Set Reference", state="normal")
-            else:
-                status_value.config(text="Not Set / Not Available", fg="blue")
-                ref_btn.config(text="Set Reference", state="disabled")
+            status_value.config(text="No data", fg="black")
+            ref_check.config(state="disabled")
 
     def on_toggle_ref():
-        _state["reference"] = not _state["reference"]
+        _state["reference"] = bool(ref_var.get())
         params.reference = _state["reference"]
         update_ref_ui()
 
@@ -782,12 +783,14 @@ def get_inputs(readout=None, auto_run=False, source=None):
     section_header(frame, "Reference", HEADER2_ROW, info=REFERENCE_INFO)
     ref_frame = tk.Frame(frame)
     ref_frame.grid(row=REFBTN_ROW, column=0, columnspan=2, pady=4)
-    ref_btn = tk.Button(ref_frame, text="Set Reference", command=on_toggle_ref, state="disabled")
-    ref_btn.pack(side="left", padx=5)
-    # Status sits to the right of the button. Fixed width so the button stays
-    # put as the text changes ("Set" vs "Not Set / Not Available").
-    status_value = tk.Label(ref_frame, text="Not Set", fg="blue", font=("TkDefaultFont", 10, "bold"),
-                            width=20, anchor="w")
+    ref_var = tk.IntVar(value=0)
+    ref_check = tk.Checkbutton(ref_frame, text="Use reference", variable=ref_var,
+                               command=on_toggle_ref, state="disabled")
+    ref_check.pack(side="left", padx=5)
+    # Status sits to the right of the checkbox. Fixed width so the checkbox
+    # stays put as the text changes ("In use" vs "Data ready").
+    status_value = tk.Label(ref_frame, text="No data", fg="black", font=("TkDefaultFont", 10, "bold"),
+                            width=10, anchor="w")
     status_value.pack(side="left", padx=(8, 0))
 
     # ---- Instruments -----------------------------------------------------

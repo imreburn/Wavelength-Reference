@@ -12,6 +12,7 @@
 - In the graph window, the -/+ buttons on the "Bandwidth amplitude (dB)" field now change the value by 0.001 instead of 1. ([#107](https://github.com/imreburn/Wavelength-Reference/issues/107))
 - When saving raw data, the default file name is `<label>_<time>.csv` (or `<time>.csv` with no given label), instead of the fixed name `raw_data.csv`
 - In the graph window, keyboard shortcuts now also work right after you click a checkbox or a radio button.
+- In the config window, the "Set Reference" / "Unset Reference" button is now a "Use reference" checkbox. The status next to it now reads "No data" (black), "Data ready" (blue), or "In use" (red), instead of "Not Set / Not Available", "Not Set / Available", or "Set".
 
 ### Fixed
 

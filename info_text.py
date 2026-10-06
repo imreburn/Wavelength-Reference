@@ -32,22 +32,22 @@ PARAMETERS_INFO="""
 
 
 REFERENCE_INFO="""
-**Setting a reference**
+**Using a reference**
 
-- The most recent measurement taken without a reference can be used as the reference for later measurements. Click "Set Reference" to use it.
+- The most recent measurement taken without a reference can be used as the reference for later measurements. Check "Use reference" to use it.
 
-- Once the reference is set, the button changes to "Unset Reference". Clicking it unloads the reference but doesn't delete it. Click "Set Reference" to load it again.
+- Unchecking "Use reference" stops using the reference but doesn't delete it. Check the box again to use it again. A new measurement taken while the box is unchecked replaces it.
 
-- The reference and later measurements must use the same parameters. So clicking "Change" is taken to mean the parameters are about to change, and it deletes the reference right away. Then a new measurement should be taken to set a reference.
+- The reference and later measurements must use the same parameters. So clicking "Change" is taken to mean the parameters are about to change, and it deletes the reference right away. Then a new measurement should be taken before a reference can be used.
 
 
 **Status messages**
 
-- **Not Set / Not Available:** No data is available to use as a reference. This appears right after the program starts and after "Change" is clicked. The "Set Reference" button is disabled.
+- **No data:** No data is available to use as a reference. This appears right after the program starts and after "Change" is clicked. The "Use reference" checkbox is disabled.
 
-- **Not Set / Available:** Measured data is available but isn't set as the reference. Click "Set Reference" to set it.
+- **Data ready:** Measured data is available but isn't being used as the reference. Check "Use reference" to use it.
 
-- **Set:** A reference is set.
+- **In use:** The reference is in use.
 """
 
 

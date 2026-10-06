@@ -45,16 +45,16 @@
 
 ---
 
-### Setting a reference
+### Using a reference
 
-- Once a measurement is taken without a reference, the data can be set a reference for subsequent measurements, by clicking **Set Reference**. Then the reference is set and the button label changes to **Unset Reference**. Clicking it unloads the reference. Note that **Unset Reference** does not **replace** the existing reference. Data collected while a reference is set **cannot** be set as a reference.
-- Because the parameters must be same for both reference and subsequent measurements, clicking **Change** button is assumed that the user would change parameters. Thus clicking **Change** immediately invalidates the existing reference and the last measurement cannot be set as a reference.
+- Once a measurement is taken without a reference, the data can be used as a reference for subsequent measurements, by checking **Use reference**. Unchecking it stops using the reference but does not delete it, so it can be checked again. A new measurement taken while the box is unchecked replaces the reference. Data collected while a reference is in use **cannot** become a reference.
+- Because the parameters must be same for both reference and subsequent measurements, clicking **Change** button is assumed that the user would change parameters. Thus clicking **Change** immediately invalidates the existing reference and the last measurement cannot be used as a reference.
 
 #### Status messages regarding reference
 
-- **Not Set / Not Available**: There is no data available for a reference, and thus a reference is not set. This message is shown when the program is just launched or the user clicks the "Change" button. The "Set Reference" button is disabled.
-- **Not Set / Available**: Measured data is available, but it is not loaded as a reference. The "Set Reference" button is active for the user to set it as a reference.
-- **Set**: A reference data is set.
+- **No data** (black): There is no data available for a reference. This message is shown when the program is just launched or the user clicks the "Change" button. The **Use reference** checkbox is disabled.
+- **Data ready** (blue): Measured data is available, but it is not being used as a reference. The **Use reference** checkbox is enabled for the user to check it.
+- **In use** (red): The reference is in use.
 
 --- 
 
