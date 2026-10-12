@@ -7,13 +7,11 @@ formats what it returns and forwards the controls.
 import logging
 import tkinter as tk
 
-from config_helper import section_header
+from config_helper import section_header, ui_font
 from readout import READOUT_COLUMNS, TK_REFRESH_MS, format_row, format_actual, format_wl
 
 log = logging.getLogger(__name__)
 
-VALUE_FONT  = ("TkDefaultFont", 12)
-HEADER_FONT = ("TkDefaultFont", 10, "bold")
 # Label widths (chars) for the four value columns: range, dBm, W, max W.
 VALUE_WIDTHS = (7, 11, 11, 11)
 
@@ -77,15 +75,16 @@ class ReadoutSection:
         self.msg.grid(row=3, column=0, columnspan=5, sticky="w")
 
         # ---- the table: header row, then one row per channel
+        value_font, header_font = ui_font(11), ui_font(10, "bold")
         for col, text in enumerate(READOUT_COLUMNS):
-            tk.Label(f, text=text, font=HEADER_FONT).grid(
+            tk.Label(f, text=text, font=header_font).grid(
                 row=4, column=col, padx=3, pady=(4, 1), sticky="e")
         self.vars = []    # per channel: (range, dBm, W, max W) StringVars
         for i in range(4):
-            tk.Label(f, text=str(i + 1), font=VALUE_FONT).grid(row=5 + i, column=0, padx=3)
+            tk.Label(f, text=str(i + 1), font=value_font).grid(row=5 + i, column=0, padx=3)
             row_vars = tuple(tk.StringVar(value="—") for _ in VALUE_WIDTHS)
             for col, (var, width) in enumerate(zip(row_vars, VALUE_WIDTHS), start=1):
-                tk.Label(f, textvariable=var, anchor="e", width=width, font=VALUE_FONT).grid(
+                tk.Label(f, textvariable=var, anchor="e", width=width, font=value_font).grid(
                     row=5 + i, column=col, padx=3, sticky="e")
             self.vars.append(row_vars)
 

@@ -7,7 +7,18 @@ can import these values without any instrument backend present.
 """
 
 # Application version (keep in sync with CHANGELOG.md)
-APP_VERSION = "2.0.2"
+APP_VERSION = "2.0.3"
+
+# Font families. None = the system's interface font (Segoe UI on Windows,
+# San Francisco on macOS). Tahoma ships with Windows and macOS.
+CONFIG_WINDOW_FONT = None       # every widget in the config window
+GRAPH_WINDOW_FONT  = "Tahoma"       # graph window: buttons, sidebar, dialogs
+DATA_FONT          = "Tahoma"   # graph window: tables and plot text
+
+# Page zoom for the graph windows on Windows, on top of the display scale, like
+# Ctrl+minus in a browser. 0.8 at 125% scaling draws them as they'd look at
+# 100% (1.25 x 0.8 = 1). 1.0 = no change. Ignored on macOS.
+GRAPH_WINDOW_ZOOM = 1.0
 
 # Instrument VISA addresses
 PM  = "POWER METER"

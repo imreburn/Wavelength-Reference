@@ -20,6 +20,7 @@ from config_helper import (
     CHANNEL_LABEL, CHANNEL_OPTIONS, CHANNEL_DEFAULT, channels_to_str, parse_channels, padding_nm,
     PASSFAIL_LABELS, PASSFAIL_KEYS, PASSFAIL_DEFAULT, PASSFAIL_COLUMNS, passfail_col,
     preset_path, load_presets, save_preset, delete_preset, section_header, make_extra_widgets,
+    use_ui_font, ui_font,
     validate_inputs, validate_extras, validate_passfail, validation_error,
     LABEL_DIGIT_OPTIONS, LABEL_DIGIT_DEFAULT, LABEL_START_DEFAULT, validate_label,
     TIME_FORMAT, TIME_PLACEHOLDER,
@@ -515,6 +516,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
         update_ref_ui()
 
     root = tk.Tk()
+    use_ui_font(root)   # constants.CONFIG_WINDOW_FONT; None keeps the system font
     root.title("Test Configuration")
     root.resizable(False, False)
 
@@ -703,7 +705,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
         row=2, column=0, pady=4, sticky="w")
     # Fixed width so the row doesn't shift as the preview text changes.
     label_preview = tk.Label(info_container, text="", anchor="w", width=20,
-                             font=("TkDefaultFont", 10, "bold"))
+                             font=ui_font(10, "bold"))
     label_preview.grid(row=2, column=1, pady=4, sticky="w")
 
     # Left-aligned and indented to sit under the "Add label" text, not the box.
@@ -789,7 +791,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     ref_check.pack(side="left", padx=5)
     # Status sits to the right of the checkbox. Fixed width so the checkbox
     # stays put as the text changes ("In use" vs "Data ready").
-    status_value = tk.Label(ref_frame, text="No data", fg="black", font=("TkDefaultFont", 10, "bold"),
+    status_value = tk.Label(ref_frame, text="No data", fg="black", font=ui_font(10, "bold"),
                             width=10, anchor="w")
     status_value.pack(side="left", padx=(8, 0))
 
