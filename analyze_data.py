@@ -159,6 +159,7 @@ def exam_peak(pk: Peak, params: Params):
 
     Returns a dict:
       verdict  'Pass', 'Fail', or None when every criterion is 0 (test off)
+      base     which base the depth and width are measured from: 'max'
       peak     the tested peak's number (1-based), or None when none was picked
       note     why no peak was tested, or '' when one was
       checks   [wavelength, depth, width], each {'range': (lo, hi), or None
@@ -168,13 +169,14 @@ def exam_peak(pk: Peak, params: Params):
     def in_between(x, crit):
         return crit[0] <= x <= crit[1]
 
+    BASE = 'max'   # the depth and width checked: Depth_max and FWHM_max
     crit_loc = (params.wl_min, params.wl_max)
     crit_dep = (params.depth_min, params.depth_max)
     crit_wid = (params.width_min, params.width_max)
 
     # No criteria is given
     if sum(map(sum, [crit_loc, crit_dep, crit_wid])) == 0:
-        return {'verdict': None, 'peak': None, 'note': '', 'checks': []}
+        return {'verdict': None, 'base': BASE, 'peak': None, 'note': '', 'checks': []}
 
     # The wavelength range always counts once the test is on; it's what
     # picks the peak, so without a peak in it the test fails.
@@ -182,22 +184,24 @@ def exam_peak(pk: Peak, params: Params):
               {'range': crit_dep if sum(crit_dep) != 0 else None, 'value': None, 'result': None},
               {'range': crit_wid if sum(crit_wid) != 0 else None, 'value': None, 'result': None}]
     if pk is None:
-        return {'verdict': 'Fail', 'peak': None, 'note': 'No peak detected', 'checks': checks}
+        return {'verdict': 'Fail', 'base': BASE, 'peak': None, 'note': 'No peak detected',
+                'checks': checks}
 
     # If there are multiple peaks in the crit_loc range, the deepest is chosen
     # (the first of equally deep ones).
     inside = [i for i in range(len(pk.x_nm)) if in_between(pk.x_nm[i], crit_loc)]
     if not inside:
-        return {'verdict': 'Fail', 'peak': None, 'note': 'No peak in the wavelength range',
-                'checks': checks}
-    i = max(inside, key=lambda j: pk.max.depth[j])
+        return {'verdict': 'Fail', 'base': BASE, 'peak': None,
+                'note': 'No peak in the wavelength range', 'checks': checks}
+    widths = getattr(pk, BASE)
+    i = max(inside, key=lambda j: widths.depth[j])
 
-    for check, value in zip(checks, (pk.x_nm[i], pk.max.depth[i], pk.max.w_pm[i])):
+    for check, value in zip(checks, (pk.x_nm[i], widths.depth[i], widths.w_pm[i])):
         check['value'] = float(value)
         if check['range'] is not None:
             check['result'] = 'Pass' if in_between(value, check['range']) else 'Fail'
     verdict = 'Fail' if any(c['result'] == 'Fail' for c in checks) else 'Pass'
-    return {'verdict': verdict, 'peak': i + 1, 'note': '', 'checks': checks}
+    return {'verdict': verdict, 'base': BASE, 'peak': i + 1, 'note': '', 'checks': checks}
 
 
 if __name__ == "__main__":

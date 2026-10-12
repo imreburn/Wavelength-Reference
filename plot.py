@@ -476,7 +476,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
     # existing callbacks (and the Enter keybind) keep working.
     # ------------------------------------------------------------------
     NAV_BTN_STYLE = {
-        'fontSize': '14px', 'padding': '3px 14px', 'border': 'none',
+        'fontSize': '12px', 'padding': '2px 12px', 'border': 'none',
         'background': 'transparent', 'color': '#fff', 'cursor': 'pointer',
         'fontFamily': WINDOW_CSS_FONT,
     }
@@ -542,7 +542,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         # after KEY_SHORTCUTS).
         html.Button(id='reset-zoom-btn', n_clicks=0, style={'display': 'none'}),
     ], style={'display': 'flex', 'alignItems': 'center', 'gap': '4px',
-              'padding': '3px 16px', 'backgroundColor': '#2c3e50'})
+              'padding': '2px 16px', 'backgroundColor': '#2c3e50'})
 
     # Status strip under the nav bar: one line, the newest message replaces the
     # last. Fixed height so the graph doesn't shift as messages come and go.

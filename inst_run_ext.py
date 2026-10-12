@@ -47,12 +47,10 @@ def _print_instructions(params : Params, scan_label=""):
     print(bar)
     print(title)
     print(f" Power meter is armed (range {params.pm_range} dBm).")
-    print(" Start the sweep on the external laser.")
     print()
     print(f"   Start wavelength  : {params.wl_st_pad:.3f} nm")
     print(f"   Stop wavelength   : {params.wl_sp_pad:.3f} nm")
     print(f"   Sweep speed       : {params.speed:g} nm/s")
-    print(f"   Power             : {params.tls_dbm:g} dBm")
     print(f"   Expected duration : {duration:.1f} s")
     print()
     print(" To cancel, click this window and press Esc (or Ctrl+C).")
@@ -102,14 +100,14 @@ def wait_for_sweep(pm, params : Params):
                 log.info("Idle timeout while armed — closing.")
                 shutdown.request()
                 return False
-            print(f"\r  Waiting... {int(elapsed)} s", end="", flush=True)
+            print(f"\r Start running a sweep on the external laser. Waiting... {int(elapsed)} s", end="", flush=True)
             time.sleep(0.5)
     except KeyboardInterrupt:
         print()
         log.info("Cancelled by user (Ctrl+C)")
         return False
     print()
-
+    print()
     return True
 
 

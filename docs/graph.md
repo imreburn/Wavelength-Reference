@@ -71,7 +71,7 @@ Users can save raw data and peak data to CSV files.
 
 ### Pass/Fail Criteria
 
-- The result is shown in a table titled "Pass/Fail test result", just above the Peak table. It lists each criterion's range, the tested peak's measured value, and the result of each check. The overall result, "Pass" in green or "Fail" in red, is in the last column. The "Criteria [min, max]" row shows each range's min and max, and both ends count as inside. "∞" means no upper limit, and "—" means the check isn't set. "Customize..." next to the title sets how many decimal places the measured values show.
+- The result is shown in a table titled "Pass/Fail test result", just above the Peak table. It lists each criterion's range, the tested peak's measured value, and the result of each check. The top-left cell names the tested peak and the base its depth and width are measured from, for example "P2 / Max base". The overall result, "Pass" in green or "Fail" in red, is in the last column. The "Criteria [min, max]" row shows each range's min and max, and both ends count as inside. "∞" means no upper limit, and "—" means the check isn't set. "Customize..." next to the title sets how many decimal places the measured values show.
 - If multiple peaks fall within the wavelength range, the peak with the deepest depth is chosen for examination.
 - If the wavelength range finds a peak, the row is highlighted in blue in the peak table. It is also automatically selected in the peak list in "Save peak info...".
 

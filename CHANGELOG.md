@@ -28,6 +28,7 @@
 - In the graph window, the Pass/Fail result is now a table titled "Pass/Fail test result", just above the Peak table, instead of a single line. ([#119](https://github.com/imreburn/Wavelength-Reference/issues/119)). Its "Customize..." dialog sets the decimal places of the measured values (by default 4 for λ, 2 for depth, 1 for width), and the choices carry over to the next plot while the program runs. It also shows when no peak is found or the peak table is hidden. ([#115](https://github.com/imreburn/Wavelength-Reference/issues/115))
 - Plotly's modebar in the top-right corner of the plot is now always visible.
 - In the config window, clicking Save now shows an error if the Pass/Fail Criteria set a peak depth or width range without a peak wavelength range. Before, the test then always failed in the graph window.
+- In the config window, the parameter "TLS power (dBm)" can be left blank when an external laser source is selected, and the default also changes to blank. It is still required and set as 0.1 dBm when N7778C is selected.
 
 ### Removed
 
@@ -39,6 +40,7 @@
 - Fixed a bug where pressing Enter in a dialog in the graph window (for example, on the file list in "Save peak info") closed the window and started the next sweep. Enter now runs "Close & Repeat" only from the main window or the Power readout dialog, and not while you're typing in a field or using a dropdown.
 - Fixed a bug that the Pass/Fail result is not shown when no peak is found or the peak table is hidden. ([#115](https://github.com/imreburn/Wavelength-Reference/issues/115))
 
+
 ## [2.0.2] - 2026-09-28
 
 ### Added
@@ -48,6 +50,7 @@
 ### Changed
 
 - Updated some explanations in the info popups.
+
 
 ## [2.0.1] - 2026-09-28
 

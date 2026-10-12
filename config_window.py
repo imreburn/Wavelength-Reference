@@ -86,6 +86,8 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # to the first entry so the __main__ UI test below runs without main.py.
     source      = source or next(iter(TLS_SOURCES))
     source_spec = TLS_SOURCES[source]
+    # The app never sets an external laser's power, so its TLS Power starts blank.
+    field_defaults = DEFAULTS[:4] + [""] if source_spec["external"] else DEFAULTS
 
     preset_file = preset_path(source)
 
@@ -288,7 +290,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
         name = preset_var.get()
         if name == "none":
             # Selecting "none" resets every field back to its default.
-            vals = dict(zip(FIELD_LABELS, DEFAULTS))
+            vals = dict(zip(FIELD_LABELS, field_defaults))
             vals.update(EXTRA_DEFAULTS)
             vals[CHANNEL_LABEL] = CHANNEL_DEFAULT
             for col in PASSFAIL_COLUMNS:
@@ -599,7 +601,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
         cb.pack(side="left")
         channel_checks.append(cb)
 
-    init_fields = _last.get("fields", DEFAULTS)
+    init_fields = _last.get("fields", field_defaults)
     entries = []
     entry_widgets = []
     for i, (label_text, default) in enumerate(zip(FIELD_LABELS, init_fields)):

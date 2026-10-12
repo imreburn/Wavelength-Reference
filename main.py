@@ -43,8 +43,6 @@ def select_source():
         print()
         log.info("No laser source selected — exiting.")
         fast_exit(0)
-    print()
-
 
 pm = laser = None   # bound before the try, so the finally below can close them
 
@@ -52,6 +50,7 @@ try:
     # The source is fixed for the whole session: it decides what to connect
     # and which sweep function the loop calls.
     source   = select_source()
+    print()
     external = TLS_SOURCES[source]["external"]
     log.info(f"Laser source: {source}" + (" (external)" if external else ""))
     pm, laser = prep_inst(with_laser=not external)

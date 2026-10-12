@@ -453,12 +453,17 @@ def validate_inputs(raw_strings, num_data, avg_time, duration, padding, source_s
     Params.padding.
 
     `source_spec` is the selected laser's TLS_SOURCES entry: its wl_min/wl_max
-    bound the wavelengths and its power_rules bound the TLS power.
+    bound the wavelengths and its power_rules bound the TLS power. For an
+    external source the TLS power may be blank and comes back as None: the app
+    never sets that laser's power.
     """
     values = []
     for i, s in enumerate(raw_strings):
         if i == 3 and s.strip() == "":  # step_size defaults to 0 when empty
             values.append(0.0)
+            continue
+        if i == 4 and s.strip() == "" and source_spec["external"]:  # TLS power optional for an external laser
+            values.append(None)
             continue
         try:
             values.append(float(s))
@@ -485,7 +490,7 @@ def validate_inputs(raw_strings, num_data, avg_time, duration, padding, source_s
     # power was under the wider band's limit, rejecting 9-11 dBm in 1515-1620.
     applicable = [(lo, hi, lim) for lo, hi, lim in source_spec["power_rules"]
                   if lo <= wav_start and wav_stop <= hi]
-    if applicable:
+    if applicable and power_dbm is not None:
         lo, hi, lim = max(applicable, key=lambda rule: rule[2])
         if power_dbm > lim:
             return None, f"TLS power exceeds the maximum ({lim:g} dBm) in {lo:g}-{hi:g} nm"

@@ -283,20 +283,25 @@ def passfail_table(exam, view):
     with the overall result ("Pass" in green or "Fail" in red, plus why no peak
     was tested, if so) in a last column that spans those three rows, set off
     by a white gap. Each criterion has two columns: min and max in the
-    Criteria row, and one cell across both in the other rows. Its caption,
-    with the Customize link, is caption('passfail').
+    Criteria row, and one cell across both in the other rows. The top-left
+    cell names what was tested: the peak and the base its depth and width are
+    measured from ("P2 / Max base", or just "Max base" when no peak was
+    tested). Its caption, with the Customize link, is caption('passfail').
     `exam` is analyze_data.exam_peak's dict; call this only when the test is on."""
     checks = exam['checks']
     labels = TABLES['passfail']['labels']   # in exam_peak's check order
-    measured = f"Measured (P{exam['peak']})" if exam['peak'] else 'Measured'
+    tested = f"{exam['base'].capitalize()} base"
+    if exam['peak']:
+        tested = f"P{exam['peak']} / {tested}"
     final_edge = {'borderLeft': '8px solid white'}   # a white gap before the column
-    head = html.Tr([html.Th('', style=TH_STYLE)]
+    # In black rather than the headers' grey: it's information, not a header.
+    head = html.Tr([html.Th(tested, style={**TH_STYLE, 'textAlign': 'left', 'color': 'black'})]
                    + [html.Th(labels[c][1], colSpan=2, style=TH_STYLE) for c in labels]
                    + [html.Th('Final result', style={**TH_STYLE, **final_edge})])
     rows = [
         [html.Td('Criteria [min, max]', style=ROW_HEAD_STYLE)]
         + [cell for c in checks for cell in _range_cells(c['range'])],
-        [html.Td(measured, style=ROW_HEAD_STYLE)]
+        [html.Td('Measured', style=ROW_HEAD_STYLE)]
         + [html.Td(EMPTY if chk['value'] is None
                    else number_text(chk['value'], decimals_for('passfail', col, view)),
                    colSpan=2, style=TD_STYLE)
