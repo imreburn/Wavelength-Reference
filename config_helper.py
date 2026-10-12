@@ -5,6 +5,7 @@ import sys
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
+from constants import CONFIG_WINDOW_FONT
 from datapath import data_path
 
 import logging
@@ -221,6 +222,30 @@ def delete_preset(path, name):
         return f"Could not write {path}: {e}"
 
 
+# Tk's named interface fonts. use_ui_font() points them all at
+# CONFIG_WINDOW_FONT, which covers almost every widget. TkFixedFont stays
+# monospaced. An explicit tuple like ("TkDefaultFont", 10, "bold") names a font
+# *family* called "TkDefaultFont" (Tk falls back to some default for it), not
+# the named font, so it wouldn't follow; build tuples with ui_font() instead.
+_UI_NAMED_FONTS = ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont",
+                   "TkCaptionFont", "TkSmallCaptionFont", "TkIconFont", "TkTooltipFont")
+
+
+def use_ui_font(root):
+    """Switch Tk's interface fonts to CONFIG_WINDOW_FONT, keeping their sizes.
+    None leaves the system font."""
+    if CONFIG_WINDOW_FONT is None:
+        return
+    for name in _UI_NAMED_FONTS:
+        tkfont.nametofont(name, root=root).configure(family=CONFIG_WINDOW_FONT)
+
+
+def ui_font(size, *style):
+    """Font tuple in the config window's family, e.g. ui_font(10, "bold").
+    Call it once the Tk root exists; it reads TkDefaultFont's family."""
+    return (tkfont.nametofont("TkDefaultFont").actual("family"), size, *style)
+
+
 def section_header(frame, text, row, info=None, span=2):
     """Place a bold section title plus a horizontal separator line below it.
 
@@ -231,7 +256,7 @@ def section_header(frame, text, row, info=None, span=2):
     """
     title = tk.Frame(frame)
     title.grid(row=row, column=0, columnspan=span, sticky="w", pady=(10, 0))
-    tk.Label(title, text=text, font=("TkDefaultFont", 10, "bold"), anchor="w").pack(side="left")
+    tk.Label(title, text=text, font=ui_font(10, "bold"), anchor="w").pack(side="left")
     if info:
         info_icon(title, text, info).pack(side="left", padx=(4, 0))
     ttk.Separator(frame, orient="horizontal").grid(
@@ -513,7 +538,8 @@ def validate_passfail(raw):
 
     `raw`: dict label -> (min_str, max_str). Returns (values, None) on success or
     (None, error_msg) on failure, where `values` is dict label -> (min_float, max_float).
-    Every field must be a number, none may be negative, and min must not exceed max.
+    Every field must be a number, none may be negative, min must not exceed max,
+    and depth or width can't be set without a wavelength range.
     """
     values = {}
     for label, (lo_s, hi_s) in raw.items():
@@ -530,6 +556,11 @@ def validate_passfail(raw):
         if lo > hi:
             return None, f"{label}: min must not exceed max."
         values[label] = (lo, hi)
+    # Depth and width are checked on the peak the wavelength range picks. With
+    # no range (0 to 0) no peak is picked, so the test could only fail.
+    wl_label, depth_label, width_label = PASSFAIL_LABELS
+    if values[wl_label] == (0, 0) and (values[depth_label] != (0, 0) or values[width_label] != (0, 0)):
+        return None, "Pass/Fail Criteria: Peak Depth and Peak Width need a Peak Wavelength range."
     return values, None
 
 

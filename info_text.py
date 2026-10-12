@@ -87,7 +87,7 @@ The pass/fail test uses **max** (Depth_max and FWHM_max in the peak table).
 
 - Depth and width are then checked on that peak.
 
-- A wavelength range of 0 to 0 selects no peak. So if depth or width is set without a wavelength range, the test always fails.
+- Depth and width are checked on the peak the wavelength range selects, so they need a wavelength range. If you set depth or width without one, Save shows an error.
 """
 
 

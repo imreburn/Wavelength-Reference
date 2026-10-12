@@ -62,7 +62,7 @@
 
 - Users can enter a range (min, max) for peak wavelength, depth, and width.
 - If more than one peak are found inside the given peak wavelength range, the deepest peak is used for the depth and width range criteria.
-- If a peak wavelength range is not set but either the depth or width range is set, the test always fails.
+- The depth and width ranges need a peak wavelength range. If either is set without one, clicking Save shows an error.
 - If a depth range is not set, it is skipped. The same applies to the width.
 - They are saved together with other parameters in a preset.
 - All fields are 0 by default. Setting all as 0 turns off the criteria. The result is not examined, and no message is shown.

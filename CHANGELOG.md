@@ -1,23 +1,43 @@
 # Changelog
 
-## [Unreleased]
+## [2.0.3] - 2026-10-12
 
 ### Added
 
-- In the graph window, pressing Esc closes the open dialog (Save peak info, Apply filter, Sweep info, or Power readout). Their Cancel and Close buttons now show "(Esc)".
-- Added a "Close & Repeat (Enter)" button to the Power readout dialog. It closes the dialog and the graph window, then runs the same sweep again. Pressing Enter in the dialog does the same.
+- In the graph window, pressing Esc closes a popup. Their Cancel and Close buttons now show "(Esc)". ([#113](https://github.com/imreburn/Wavelength-Reference/issues/113))
+- Added a "Close & Repeat (Enter)" button to the Power readout dialog. It closes the dialog and the graph window, then runs the same sweep again.
+- In the graph window, pressing X resets the plot's zoom, the same as the "Autoscale" or "Reset axes" button in Plotly's modebar. ([#118](https://github.com/imreburn/Wavelength-Reference/issues/118))
+- In the graph window, a new "Show / hide...(H)" button on the menu bar opens a popup that replaces the "Show markers/table" section. Choices carry over to the next plot while the program runs.
+- In the graph window, Bandwidth click mode now places two markers: B1 (the peak) and B2 (the base). The first click places B1 and the second places B2. After that, clicks take turns moving them: the third click moves B1, the fourth moves B2, and so on. The custom peak's base is now B2 instead of the latest Delta marker, in the Custom peak table (headers "Peak (B1)" and "Base (B2)") and in "Save peak info". Delta markers no longer affect the custom peak. ([#120](https://github.com/imreburn/Wavelength-Reference/issues/120))
+- In the Custom peak table, the "Bandwidth (pm)" column is now "Width (pm)", and a new "Amplitude (dB)" column next to it shows how far above B1 the width was measured.
+- In the Peak table, a new "IL (dB)" column under a "Reference" header shows the sweep's insertion loss, the same value on every row. It appears only when a reference is used, sits between "Peak" and "Max base", and shows 1 decimal place by default.
+- In the graph window, a new "Bandwidth mode" setting under Click mode chooses how the width of the peak is measured.:
+  - "Automatic" (default): the width is measured at a percentage of the depth from B1 up to B2, set in "Bandwidth amplitude (%)" (1–99, default 50%). The search for the edges reaches as far from B1 as B2 is.
+  - "Manual": the width is measured at "Bandwidth amplitude (dB)" above B1. The edges are searched for across the whole spectrum. If the amplitude is too large for the dip, no width is shown. The -/+ buttons on the "Bandwidth amplitude (dB)" field now change the value by 0.001 instead of 1. ([#107](https://github.com/imreburn/Wavelength-Reference/issues/107))
+- In the graph window, the width markers and values appear only when both edges are found, so the two markers always sit at the same height. Otherwise a note under the Bandwidth fields explains why there's no width.
 
 ### Changed
 
-- In the graph window, the -/+ buttons on the "Bandwidth amplitude (dB)" field now change the value by 0.001 instead of 1. ([#107](https://github.com/imreburn/Wavelength-Reference/issues/107))
 - When saving raw data, the default file name is `<label>_<time>.csv` (or `<time>.csv` with no given label), instead of the fixed name `raw_data.csv`
 - In the graph window, keyboard shortcuts now also work right after you click a checkbox or a radio button.
 - In the config window, the "Set Reference" / "Unset Reference" button is now a "Use reference" checkbox. The status next to it now reads "No data" (black), "Data ready" (blue), or "In use" (red), instead of "Not Set / Not Available", "Not Set / Available", or "Set".
+- In the graph window, the right panel's sections are renamed "Plot sampling" (was "Max points(x1000)/plot") and "Click mode" (was "Click Mode"). The "Show markers/table" section moved to the new "Show / hide" popup.
+- In the graph window, Delta markers are now numbered D1, D2, … instead of M1, M2, …, on the plot and in the tables.
+- In the graph window, the plot now fills the width of the window instead of a fixed width, and adjusts when the window is resized. The "Plot in Watt" window does the same.
+- In the graph window, the "FWHM (max/avg/min base)" markers are renamed to "Width (max/avg/min base)".
+- In the graph window, the Pass/Fail result is now a table titled "Pass/Fail test result", just above the Peak table, instead of a single line. ([#119](https://github.com/imreburn/Wavelength-Reference/issues/119)). Its "Customize..." dialog sets the decimal places of the measured values (by default 4 for λ, 2 for depth, 1 for width), and the choices carry over to the next plot while the program runs. It also shows when no peak is found or the peak table is hidden. ([#115](https://github.com/imreburn/Wavelength-Reference/issues/115))
+- Plotly's modebar in the top-right corner of the plot is now always visible.
+- In the config window, clicking Save now shows an error if the Pass/Fail Criteria set a peak depth or width range without a peak wavelength range. Before, the test then always failed in the graph window.
+
+### Removed
+
+- In the graph window, the fine-tune slider for the Bandwidth marker and its "Slider range (pm)" field are removed.
+- In the graph window, the "Search range (pm)" field is removed. Manual Bandwidth mode now searches the whole spectrum.
 
 ### Fixed
 
-- Fixed a bug where the "Bandwidth amplitude (dB)", "Slider range (pm)", and "Search range (pm)" fields in the graph window accepted negative values. ([#108](https://github.com/imreburn/Wavelength-Reference/issues/108))
 - Fixed a bug where pressing Enter in a dialog in the graph window (for example, on the file list in "Save peak info") closed the window and started the next sweep. Enter now runs "Close & Repeat" only from the main window or the Power readout dialog, and not while you're typing in a field or using a dropdown.
+- Fixed a bug that the Pass/Fail result is not shown when no peak is found or the peak table is hidden. ([#115](https://github.com/imreburn/Wavelength-Reference/issues/115))
 
 ## [2.0.2] - 2026-09-28
 
