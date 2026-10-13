@@ -38,10 +38,11 @@ class ReadoutSection:
         ctrl = tk.Frame(f)
         ctrl.grid(row=2, column=0, columnspan=5, sticky="w", pady=(0, 2))
         self.laser_var = tk.IntVar(value=int(readout.emission))
-        self.laser_cb  = tk.Checkbutton(ctrl, text="Laser on", variable=self.laser_var,
+        # The config window binds the L key to this box.
+        self.laser_cb  = tk.Checkbutton(ctrl, text="Laser on (L)", variable=self.laser_var,
                                         command=self.toggle_laser)
         self.laser_cb.grid(row=0, column=0, columnspan=2, sticky="w")
-        tk.Label(ctrl, text="Wavelength (nm)", anchor="e").grid(
+        tk.Label(ctrl, text="λ (nm)", anchor="e").grid(
             row=1, column=0, sticky="e", padx=(0, 6), pady=2)
         self.wl_entry = tk.Entry(ctrl, width=9)
         self.wl_entry.insert(0, format_wl(readout.wl_nm))

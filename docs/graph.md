@@ -11,13 +11,13 @@
 - **P** key is the keyboard shortcut.
 - Label (SN) cannot be left empty.
 - I.L. and Temperature can be left empty.
-- If the pass/fail criteria finds a peak, it will be automatically selected from the peak list. A note "(criteria)" is added to the peak.
-- The peak with the maximum depth (based on 'Depth_max') is noted "(max depth)", and will be listed next to the one found by the criteria. The same peak may be chosen by both conditions.
+- If the peak test finds a peak, it will be automatically selected from the peak list. A note "(tested)" is added to the peak.
+- The peak with the maximum depth (based on 'Depth_max') is noted "(deepest)", and will be listed next to the tested one. The same peak may be chosen by both conditions.
 
 #### Show / Hide...
 
 - **H** key is the keyboard shortcut.
-- Shows or hides what's drawn on and under the plot: the peaks and their left and right bases, the Peak table, the width markers, the Pass/Fail table, and the insertion loss marker.
+- Shows or hides what's drawn on and under the plot: the peaks and their left and right bases, the Peak table, the width markers, the Peak test result table, and the insertion loss marker.
 - "All" and each "(all)" box tick or clear their whole group.
 - A hidden plot item stays in the legend. Clicking it there shows it again.
 
@@ -51,8 +51,8 @@ Users can save raw data and peak data to CSV files.
 - Label (SN) cannot be left empty.
 - I.L. and Temperature can be left empty.
 - Users can build a custom peak with the two Bandwidth markers: B1 is the peak and B2 is the base. In Bandwidth click mode, the first click places B1 and the second places B2. After that, clicks take turns moving them: the third click moves B1, the fourth moves B2, and so on. "Clear all" starts over from B1.
-- If the pass/fail criteria finds a peak, it will be automatically selected from the peak list. A note "(criteria)" is added to the peak.
-- The peak with the maximum depth (based on 'Depth_max') is noted "(max depth)", and will be listed next to the one found by the criteria. The same peak may be chosen by both conditions.
+- If the peak test finds a peak, it will be automatically selected from the peak list. A note "(tested)" is added to the peak.
+- The peak with the maximum depth (based on 'Depth_max') is noted "(deepest)", and will be listed next to the tested one. The same peak may be chosen by both conditions.
 
 ---
 
@@ -69,9 +69,9 @@ Users can save raw data and peak data to CSV files.
 
 ---
 
-### Pass/Fail Criteria
+### Peak Test
 
-- The result is shown in a table titled "Pass/Fail test result", just above the Peak table. It lists each criterion's range, the tested peak's measured value, and the result of each check. The top-left cell names the tested peak and the base its depth and width are measured from, for example "P2 / Max base". The overall result, "Pass" in green or "Fail" in red, is in the last column. The "Criteria [min, max]" row shows each range's min and max, and both ends count as inside. "∞" means no upper limit, and "—" means the check isn't set. "Customize..." next to the title sets how many decimal places the measured values show.
+- The result is shown in a table titled "Peak test result", just above the Peak table. It lists each criterion's range, the tested peak's measured value, and the result of each check. The top-left cell names the tested peak and the base its depth and width are measured from, for example "P2 / Max base". The overall result, "Pass" in green or "Fail" in red, is in the last column. The "Criteria [min, max]" row shows each range's min and max, and both ends count as inside. "∞" means no upper limit, and "—" means the check isn't set. "Customize..." next to the title sets how many decimal places the measured values show.
 - If multiple peaks fall within the wavelength range, the peak with the deepest depth is chosen for examination.
 - If the wavelength range finds a peak, the row is highlighted in blue in the peak table. It is also automatically selected in the peak list in "Save peak info...".
 

@@ -122,7 +122,7 @@ TABLES = {
         'striped': False,  # its rows have their own highlight colors
     },
     'passfail': {
-        'title': 'Pass/Fail test result',
+        'title': 'Peak test result',
         # Built by passfail_table, not build_table: its "columns" here are just
         # the Measured row's values, whose decimals the Customize dialog sets.
         # The header part of each label is also the table's column header.
@@ -163,7 +163,7 @@ def _cell_text(table, col, row, dec):
     if table == 'peak' and col == 'Peak':
         return f"P{row['Peak']}"
     if table == 'peak' and col == 'Category':
-        # Why the row is highlighted: "(deepest)(criteria)" -> "deepest, criteria"
+        # Why the row is highlighted: "(deepest)(tested)" -> "deepest, tested"
         return ', '.join(re.findall(r'\((\w+)\)', row['Category']))
     if col not in row:
         return EMPTY   # e.g. the first Delta marker's mid/Δ/slope, or a base not set yet
@@ -177,8 +177,8 @@ def _cell_text(table, col, row, dec):
 
 def _row_bg(table, i, row):
     if table == 'peak':
-        # The criteria color wins over the deepest when one peak is both.
-        if '(criteria)' in row['Category']:
+        # The tested peak's color wins over the deepest's when one peak is both.
+        if '(tested)' in row['Category']:
             return CRITERIA_BG
         if '(deepest)' in row['Category']:
             return DEEPEST_BG

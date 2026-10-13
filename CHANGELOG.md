@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- In the config window, a new "Detector" row below "Source" shows the power meter, N7748A. It's also listed in the graph window's "Sweep info" and saved in the first line of raw data files.
+- Keyboard shortcuts in the config window: R checks or unchecks "Use reference", and L checks or unchecks "Laser on" in the Power Readout. The checkboxes are now labeled "Use reference (R)" and "Laser on (L)".
+
+### Changed
+
+- The pass/fail test is now called the peak test.
+  - In the config window, the "Pass/Fail Criteria (Optional)" section is renamed to "Peak Test Criteria (Optional)".
+  - In the graph window, the "Pass/Fail test result" table is renamed to "Peak test result". 
+  - The tested peak's note in the Peak table and in "Save peak info" is now "tested" instead of "criteria". 
+  - In "Sweep info", the "Pass/fail criteria" group is now "Peak test criteria".
+- In the config window, "Wavelength" in field names is now "λ"
+- In the config window, "λ Padding (pm)" moved up, between "λ Stop (nm)" and "Sweep Speed (nm/s)".
+- In the config window, "Laser Source" is renamed to "Source". In the graph window's "Sweep info", "Laser source" is now "Source" too.
+
 ## [2.0.3] - 2026-10-12
 
 ### Added

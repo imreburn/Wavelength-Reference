@@ -482,16 +482,20 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
     }
 
     # What the "Show / hide" popup lists, as (value, label) per group. An item
-    # is listed only when this window has it: peaks found, Pass/Fail criteria
+    # is listed only when this window has it: peaks found, peak test criteria
     # set (the table exam_div shows), a reference (the insertion loss marker).
+    # The Peak test result table shows even with no peak found, so then it's
+    # the Peak group's only item.
     SH_ITEMS = {
-        'peak': [('peak', 'Peak'), ('lbase', 'Peak:Left base'), ('rbase', 'Peak:Right base'),
-                 # Keeps "table" here, unlike the table's own caption ("Peak").
-                 ('table', 'Peak table')] if pk is not None else [],
+        'peak': ([('peak', 'Peak'), ('lbase', 'Peak:Left base'), ('rbase', 'Peak:Right base')]
+                 if pk is not None else [])
+                # The two tables in their on-screen order: the test result first.
+                + ([('passfail', 'Peak test result')] if exam_out in ('Pass', 'Fail') else [])
+                # Keeps "table" here, unlike the table's own caption ("Peak").
+                + ([('table', 'Peak table')] if pk is not None else []),
         'width': [('max', 'Width (max base)'), ('avg', 'Width (avg base)'),
                   ('min', 'Width (min base)')] if pk is not None else [],
-        'other': ([('passfail', 'Pass/Fail test result table')] if exam_out in ('Pass', 'Fail') else [])
-                 + ([('il', 'Insertion loss')] if il_idx is not None else []),
+        'other': [('il', 'Insertion loss')] if il_idx is not None else [],
     }
     SH_KEYS = {group: [value for value, _ in items] for group, items in SH_ITEMS.items()}
     has_show_hide = any(SH_KEYS.values())
@@ -567,14 +571,14 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         max_peak = int(peak_df.loc[peak_df['Depth_max'].idxmax(), 'Peak'])
         if exam_idx is not None:
             ordered_peaks = [exam_idx] + ([max_peak] if max_peak != exam_idx else [] ) + [int(p) for p in peak_df['Peak'] if int(p) not in [exam_idx, max_peak]]
-            peak_df.loc[peak_df["Peak"] == exam_idx, "Category"] += "(criteria)"
+            peak_df.loc[peak_df["Peak"] == exam_idx, "Category"] += "(tested)"
         else:
             ordered_peaks = [max_peak] + [int(p) for p in peak_df['Peak'] if int(p) != max_peak]
         peak_options = []
         for p in ordered_peaks:
             label = f'P{p}'
             if exam_idx is not None and p == exam_idx:
-                label += " (criteria) "
+                label += " (tested) "
             if p == max_peak:
                 label += " (deepest)"
             peak_options.append({'label': label, 'value': f'peak:{p}'})
@@ -879,7 +883,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
                 value=['on'] if (readout is not None and readout.emission) else [],
                 style={'fontSize': '13px', 'marginBottom': '6px'}),
             html.Div([
-                html.Label('Wavelength (nm)', style=_ro_label),
+                html.Label('λ (nm)', style=_ro_label),
                 dcc.Input(id='readout-wl', type='text', style=_ro_input,
                           value=format_wl(readout.wl_nm) if readout is not None else ''),
                 html.Span(_readout_actual()[0], id='readout-wl-actual', style=_ro_actual),
@@ -918,7 +922,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
     )
 
     # The peak table's rows, also listed in its Customize dialog. Built after
-    # the Save peak section above has tagged the criteria peak in Category.
+    # the Save peak section above has tagged the tested peak in Category.
     # With a reference, each row also carries the sweep's insertion loss (the
     # same value the IL marker on the plot shows).
     peak_rows = peak_df.to_dict('records') if pk is not None else []
@@ -951,8 +955,8 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
                 # render_* callbacks below fill in the marker and Peak tables.
                 # The Pass/Fail table sits outside the Peak table's container,
                 # so it still shows when no peak was found or the table is
-                # hidden. Its wrapper is what Show / hide's "Pass/Fail test
-                # result table" hides.
+                # hidden. Its wrapper is what Show / hide's "Peak test result"
+                # hides.
                 html.Div(id='custom-block', style={'display': 'none', 'marginTop': '5px'}, children=[
                     pt.caption('custom'), html.Div(id='custom-table')]),
                 html.Div(id='delta-block', style={'display': 'none', 'marginTop': '5px'}, children=[

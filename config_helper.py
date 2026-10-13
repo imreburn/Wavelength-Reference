@@ -60,6 +60,23 @@ def passfail_col(label, bound):
 # Flat list of Pass/Fail preset columns, in (label, bound) order.
 PASSFAIL_COLUMNS = [passfail_col(label, b) for label in PASSFAIL_LABELS for b in PASSFAIL_BOUNDS]
 
+# What the config window shows for a label, where the two differ. The labels
+# above stay as they are because they are also the preset CSV column names, so
+# presets saved before still load.
+LABEL_TEXT = {
+    "Start Wavelength (nm)": "λ Start (nm)",
+    "Stop Wavelength (nm)" : "λ Stop (nm)",
+    PADDING_LABEL          : "λ Padding (pm)",
+    "Peak Wavelength (nm)" : "λ (nm)",
+    "Peak Depth (dB)"      : "Depth (dB)",
+    "Peak Width (pm)"      : "Width (pm)",
+}
+
+
+def label_text(label):
+    """The text the config window shows for `label`."""
+    return LABEL_TEXT.get(label, label)
+
 
 # More Info: an optional per-run label (prefix + zero-padded counter) and the
 # auto-save switch. Session-only UI state — never written to presets.
@@ -409,9 +426,10 @@ def show_info(widget, title, text):
     top.focus_set()
 
 
-def make_extra_widgets(frame, start_row, init, on_change, enable_dynamic=True):
-    """Build the extra dropdowns, one per EXTRA_LABELS row, from grid row `start_row`.
+def make_extra_widgets(frame, rows, init, on_change, enable_dynamic=True):
+    """Build the extra dropdowns, one per EXTRA_LABELS entry.
 
+    `rows`         dict of label -> grid row; each dropdown goes on its label's row.
     `init`         dict of label -> initial value (falls back to EXTRA_DEFAULTS).
     `on_change`    callback fired on any selection change.
     `enable_dynamic`  when False, Dynamic Range Scans and Decrement are permanently
@@ -421,11 +439,11 @@ def make_extra_widgets(frame, start_row, init, on_change, enable_dynamic=True):
     Returns (vars, menus) — each a dict keyed by label.
     """
     vars_, menus = {}, {}
-    for j, label in enumerate(EXTRA_LABELS):
-        tk.Label(frame, text=label, anchor="e").grid(row=start_row + j, column=0, pady=4, padx=(0, 8), sticky="e")
+    for label in EXTRA_LABELS:
+        tk.Label(frame, text=label_text(label), anchor="e").grid(row=rows[label], column=0, pady=4, padx=(0, 8), sticky="e")
         v = tk.StringVar(value=init.get(label, EXTRA_DEFAULTS[label]))
         m = tk.OptionMenu(frame, v, *EXTRA_OPTIONS[label])
-        m.grid(row=start_row + j, column=1, pady=4, sticky="w")
+        m.grid(row=rows[label], column=1, pady=4, sticky="w")
         v.trace_add("write", on_change)
         vars_[label] = v
         menus[label] = m
@@ -476,9 +494,9 @@ def validate_inputs(raw_strings, num_data, avg_time, duration, padding, source_s
     
     wl_min, wl_max = source_spec["wl_min"], source_spec["wl_max"]
     if not (wl_min <= wav_start <= wl_max) or not (wl_min <= wav_stop <= wl_max):
-        return None, f"Wavelengths must be between {wl_min:g} and {wl_max:g} nm."
+        return None, f"λ Start and λ Stop must be between {wl_min:g} and {wl_max:g} nm."
     if wav_start >= wav_stop:
-        return None, "Start wavelength must be less than Stop wavelength."
+        return None, "λ Start must be less than λ Stop."
     if step_size < 0:
         return None, "Step size must not be less than 0."
     if f"{sweep_speed}" not in SWEEP_SPEED_OPTIONS:
@@ -530,16 +548,16 @@ def validate_extras(extra_strs):
     """
     for label in (PADDING_LABEL, PM_RANGE_LABEL, DYN_SCAN_LABEL):
         if extra_strs[label] not in EXTRA_OPTIONS[label]:
-            return f"{label} must be selected from the dropdown list."
+            return f"{label_text(label)} must be selected from the dropdown list."
     if extra_strs[DYN_SCAN_LABEL] in ("2", "3") and extra_strs[DECREMENT_LABEL] not in DECREMENT_OPTIONS:
-        return f"{DECREMENT_LABEL} must be selected from the dropdown list."
+        return f"{label_text(DECREMENT_LABEL)} must be selected from the dropdown list."
     if int(extra_strs[PM_RANGE_LABEL]) - (int(extra_strs[DYN_SCAN_LABEL]) - 1) * int(extra_strs[DECREMENT_LABEL]) < int(PM_RANGE_OPTIONS[-1]):
         return f"The range cannot be set lower than {PM_RANGE_OPTIONS[-1]} dBm."
     return None
 
 
 def validate_passfail(raw):
-    """Validate the Pass/Fail Criteria fields.
+    """Validate the Peak Test Criteria fields.
 
     `raw`: dict label -> (min_str, max_str). Returns (values, None) on success or
     (None, error_msg) on failure, where `values` is dict label -> (min_float, max_float).
@@ -553,19 +571,19 @@ def validate_passfail(raw):
         try:
             lo, hi = float(lo_s), float(hi_s)
         except ValueError:
-            return None, "all Pass/Fail Criteria fields must be numbers."
+            return None, "all Peak Test Criteria fields must be numbers."
         if lo < 0 or hi < 0:
-            return None, "Pass/Fail Criteria values must not be negative."
+            return None, "Peak Test Criteria values must not be negative."
         if lo > 0 and hi == 0:
             hi = float("inf")
         if lo > hi:
-            return None, f"{label}: min must not exceed max."
+            return None, f"Peak Test Criteria: {label_text(label)} min must not exceed max."
         values[label] = (lo, hi)
     # Depth and width are checked on the peak the wavelength range picks. With
     # no range (0 to 0) no peak is picked, so the test could only fail.
     wl_label, depth_label, width_label = PASSFAIL_LABELS
     if values[wl_label] == (0, 0) and (values[depth_label] != (0, 0) or values[width_label] != (0, 0)):
-        return None, "Pass/Fail Criteria: Peak Depth and Peak Width need a Peak Wavelength range."
+        return None, "Peak Test Criteria: Depth and Width need a λ range."
     return values, None
 
 

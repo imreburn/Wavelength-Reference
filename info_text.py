@@ -21,7 +21,7 @@ PARAMETERS_INFO="""
 - If the step size is adjusted, the field shows the new value in orange.
 
 
-**Wavelength Padding (pm)**
+**λ Padding (pm)**
 
 - Extra range added before the start wavelength and after the stop wavelength. The laser actually sweeps from (start - padding) to (stop + padding). The result is trimmed to the range from start to stop.
 
@@ -38,6 +38,8 @@ REFERENCE_INFO="""
 
 - Unchecking "Use reference" stops using the reference but doesn't delete it. Check the box again to use it again. A new measurement taken while the box is unchecked replaces it.
 
+- Press R to check or uncheck the box. This doesn't work while you're typing in a field.
+
 - The reference and later measurements must use the same parameters. So clicking "Change" is taken to mean the parameters are about to change, and it deletes the reference right away. Then a new measurement should be taken before a reference can be used.
 
 
@@ -52,7 +54,7 @@ REFERENCE_INFO="""
 
 
 PASSFAIL_INFO = """
-After each sweep, the program automatically detects peaks in the absorption spectrum. If the pass/fail test is on, one peak is checked against the wavelength, depth, and width ranges you set. The result is shown in the graph window.
+After each sweep, the program automatically detects peaks in the absorption spectrum. If the peak test is on, one peak is checked against the wavelength, depth, and width ranges you set. The result is shown in the graph window.
 
 
 **Depth and width**
@@ -63,7 +65,7 @@ Each peak has two base points, one on each side (left and right). Depth and widt
 - min: the base with the lower power, which gives the smallest depth. This is the standard peak prominence, as in SciPy.
 - avg: the average of the two bases.
 
-The pass/fail test uses **max** (Depth_max and FWHM_max in the peak table).
+The peak test uses **max** (Depth_max and FWHM_max in the peak table).
 
 
 **Setting the criteria**

@@ -43,6 +43,10 @@ VISA_ADDRS = {
         LAS: VISA_ADDR_TLS_N7778C
 }
 
+# The power meter, the same with every laser source. The config window shows
+# it as "Detector", and Params.detector records it.
+DETECTOR = "N7748A"
+
 
 # Laser sources offered at startup. "external": the app never talks to it —
 # the user sets it up by hand and its trigger starts the power meter's log.

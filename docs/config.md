@@ -23,7 +23,7 @@
 
 ---
 
-### Wavelength Padding
+### λ Padding
 
 - The Keysight IL software automatically adds 50 pm padding to the start and stop wavelength. For example, if the user sets 1535 and 1537 nm as the start and stop wavelength, the actual sweep range is set by the software from 1534.95 nm to 1537.05 nm.
 - In WavelengthSweep software, the user can configure this padding parameter from 0 to 50 pm with 10 pm increment. 
@@ -58,13 +58,13 @@
 
 --- 
 
-### Pass/Fail Criteria
+### Peak Test Criteria
 
 - Users can enter a range (min, max) for peak wavelength, depth, and width.
 - If more than one peak are found inside the given peak wavelength range, the deepest peak is used for the depth and width range criteria.
 - The depth and width ranges need a peak wavelength range. If either is set without one, clicking Save shows an error.
 - If a depth range is not set, it is skipped. The same applies to the width.
 - They are saved together with other parameters in a preset.
-- All fields are 0 by default. Setting all as 0 turns off the criteria. The result is not examined, and no message is shown.
+- All fields are 0 by default. Setting all as 0 turns off the peak test. The result is not examined, and no message is shown.
 - If a min value is entered and the max field is left empty or 0, the positive infinity is automatically assigned as the max value. 
 - If a max value is entered and the min field is left empty, 0 is automatically assigned as the min value.

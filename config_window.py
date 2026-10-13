@@ -10,7 +10,7 @@ import dpi_awareness  # noqa: F401
 
 log = logging.getLogger(__name__)
 
-from constants import APP_VERSION, TLS_SOURCES
+from constants import APP_VERSION, TLS_SOURCES, DETECTOR
 from shutdown import IDLE_SECONDS, IDLE_POLL_MS
 from structs import Params
 from readout_tk import ReadoutSection
@@ -18,7 +18,7 @@ from config_helper import (
     FIELD_LABELS, DEFAULTS, SWEEP_SPEED_OPTIONS,
     EXTRA_LABELS, EXTRA_DEFAULTS, PADDING_LABEL, PM_RANGE_LABEL, DYN_SCAN_LABEL, DECREMENT_LABEL,
     CHANNEL_LABEL, CHANNEL_OPTIONS, CHANNEL_DEFAULT, channels_to_str, parse_channels, padding_nm,
-    PASSFAIL_LABELS, PASSFAIL_KEYS, PASSFAIL_DEFAULT, PASSFAIL_COLUMNS, passfail_col,
+    PASSFAIL_LABELS, PASSFAIL_KEYS, PASSFAIL_DEFAULT, PASSFAIL_COLUMNS, passfail_col, label_text,
     preset_path, load_presets, save_preset, delete_preset, section_header, make_extra_widgets,
     use_ui_font, ui_font,
     validate_inputs, validate_extras, validate_passfail, validation_error,
@@ -33,6 +33,12 @@ _last = {}  # persists raw field values within one execution
 
 # Fixed on-screen position for the window at first launch (top-left x, y).
 WINDOW_POS = (50, 10)
+
+# A checkbox's letter key (R, L) counts only after this many seconds with no
+# press of that key. A held key repeats, and each repeat would toggle the box
+# (L switches the real laser). Longer than Windows' default delay (~0.5 s)
+# before a held key starts repeating.
+KEY_QUIET_S = 1.0
 
 # Persists across get_inputs() calls (the window is recreated each loop):
 #   ref_available — a sweep without a reference has finished since startup or
@@ -74,6 +80,29 @@ def _is_disabled(widget):
         return False
 
 
+def _bind_checkbox_key(root, letter, checkbox):
+    """Let `letter` (either case) click `checkbox` anywhere in root's window.
+
+    A key typed into a field reaches root's bindings too, so the letter is left
+    to fields that take text. Locked (disabled) fields don't, so it works there.
+    invoke() does nothing while the checkbox is disabled. Holding the key clicks
+    once: its repeats keep restarting the KEY_QUIET_S wait.
+    """
+    last = {"t": float("-inf")}
+
+    def on_key(event):
+        if isinstance(event.widget, tk.Entry) and not _is_disabled(event.widget):
+            return
+        now, prev = time.monotonic(), last["t"]
+        last["t"] = now
+        if now - prev < KEY_QUIET_S:
+            return
+        checkbox.invoke()
+
+    root.bind(f"<KeyPress-{letter.lower()}>", on_key)
+    root.bind(f"<KeyPress-{letter.upper()}>", on_key)   # Shift or Caps Lock
+
+
 def get_inputs(readout=None, auto_run=False, source=None):
     # readout: the session's readout.PowerReadout, shown live in its own section
     # for as long as this window is up (stopped before Run tears it down). None
@@ -94,6 +123,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     params = Params(version=APP_VERSION)
     params.reference = _state["reference"]
     params.source    = source
+    params.detector  = DETECTOR
     saved = {"ok": False}
     ran = {"ok": False}
     # The readout section (readout_tk.ReadoutSection), built with the widgets
@@ -549,14 +579,17 @@ def get_inputs(readout=None, auto_run=False, source=None):
     frame = tk.Frame(root, padx=20, pady=15)
     frame.pack()
 
-    N = len(FIELD_LABELS)
-
     # ---- Grid row layout -------------------------------------------------
     SOURCE_ROW   = 2                     # read-only: the laser chosen at startup
-    FIELDS_START = SOURCE_ROW + 1        # preset at FIELDS_START, channel next, fields after
+    DETECTOR_ROW = SOURCE_ROW + 1        # read-only: the power meter
+    FIELDS_START = DETECTOR_ROW + 1      # preset at FIELDS_START, channel next, fields after
     CHANNEL_ROW  = FIELDS_START + 1      # channel checkboxes sit below Load Preset
-    EXTRAS_START = FIELDS_START + N + 2   # one row per extra dropdown
-    LOGCOUNT_ROW = EXTRAS_START + len(EXTRA_LABELS)
+    # The fields and the extra dropdowns, one row each in this order: λ Padding
+    # right after λ Stop, and the other extras after TLS Power.
+    PARAM_ORDER  = (FIELD_LABELS[:2] + [PADDING_LABEL] + FIELD_LABELS[2:]
+                    + [label for label in EXTRA_LABELS if label != PADDING_LABEL])
+    PARAM_ROWS   = {label: CHANNEL_ROW + 1 + j for j, label in enumerate(PARAM_ORDER)}
+    LOGCOUNT_ROW = CHANNEL_ROW + 1 + len(PARAM_ORDER)
     AVGTIME_ROW  = LOGCOUNT_ROW + 1
     DURATION_ROW = AVGTIME_ROW + 1
     SAVEBTN_ROW  = DURATION_ROW + 1
@@ -565,7 +598,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     HEADER3_ROW  = REFBTN_ROW + 1    # Instruments
     RUNBTN_ROW   = HEADER3_ROW + 2
     RESULT_ROW   = RUNBTN_ROW + 1    # status messages sit right below Run
-    # Pass/Fail Criteria and the Power Readout sit in their own sub-frame in
+    # Peak Test Criteria and the Power Readout sit in their own sub-frame in
     # column 2 (right of the Parameters section), so they consume no rows here.
 
     # ---- Set Parameters --------------------------------------------------
@@ -577,8 +610,11 @@ def get_inputs(readout=None, auto_run=False, source=None):
     source_text = f"{source}  ({source_spec['wl_min']}-{source_spec['wl_max']} nm)"
     if source_spec["external"]:
         source_text += ", external"
-    tk.Label(frame, text="Laser Source", anchor="e").grid(row=SOURCE_ROW, column=0, pady=4, padx=(0, 8), sticky="e")
+    tk.Label(frame, text="Source", anchor="e").grid(row=SOURCE_ROW, column=0, pady=4, padx=(0, 8), sticky="e")
     tk.Label(frame, text=source_text, anchor="w").grid(row=SOURCE_ROW, column=1, pady=4, sticky="w")
+    # The power meter: the same with every source, so display only too.
+    tk.Label(frame, text="Detector", anchor="e").grid(row=DETECTOR_ROW, column=0, pady=4, padx=(0, 8), sticky="e")
+    tk.Label(frame, text=DETECTOR, anchor="w").grid(row=DETECTOR_ROW, column=1, pady=4, sticky="w")
 
     presets = load_presets(preset_file)
     # Sorted for display only — preset.csv keeps whatever row order it has.
@@ -604,19 +640,20 @@ def get_inputs(readout=None, auto_run=False, source=None):
     init_fields = _last.get("fields", field_defaults)
     entries = []
     entry_widgets = []
-    for i, (label_text, default) in enumerate(zip(FIELD_LABELS, init_fields)):
-        tk.Label(frame, text=label_text, anchor="e").grid(row=FIELDS_START+i+2, column=0, pady=4, padx=(0, 8), sticky="e")
+    for i, (label, default) in enumerate(zip(FIELD_LABELS, init_fields)):
+        row = PARAM_ROWS[label]
+        tk.Label(frame, text=label_text(label), anchor="e").grid(row=row, column=0, pady=4, padx=(0, 8), sticky="e")
         if i == 2:  # Sweep Speed — dropdown
             sv = tk.StringVar(value=default if default in SWEEP_SPEED_OPTIONS else SWEEP_SPEED_OPTIONS[0])
             menu = tk.OptionMenu(frame, sv, *SWEEP_SPEED_OPTIONS)
-            menu.grid(row=FIELDS_START+i+2, column=1, pady=4, sticky="w")
+            menu.grid(row=row, column=1, pady=4, sticky="w")
             sv.trace_add("write", on_entry_change)
             entries.append(sv)
             entry_widgets.append(menu)
         else:
             e = tk.Entry(frame, width=20)
             e.insert(0, default)
-            e.grid(row=FIELDS_START+i+2, column=1, pady=4, sticky="w")
+            e.grid(row=row, column=1, pady=4, sticky="w")
             e.bind("<Key>", on_entry_change)
             entries.append(e)
             entry_widgets.append(e)
@@ -629,7 +666,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
         # Seed 0 here so _pin_padding() below finds nothing to change: a write
         # during build would fire on_entry_change before result_label exists.
         init_extras = {**init_extras, PADDING_LABEL: "0"}
-    extra_vars, extra_menus = make_extra_widgets(frame, EXTRAS_START, init_extras, on_entry_change)
+    extra_vars, extra_menus = make_extra_widgets(frame, PARAM_ROWS, init_extras, on_entry_change)
     _pin_padding()
 
     num_data = tk.StringVar(value="0")
@@ -645,7 +682,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     tk.Label(frame, text="Duration / Sweep (s)", anchor="e").grid(row=DURATION_ROW, column=0, sticky="e", pady=4, padx=(0, 8))
     tk.Label(frame, textvariable=duration, anchor="w").grid(row=DURATION_ROW, column=1, sticky="w", pady=4)
 
-    # ---- Right column: Pass/Fail Criteria, then the live Power Readout ----
+    # ---- Right column: Peak Test Criteria, then the live Power Readout ----
     # One sub-frame spanning every row of the main grid, so however tall the
     # readout gets it never stretches the rows of the Parameters column.
     # Each section fills the column's width and hands the spare width to a
@@ -654,19 +691,19 @@ def get_inputs(readout=None, auto_run=False, source=None):
     right_col = tk.Frame(frame)
     right_col.grid(row=0, column=2, rowspan=RESULT_ROW + 1, sticky="n", padx=(40, 0))
 
-    # Pass/Fail Criteria: each criterion has a min and max float entry placed
+    # Peak Test Criteria: each criterion has a min and max float entry placed
     # side by side; values are validated and saved (and stored in presets)
     # alongside the parameters.
     pf_container = tk.Frame(right_col)
     pf_container.pack(anchor="w", fill="x")
     pf_container.columnconfigure(1, weight=1)
-    section_header(pf_container, "Pass/Fail Criteria (Optional)", 0, info=PASSFAIL_INFO)
+    section_header(pf_container, "Peak Test Criteria (Optional)", 0, info=PASSFAIL_INFO)
     init_passfail = _last.get("passfail", {})
     passfail_entries = {}   # label -> (min_entry, max_entry)
     passfail_widgets = []   # flat list for lock/unlock
     pf_labels = []          # their widths line up the Label & Auto-Save fields below
     for j, label in enumerate(PASSFAIL_LABELS):
-        pf_label = tk.Label(pf_container, text=label, anchor="e")
+        pf_label = tk.Label(pf_container, text=label_text(label), anchor="e")
         pf_label.grid(row=j + 2, column=0, pady=4, padx=(0, 8), sticky="e")
         pf_labels.append(pf_label)
         pf_frame = tk.Frame(pf_container)
@@ -689,11 +726,9 @@ def get_inputs(readout=None, auto_run=False, source=None):
     info_container = tk.Frame(right_col)
     info_container.pack(anchor="w", fill="x", pady=(16, 0))
     section_header(info_container, "Label & Auto-Save (Optional)", 0, info=AUTOSAVE_INFO)
-    # Column 1 starts where the Pass/Fail entries do (label width + its 8 px
-    # padding), so the fields line up with them. Column 1's weight gives it all
-    # the extra width the Auto-save row needs, so the filename preview grows to
-    # the right instead of shifting the fields each time its text changes.
-    info_container.columnconfigure(0, minsize=max(l.winfo_reqwidth() for l in pf_labels) + 8)
+    # Column 1's weight gives it all the extra width the Auto-save row needs,
+    # so the filename preview grows to the right instead of shifting the fields
+    # each time its text changes. Column 0 is set below, once its items exist.
     info_container.columnconfigure(1, weight=1)
     init_info = _last.get("info", {})
 
@@ -703,20 +738,22 @@ def get_inputs(readout=None, auto_run=False, source=None):
     start_var     = tk.StringVar(value=init_info.get("start", LABEL_START_DEFAULT))
     save_raw_var  = tk.IntVar(value=init_info.get("save_raw", 0))
 
-    tk.Checkbutton(info_container, text="Add label (SN)", variable=add_label_var).grid(
-        row=2, column=0, pady=4, sticky="w")
+    add_label_cb = tk.Checkbutton(info_container, text="Add label (SN)", variable=add_label_var)
+    add_label_cb.grid(row=2, column=0, pady=4, sticky="w")
     # Fixed width so the row doesn't shift as the preview text changes.
     label_preview = tk.Label(info_container, text="", anchor="w", width=20,
                              font=ui_font(10, "bold"))
     label_preview.grid(row=2, column=1, pady=4, sticky="w")
 
     # Left-aligned and indented to sit under the "Add label" text, not the box.
-    tk.Label(info_container, text="Prefix", anchor="w").grid(row=3, column=0, pady=4, padx=(24, 8), sticky="w")
+    prefix_label = tk.Label(info_container, text="Prefix", anchor="w")
+    prefix_label.grid(row=3, column=0, pady=4, padx=(24, 8), sticky="w")
     prefix_entry = tk.Entry(info_container, textvariable=prefix_var, width=20)
     prefix_entry.grid(row=3, column=1, pady=4, sticky="w")
 
     # The counter row: its two fields each carry their own name, like Starting from.
-    tk.Label(info_container, text="Counter", anchor="w").grid(row=4, column=0, pady=4, padx=(24, 8), sticky="w")
+    counter_label = tk.Label(info_container, text="Counter", anchor="w")
+    counter_label.grid(row=4, column=0, pady=4, padx=(24, 8), sticky="w")
     digits_frame = tk.Frame(info_container)
     digits_frame.grid(row=4, column=1, pady=4, sticky="w")
     tk.Label(digits_frame, text="Digits").pack(side="left", padx=(0, 2))
@@ -725,6 +762,16 @@ def get_inputs(readout=None, auto_run=False, source=None):
     tk.Label(digits_frame, text="Starting from").pack(side="left", padx=(12, 2))
     start_entry = tk.Entry(digits_frame, textvariable=start_var, width=6)
     start_entry.pack(side="left")
+
+    # Column 1 starts at the same place here as in Peak Test Criteria above,
+    # so these fields line up with the entries there. Column 0 in both gets
+    # the width of the widest column-0 item in either, padding included: 8 px
+    # after a criteria label, 24 + 8 px around Prefix and Counter.
+    col0 = max([l.winfo_reqwidth() + 8 for l in pf_labels]
+               + [add_label_cb.winfo_reqwidth()]
+               + [l.winfo_reqwidth() + 32 for l in (prefix_label, counter_label)])
+    pf_container.columnconfigure(0, minsize=col0)
+    info_container.columnconfigure(0, minsize=col0)
 
     # Spans both columns so its long text doesn't widen column 0 (which would
     # push the Prefix/Digits fields to the right); column 1 takes the extra.
@@ -773,6 +820,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     if readout is not None:
         readout_section = ReadoutSection(right_col, readout)
         readout_section.frame.pack(anchor="w", fill="x", pady=(16, 0))
+        _bind_checkbox_key(root, "l", readout_section.laser_cb)
 
     save_frame = tk.Frame(frame)
     save_frame.grid(row=SAVEBTN_ROW, column=0, columnspan=2, pady=10)
@@ -788,7 +836,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     ref_frame = tk.Frame(frame)
     ref_frame.grid(row=REFBTN_ROW, column=0, columnspan=2, pady=4)
     ref_var = tk.IntVar(value=0)
-    ref_check = tk.Checkbutton(ref_frame, text="Use reference", variable=ref_var,
+    ref_check = tk.Checkbutton(ref_frame, text="Use reference (R)", variable=ref_var,
                                command=on_toggle_ref, state="disabled")
     ref_check.pack(side="left", padx=5)
     # Status sits to the right of the checkbox. Fixed width so the checkbox
@@ -796,6 +844,8 @@ def get_inputs(readout=None, auto_run=False, source=None):
     status_value = tk.Label(ref_frame, text="No data", fg="black", font=ui_font(10, "bold"),
                             width=10, anchor="w")
     status_value.pack(side="left", padx=(8, 0))
+
+    _bind_checkbox_key(root, "r", ref_check)
 
     # ---- Instruments -----------------------------------------------------
     section_header(frame, "Instruments", HEADER3_ROW)
