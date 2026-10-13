@@ -8,6 +8,8 @@ build/
 dist/
 Test Results/
 *.csv
+*.csv.bak
+preset_*.toml
 logs/
 tempCodeRunnerFile.py
 Raw Data/

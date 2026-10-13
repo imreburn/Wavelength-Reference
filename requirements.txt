@@ -76,6 +76,8 @@ scipy==1.17.1
     # via -r requirements.in
 six==1.17.0
     # via python-dateutil
+tomlkit==0.15.1
+    # via -r requirements.in
 typing-extensions==4.15.0
     # via
     #   dash

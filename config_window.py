@@ -19,7 +19,8 @@ from config_helper import (
     EXTRA_LABELS, EXTRA_DEFAULTS, PADDING_LABEL, PM_RANGE_LABEL, DYN_SCAN_LABEL, DECREMENT_LABEL,
     CHANNEL_LABEL, CHANNEL_OPTIONS, CHANNEL_DEFAULT, channels_to_str, parse_channels, padding_nm,
     PASSFAIL_LABELS, PASSFAIL_KEYS, PASSFAIL_DEFAULT, PASSFAIL_COLUMNS, passfail_col, label_text,
-    preset_path, load_presets, save_preset, delete_preset, section_header, make_extra_widgets,
+    preset_path, load_presets, save_preset, delete_preset, convert_csv_presets,
+    section_header, make_extra_widgets,
     use_ui_font, ui_font,
     validate_inputs, validate_extras, validate_passfail, validation_error,
     LABEL_DIGIT_OPTIONS, LABEL_DIGIT_DEFAULT, LABEL_START_DEFAULT, validate_label,
@@ -119,6 +120,11 @@ def get_inputs(readout=None, auto_run=False, source=None):
     field_defaults = DEFAULTS[:4] + [""] if source_spec["external"] else DEFAULTS
 
     preset_file = preset_path(source)
+    # The first window for a source moves its old CSV presets into the TOML
+    # file. If that fails, or the file can't be loaded below, Manage Presets
+    # stays off (see set_locked), so the app never writes over a file it
+    # couldn't read.
+    preset_error = convert_csv_presets(preset_file)
 
     params = Params(version=APP_VERSION)
     params.reference = _state["reference"]
@@ -174,7 +180,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
             extra_menus[DECREMENT_LABEL].config(state=dec_state)
         save_btn.config(state="disabled" if locked else "normal")
         change_btn.config(state="normal" if locked else "disabled")
-        preset_save_btn.config(state="normal" if locked else "disabled")
+        preset_save_btn.config(state="normal" if locked and not preset_error else "disabled")
         run_btn.config(state="normal" if locked else "disabled")
         _pin_padding()
 
@@ -416,7 +422,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
         # Only reachable once parameters have passed Save's checks.
         if not saved["ok"]:
             return
-        # Snapshot the current (validated) field values, keyed by CSV column.
+        # Snapshot the current (validated) field values, keyed by field label.
         preset_vals = {label: entry.get() for entry, label in zip(entries, FIELD_LABELS)}
         for label in EXTRA_LABELS:
             preset_vals[label] = extra_vars[label].get()
@@ -425,7 +431,10 @@ def get_inputs(readout=None, auto_run=False, source=None):
             preset_vals[passfail_col(label, "min")] = mn.get()
             preset_vals[passfail_col(label, "max")] = mx.get()
 
-        existing = load_presets(preset_file)
+        existing, error = load_presets(preset_file)
+        if error:
+            result_label.config(text=f"Error: {error}", fg="red")
+            return
         names = preset_names(existing)
 
         top = tk.Toplevel(root)
@@ -616,8 +625,9 @@ def get_inputs(readout=None, auto_run=False, source=None):
     tk.Label(frame, text="Detector", anchor="e").grid(row=DETECTOR_ROW, column=0, pady=4, padx=(0, 8), sticky="e")
     tk.Label(frame, text=DETECTOR, anchor="w").grid(row=DETECTOR_ROW, column=1, pady=4, sticky="w")
 
-    presets = load_presets(preset_file)
-    # Sorted for display only — preset.csv keeps whatever row order it has.
+    presets, load_error = load_presets(preset_file)
+    preset_error = preset_error or load_error
+    # Sorted for display only; the preset file keeps its own order.
     preset_options = ["none"] + preset_names(presets)
     preset_var = tk.StringVar(value=_last.get("preset", "none"))
     tk.Label(frame, text="Load Preset", anchor="e").grid(row=FIELDS_START, column=0, pady=4, padx=(0, 8), sticky="e")
@@ -868,6 +878,9 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # keeping the locked state across loops.
     if "fields" in _last:
         on_save()
+
+    if preset_error:
+        result_label.config(text=f"Error: {preset_error}. Manage Presets is off until this is fixed.", fg="red")
 
     # The previous sweep may have pushed the label counter past its digit limit.
     # Say so now rather than only when Run is pressed (or a Repeat stalls).

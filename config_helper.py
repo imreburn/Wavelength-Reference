@@ -1,10 +1,13 @@
 import csv
 import math
+import os
 import re
 import sys
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
+import tomlkit
+from tomlkit.exceptions import TOMLKitError
 from constants import CONFIG_WINDOW_FONT
 from datapath import data_path
 
@@ -38,7 +41,7 @@ def padding_nm(s):
 # Acquisition channel selection (checkboxes 1–4); at least one must be chosen.
 CHANNEL_LABEL   = "Input Channel"
 CHANNEL_OPTIONS = (1, 2, 3, 4)
-CHANNEL_DEFAULT = "1"  # space-separated channel list, as stored in a preset
+CHANNEL_DEFAULT = "1"  # space-separated channel list, as the config window holds it
 
 # Pass/Fail criteria: each label has a min and a max float field, defaulting to 0;
 # negative values are rejected. Each label maps to its (min, max) Params attributes.
@@ -53,7 +56,8 @@ PASSFAIL_DEFAULT = "0"
 
 
 def passfail_col(label, bound):
-    """CSV column name for a Pass/Fail criterion's min or max field."""
+    """Key of a Pass/Fail criterion's min or max field in a preset's values
+    (and its column in the old preset CSVs)."""
     return f"{label} {bound}"
 
 
@@ -61,8 +65,8 @@ def passfail_col(label, bound):
 PASSFAIL_COLUMNS = [passfail_col(label, b) for label in PASSFAIL_LABELS for b in PASSFAIL_BOUNDS]
 
 # What the config window shows for a label, where the two differ. The labels
-# above stay as they are because they are also the preset CSV column names, so
-# presets saved before still load.
+# above stay as they are because they are also the column names of the old
+# preset CSVs, which convert_csv_presets() still reads.
 LABEL_TEXT = {
     "Start Wavelength (nm)": "λ Start (nm)",
     "Stop Wavelength (nm)" : "λ Stop (nm)",
@@ -149,7 +153,7 @@ def eng_format(x, unit="", digits=3):
 
 
 def channels_to_str(channels):
-    """Serialize a channel tuple/list to the space-separated form stored in presets."""
+    """Serialize a channel tuple/list to the space-separated form the config window uses."""
     return " ".join(str(c) for c in channels)
 
 
@@ -164,79 +168,275 @@ def parse_channels(s):
     return tuple(out)
 
 
+# Preset files: one TOML file per laser source, preset_<source>.toml in the
+# data folder, with one [section] per preset, named after it. The config window
+# handles a preset as a dict of field label -> text, the way its fields hold
+# it. These map each label to its key in the file, in the order the window
+# shows the fields. Keys carry their units, and "lambda" stands for λ.
+PRESET_KEYS = {
+    CHANNEL_LABEL          : "channels",
+    "Start Wavelength (nm)": "lambda_start_nm",
+    "Stop Wavelength (nm)" : "lambda_stop_nm",
+    PADDING_LABEL          : "lambda_padding_pm",
+    "Sweep Speed (nm/s)"   : "speed_nm_s",
+    "Step Size (pm)"       : "step_pm",
+    "TLS Power (dBm)"      : "tls_power_dbm",
+    PM_RANGE_LABEL         : "pm_range_dbm",
+    DYN_SCAN_LABEL         : "dynamic_scans",
+    DECREMENT_LABEL        : "decrement_db",
+}
+# Pass/Fail criteria: each label's min and max are one [min, max] pair.
+PASSFAIL_PRESET_KEYS = {
+    "Peak Wavelength (nm)": "peak_lambda_nm",
+    "Peak Depth (dB)"     : "peak_depth_db",
+    "Peak Width (pm)"     : "peak_width_pm",
+}
+# A key missing from a preset gets its field's default.
+PRESET_DEFAULTS = {**dict(zip(FIELD_LABELS, DEFAULTS)), **EXTRA_DEFAULTS, CHANNEL_LABEL: CHANNEL_DEFAULT}
+# Dropdowns: a number read from a file shows as the option it equals, so a
+# padding of 10.0 still picks "10" and a speed of 1 picks "1.0".
+PRESET_OPTIONS = {"Sweep Speed (nm/s)": SWEEP_SPEED_OPTIONS, **EXTRA_OPTIONS}
+
+# The comment at the top of a new preset file.
+PRESET_FILE_HEADER = """\
+Sweep presets for the source in this file's name, one [section] per preset.
+The config window writes this file (Manage Presets). Change values only,
+never the keys. Units are part of the keys; "lambda" is the wavelength.
+Peak test bounds are [min, max]. 0 means "not set"."""
+
+
 def preset_path(source):
-    return data_path(f"preset_{source}.csv", mkdir=False)
+    return data_path(f"preset_{source}.toml", mkdir=False)
+
+
+def _preset_value(text):
+    """A field's text as a TOML value: an int for a whole number, else a float.
+
+    Text that isn't a number (a blank TLS Power, say) stays text, so loading
+    it gives back exactly what was saved.
+    """
+    text = text.strip()
+    for number in (int, float):
+        try:
+            return number(text)
+        except ValueError:
+            pass
+    return text
+
+
+def _preset_text(value, options=None):
+    """The text a field shows for `value`, read from a preset file.
+
+    With dropdown `options`, a number becomes the option it equals. Anything
+    else is passed through as text, even if it isn't valid, so Save can show
+    it and reject it.
+    """
+    if options and isinstance(value, (int, float)) and not isinstance(value, bool):
+        for option in options:
+            if float(option) == value:
+                return option
+    return str(value)
+
+
+def _preset_items(vals):
+    """{key: value} for one preset in a file, from the config window's {label: text}."""
+    items = {}
+    for label, key in PRESET_KEYS.items():
+        text = vals.get(label, "")
+        items[key] = list(parse_channels(text)) if label == CHANNEL_LABEL else _preset_value(text)
+    for label, key in PASSFAIL_PRESET_KEYS.items():
+        items[key] = [_preset_value(vals.get(passfail_col(label, b), "")) for b in PASSFAIL_BOUNDS]
+    return items
+
+
+def _preset_vals(table, where):
+    """The config window's {label: text} for one preset's table from a file.
+
+    `where` names the preset in log messages.
+    """
+    vals = {}
+    for label, key in PRESET_KEYS.items():
+        if key not in table:
+            vals[label] = PRESET_DEFAULTS[label]
+        elif label == CHANNEL_LABEL and isinstance(table[key], list):
+            vals[label] = channels_to_str(table[key])
+        else:
+            vals[label] = _preset_text(table[key], PRESET_OPTIONS.get(label))
+    for label, key in PASSFAIL_PRESET_KEYS.items():
+        pair = table.get(key, [PASSFAIL_DEFAULT] * 2)
+        if not (isinstance(pair, list) and len(pair) == 2):
+            log.warning("%s: %s is not a [min, max] pair; using 0 and 0.", where, key)
+            pair = [PASSFAIL_DEFAULT] * 2
+        for bound, value in zip(PASSFAIL_BOUNDS, pair):
+            vals[passfail_col(label, bound)] = _preset_text(value)
+    unknown = set(table) - set(PRESET_KEYS.values()) - set(PASSFAIL_PRESET_KEYS.values())
+    if unknown:
+        log.warning("%s: unknown keys ignored: %s", where, ", ".join(sorted(unknown)))
+    return vals
+
+
+def _read_preset_doc(path):
+    """Return (document, None) for the preset file at `path`, or (None, error
+    text) if it can't be read or parsed. A missing file gives (None, None)."""
+    try:
+        text = path.read_text(encoding="utf-8-sig")   # -sig skips a byte-order mark
+    except FileNotFoundError:
+        return None, None
+    except (OSError, UnicodeError) as e:
+        return None, f"Could not read {path.name}: {e}"
+    try:
+        return tomlkit.parse(text), None
+    except TOMLKitError as e:
+        return None, f"Could not read {path.name}: {e}"
+
+
+def _write_preset_doc(path, doc):
+    """Write `doc` to `path`. It goes to a temporary file first, which then
+    replaces the old file in one step, so a failed write can't leave a cut-off
+    preset file behind."""
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_text(tomlkit.dumps(doc), encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)   # already gone after a successful replace
+
+
+def _new_preset_doc():
+    """A preset file with no presets yet: just the header comment."""
+    doc = tomlkit.document()
+    for line in PRESET_FILE_HEADER.splitlines():
+        doc.add(tomlkit.comment(line))
+    doc.add(tomlkit.nl())
+    return doc
+
+
+def _add_preset(doc, name, vals):
+    """Add preset `name` at the end of `doc`, from the config window's {label: text}."""
+    table = tomlkit.table()
+    table.update(_preset_items(vals))
+    doc[name] = table
 
 
 def load_presets(path):
-    """Return {material: {label: value, ...}} from preset.csv, or {} on any failure.
+    """Read the preset file at `path`.
 
-    FIELD_LABELS columns are required; EXTRA_LABELS columns are optional and fall
-    back to EXTRA_DEFAULTS only when the column is missing or blank. A non-empty
-    value is passed through verbatim (even if it is not a valid dropdown option) so
-    the GUI can surface it and reject it on Save, matching the field dropdowns.
+    Returns ({name: {label: text}}, None), or ({}, error text) if the file
+    can't be read. A missing file just means no presets yet. The texts are
+    what the config window's fields show (see _preset_vals).
     """
-    try:
-        with open(path, newline="") as f:
-            reader = csv.DictReader(f)
-            presets = {}
-            for row in reader:
-                name = row.get("Name", "").strip()
-                if not name:
-                    continue
-                vals = {label: row[label].strip() for label in FIELD_LABELS}
-                for label in EXTRA_LABELS:
-                    cell = (row.get(label) or "").strip()
-                    vals[label] = cell if cell else EXTRA_DEFAULTS[label]
-                cell = (row.get(CHANNEL_LABEL) or "").strip()
-                vals[CHANNEL_LABEL] = cell if cell else CHANNEL_DEFAULT
-                for col in PASSFAIL_COLUMNS:
-                    cell = (row.get(col) or "").strip()
-                    vals[col] = cell if cell else PASSFAIL_DEFAULT
-                presets[name] = vals
-        return presets
-    except Exception:
-        log.warning("%s not found.", path)
-        return {}
+    doc, error = _read_preset_doc(path)
+    if error:
+        log.error(error)
+        return {}, error
+    presets = {}
+    for name, table in (doc.unwrap() if doc is not None else {}).items():
+        where = f"{path.name} [{name}]"
+        if isinstance(table, dict):
+            presets[name] = _preset_vals(table, where)
+        else:
+            log.warning("%s is not a preset; ignored.", where)
+    return presets, None
 
 
 def save_preset(path, name, vals):
-    """Insert or replace `name` in path with the given label->value dict.
+    """Save preset `name` to the file at `path`, from the config window's
+    {label: text}. Returns None on success or an error message.
 
-    Existing presets are preserved and a matching name is overwritten in place;
-    a new name is appended. Returns None on success or an error message string.
+    A preset that already exists is updated where it is, so comments next to
+    its values stay. A new one goes at the end. A file that can't be read is
+    never written over.
     """
-    columns = FIELD_LABELS + EXTRA_LABELS + [CHANNEL_LABEL] + PASSFAIL_COLUMNS
-    fieldnames = ["Name"] + columns
-    presets = load_presets(path)
-    presets[name] = {col: vals.get(col, "") for col in columns}
+    doc, error = _read_preset_doc(path)
+    if error:
+        return error
+    if doc is None:
+        doc = _new_preset_doc()
     try:
-        with open(path, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            for nm, row in presets.items():
-                writer.writerow({"Name": nm, **row})
-        return None
+        if isinstance(doc.get(name), dict):
+            for key, value in _preset_items(vals).items():
+                doc[name][key] = value
+        else:
+            _add_preset(doc, name, vals)
+        _write_preset_doc(path, doc)
     except Exception as e:
-        return f"Could not write {path}: {e}"
+        return f"Could not write {path.name}: {e}"
+    return None
 
 
 def delete_preset(path, name):
-    """Remove `name` from path. Returns None on success or an error message string."""
-    presets = load_presets(path)
-    if name not in presets:
+    """Remove preset `name` from the file at `path`. Returns None on success or
+    an error message. A file that can't be read is never written over."""
+    doc, error = _read_preset_doc(path)
+    if error:
+        return error
+    if doc is None or name not in doc:
         return f"Preset '{name}' not found."
-    del presets[name]
-    fieldnames = ["Name"] + FIELD_LABELS + EXTRA_LABELS + [CHANNEL_LABEL] + PASSFAIL_COLUMNS
     try:
-        with open(path, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            for nm, row in presets.items():
-                writer.writerow({"Name": nm, **row})
-        return None
+        del doc[name]
+        _write_preset_doc(path, doc)
     except Exception as e:
-        return f"Could not write {path}: {e}"
+        return f"Could not write {path.name}: {e}"
+    return None
+
+
+# One-time move from the old preset CSVs.
+# TODO: remove convert_csv_presets() and _read_csv_presets() once every PC
+# has run a version with TOML presets.
+
+def convert_csv_presets(path):
+    """Move the presets of the old CSV next to `path` (preset_<source>.csv)
+    into `path`, the TOML preset file, then rename the CSV to .csv.bak.
+
+    Does nothing once `path` exists, or if there is no CSV. Returns None, or an
+    error message if the CSV can't be read or `path` can't be written. The CSV
+    is left as it is then.
+    """
+    csv_path = path.with_suffix(".csv")
+    if path.exists() or not csv_path.exists():
+        return None
+    try:
+        presets = _read_csv_presets(csv_path)
+        doc = _new_preset_doc()
+        for name, vals in presets.items():
+            _add_preset(doc, name, vals)
+        _write_preset_doc(path, doc)
+    except Exception as e:
+        error = f"Could not convert {csv_path.name} to {path.name}: {e}"
+        log.error(error)
+        return error
+    log.info("Moved %d preset(s) from %s to %s.", len(presets), csv_path, path.name)
+    bak_path = csv_path.with_name(csv_path.name + ".bak")
+    try:
+        os.replace(csv_path, bak_path)
+    except OSError as e:
+        log.warning("Could not rename %s to %s: %s", csv_path.name, bak_path.name, e)
+    return None
+
+
+def _read_csv_presets(path):
+    """{name: {label: text}} from an old preset CSV. Raises if it can't be read.
+
+    The Name column and the five main fields are required. Any other column
+    may be missing; a missing or blank cell there gets the field's default.
+    """
+    with open(path, newline="") as f:
+        reader = csv.DictReader(f)
+        columns = reader.fieldnames or []   # [] for an empty file
+        missing = [col for col in ["Name"] + FIELD_LABELS if col not in columns]
+        if columns and missing:
+            raise ValueError(f"missing column(s): {', '.join(missing)}")
+        presets = {}
+        for row in reader:
+            name = (row.get("Name") or "").strip()
+            if not name:
+                continue
+            vals = {label: (row.get(label) or "").strip() for label in FIELD_LABELS}
+            for label in EXTRA_LABELS + [CHANNEL_LABEL] + PASSFAIL_COLUMNS:
+                cell = (row.get(label) or "").strip()
+                vals[label] = cell or PRESET_DEFAULTS.get(label, PASSFAIL_DEFAULT)
+            presets[name] = vals
+    return presets
 
 
 # Tk's named interface fonts. use_ui_font() points them all at
