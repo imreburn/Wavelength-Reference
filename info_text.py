@@ -65,12 +65,12 @@ Each peak has two base points, one on each side (left and right). Depth and widt
 - min: the base with the lower power, which gives the smallest depth. This is the standard peak prominence, as in SciPy.
 - avg: the average of the two bases.
 
-The peak test uses **max** (Depth_max and FWHM_max in the peak table).
+**Base** sets which one the peak test uses: max (the default), avg, or min.
 
 
 **Setting the criteria**
 
-- Set a min and max for the peak wavelength, depth, and width.
+- Set a min and max for the peak wavelength, depth, and width, and choose a base.
 
 - All fields are 0 by default. An empty field counts as 0.
 
@@ -78,14 +78,14 @@ The peak test uses **max** (Depth_max and FWHM_max in the peak table).
 
 - To skip the depth or width check, leave both its min and max at 0.
 
-- When every field is 0, the test is off.
+- When every min and max is 0, the test is off.
 
 - Like the other parameters, the criteria lock when you click Save and are stored in presets.
 
 
 **How a peak is tested**
 
-- The wavelength range selects which peak to test. If more than one peak falls inside it, the one with the largest Depth_max is used. If no peak falls inside it, the test fails.
+- The wavelength range selects which peak to test. If more than one peak falls inside it, the one with the largest depth (max base) is used. If no peak falls inside it, the test fails.
 
 - Depth and width are then checked on that peak.
 

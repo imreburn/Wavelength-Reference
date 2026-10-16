@@ -43,6 +43,12 @@ VISA_ADDRS = {
         LAS: VISA_ADDR_TLS_N7778C
 }
 
+# The bases a peak's depth and width can be measured from: the Width
+# attributes of structs.Peak, in the order the dropdowns list them. Used by the
+# config window's peak test and the graph window's "Save peak info".
+PEAK_BASE_OPTIONS = ["max", "avg", "min"]
+PEAK_BASE_DEFAULT = "max"
+
 # The power meter, the same with every laser source. The config window shows
 # it as "Detector", and Params.detector records it.
 DETECTOR = "N7748A"

@@ -48,6 +48,7 @@ class Params:
     depth_max : float           = _p(label='Peak depth max',      unit='dB', group='Peak test criteria')
     width_min : float           = _p(label='Peak width min',      unit='pm', group='Peak test criteria')
     width_max : float           = _p(label='Peak width max',      unit='pm', group='Peak test criteria')
+    peak_base : str             = _p(label='Base',                group='Peak test criteria')
 
     label     : str             = _p(label='Label',               group='Run')
     save_raw  : bool            = _p(label='Auto-save raw data',  group='Run')

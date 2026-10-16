@@ -17,7 +17,7 @@ import logging
 log = logging.getLogger(__name__)
 
 import shutdown
-from constants import GRAPH_WINDOW_ZOOM
+from constants import GRAPH_WINDOW_ZOOM, PEAK_BASE_OPTIONS, PEAK_BASE_DEFAULT
 from structs import Params, Dataset
 from analyze_data import peak_detection, find_bandwidth, exam_peak
 from save_csv import save_csv_raw, save_csv_peak_row, auto_raw_path,COL_CH, COL_REF, COL_SCAN, RAW_DIR, PEAKS_DIR
@@ -28,10 +28,12 @@ import plot_tables as pt
 from plot_tables import DATA_CSS_FONT, WINDOW_CSS_FONT
 
 # Remembered across display_plot() calls (i.e. across loop iterations) so the
-# "Choose a file" dropdown can pre-select the file used last time.
+# "Save peak info" dialog starts with the file, label, temperature, and base
+# used last time.
 _last_peak_file   = ''
 _last_peak_label  = ''
 _last_temperature = None
+_last_peak_base   = PEAK_BASE_DEFAULT
 # Also remembered across display_plot() calls: each table's columns and
 # decimals from its Customize dialog, and the peak numbers hidden in the peak
 # table (by number, so P3 stays hidden in a later sweep that finds a P3).
@@ -611,9 +613,10 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
     MODAL_HIDDEN = {**MODAL_OVERLAY, 'display': 'none'}
     MODAL_SHOWN  = {**MODAL_OVERLAY, 'display': 'flex'}
 
-    def _peak_stats(sel, m2):
+    def _peak_stats(sel, m2, base):
         """Resolve (wavelength, depth, width) for the selected peak, mirroring
-        the values used when saving. Returns None for any value that isn't
+        the values used when saving: a detected peak's depth and width are
+        measured from `base`. Returns None for any value that isn't
         available (e.g. a 'custom' peak without both Bandwidth markers yet)."""
         try:
             if sel == 'custom':
@@ -622,7 +625,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
                 return m2['x'], m2['base']['y'] - m2['y'], m2.get('width_pm')
             i   = int(sel.split(':')[1])
             row = peak_df[peak_df['Peak'] == i].iloc[0]
-            return float(row['x']), float(row['Depth_max']), float(row['FWHM_max'])
+            return float(row['x']), float(row[f'Depth_{base}']), float(row[f'FWHM_{base}'])
         except Exception:
             return None, None, None
 
@@ -634,7 +637,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
     _il_value = round(-gmax_y, 5) if params.reference else None
 
     # Initial read-only stats for the default (first) peak selection.
-    _init_wl, _init_depth, _init_width = _peak_stats(peak_options[0]['value'], None)
+    _init_wl, _init_depth, _init_width = _peak_stats(peak_options[0]['value'], None, _last_peak_base)
 
     _stat_label_style = {'fontWeight': 'bold', 'display': 'block', 'marginBottom': '4px'}
     _stat_input_style = {'width': '100%', 'boxSizing': 'border-box',
@@ -648,6 +651,12 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
             html.Label('Select peak', style={'fontWeight': 'bold', 'display': 'block', 'marginBottom': '4px'}),
             dcc.Dropdown(id='peak-select', options=peak_options,
                          value=peak_options[0]['value'], clearable=False,
+                         style={'marginBottom': '12px'}),
+            # What a detected peak's depth and width are measured from. Off for
+            # a custom peak: its base is the B2 marker.
+            html.Label('Base', style=_stat_label_style),
+            dcc.Dropdown(id='peak-base', options=PEAK_BASE_OPTIONS, value=_last_peak_base,
+                         clearable=False, disabled=peak_options[0]['value'] == 'custom',
                          style={'marginBottom': '12px'}),
             html.Label('Wavelength (nm)', style=_stat_label_style),
             dcc.Input(id='peak-wavelength', type='text', readOnly=True,
@@ -686,6 +695,8 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
             ], style={'textAlign': 'right'}),
         ], style={'backgroundColor': 'white', 'padding': '20px 24px',
                   'borderRadius': '8px', 'width': '320px',
+                  # Scrolls rather than running off a short window.
+                  'maxHeight': '90vh', 'overflowY': 'auto',
                   'fontFamily': WINDOW_CSS_FONT,
                   'boxShadow': '0 4px 20px rgba(0,0,0,0.25)'}),
     )
@@ -1362,7 +1373,9 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         Output('peak-wavelength', 'value'),
         Output('peak-depth', 'value'),
         Output('peak-width', 'value'),
+        Output('peak-base', 'disabled'),
         Input('peak-select', 'value'),
+        Input('peak-base', 'value'),
         # Also recompute when the modal is (re)opened: the dropdown retains its
         # value across openings, so a selection that hasn't changed (e.g. a
         # 'custom' peak that was edited in the meantime) would otherwise keep
@@ -1370,9 +1383,9 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         Input('save-peak-btn', 'n_clicks'),
         State('mode2-info-store', 'data'),
     )
-    def update_peak_stats(sel, _n_clicks, m2):
-        wl_v, depth, fwhm = _peak_stats(sel, m2)
-        return _fmt_stat(wl_v, 7), _fmt_stat(depth, 5), _fmt_stat(fwhm, 3)
+    def update_peak_stats(sel, base, _n_clicks, m2):
+        wl_v, depth, fwhm = _peak_stats(sel, m2, base)
+        return _fmt_stat(wl_v, 7), _fmt_stat(depth, 5), _fmt_stat(fwhm, 3), sel == 'custom'
 
     @app.callback(
         Output('peak-modal', 'style', allow_duplicate=True),
@@ -1386,9 +1399,10 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         State('peak-temperature', 'value'),
         State('peak-file-select', 'value'),
         State('mode2-info-store', 'data'),
+        State('peak-base', 'value'),
         prevent_initial_call=True,
     )
-    def close_or_save_peak(cancel, confirm, sel, label, loss, temperature, chosen_file, m2):
+    def close_or_save_peak(cancel, confirm, sel, label, loss, temperature, chosen_file, m2, base):
         triggered = callback_context.triggered[0]['prop_id']
         if 'peak-cancel' in triggered:
             return MODAL_HIDDEN, dash.no_update, ""
@@ -1405,12 +1419,14 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
             # base sits above the dip and this order keeps depth positive.
             depth = m2['base']['y'] - m2['y']
             fwhm  = m2.get('width_pm')
+            saved_base = 'custom'
         else:
             i     = int(sel.split(':')[1])
             row   = peak_df[peak_df['Peak'] == i].iloc[0]
             wl_v  = float(row['x'])
-            depth = float(row['Depth_max'])
-            fwhm  = float(row['FWHM_max'])
+            depth = float(row[f'Depth_{base}'])
+            fwhm  = float(row[f'FWHM_{base}'])
+            saved_base = base
 
         window = _window_holder.get('window')
         if window is None:
@@ -1431,12 +1447,14 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
                 return dash.no_update, dash.no_update, ""
             file_path = result[0] if isinstance(result, (list, tuple)) else result
 
-        save_csv_peak_row(label.strip(), wl_v, depth, fwhm, loss=loss, file_path=file_path, temperature=temperature, date=params.date)
+        save_csv_peak_row(label.strip(), wl_v, depth, fwhm, loss=loss, file_path=file_path, temperature=temperature, date=params.date, base=saved_base)
         
-        global _last_peak_file, _last_peak_label, _last_temperature
+        global _last_peak_file, _last_peak_label, _last_temperature, _last_peak_base
         _last_peak_file   = os.path.basename(file_path)
         _last_peak_label  = label
         _last_temperature = temperature
+        if sel != 'custom':   # a custom peak doesn't use the Base dropdown
+            _last_peak_base = base
         return MODAL_HIDDEN, _status(f"Peak data saved: {os.path.basename(file_path)}"), ""
 
     # ------------------------------------------------------------------

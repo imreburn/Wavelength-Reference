@@ -6,6 +6,8 @@
 
 - In the config window, a new "Detector" row below "Source" shows the power meter, N7748A. It's also listed in the graph window's "Sweep info" and saved in the first line of raw data files.
 - Keyboard shortcuts in the config window: R checks or unchecks "Use reference", and L checks or unchecks "Laser on" in the Power Readout. The checkboxes are now labeled "Use reference (R)" and "Laser on (L)".
+- In the config window, "Peak Test Criteria" has a new "Base" dropdown: max (the default), avg, or min. It sets the base the peak test measures depth and width from.
+- In the graph window, "Save peak info" has a "Base" dropdown too: max (the default), avg, or min. Peak files get a "Base" column next to "Width (pm)".
 
 ### Changed
 
@@ -16,6 +18,7 @@
   - In "Sweep info", the "Pass/fail criteria" group is now "Peak test criteria".
 - In the config window, "Wavelength" in field names is now "λ"
 - In the config window, "λ Padding (pm)" moved up, between "λ Stop (nm)" and "Sweep Speed (nm/s)".
+- In the config window, "Peak Test Criteria" is laid out as a table: "min" and "max" are column headers instead of labels on every row.
 - In the config window, "Laser Source" is renamed to "Source". In the graph window's "Sweep info", "Laser source" is now "Source" too.
 - Presets are now saved in TOML files (`preset_N7778C.toml`, `preset_81600B.toml`) instead of CSV files, in the same folder. The first time the config window opens for a source, its presets are moved from `preset_<source>.csv` to the new file, and the CSV is renamed to `preset_<source>.csv.bak`.
 

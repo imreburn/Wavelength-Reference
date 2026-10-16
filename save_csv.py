@@ -75,11 +75,12 @@ def save_csv_raw(raw_w: Dataset, params: Params, file_path=None):
     log.info(f"Saved raw data: {file_path}")
 
 
-def save_csv_peak_row(label, wl, depth, fwhm, file_path, temperature=None, loss=None, date=None):
+def save_csv_peak_row(label, wl, depth, fwhm, file_path, temperature=None, loss=None, date=None, base=None):
     """Append a single peak row (already-resolved values) to the CSV at
     file_path. Used by the interactive 'Save peak info' flow.
 
-    Columns match save_csv_peak() so rows can share one file. A header is
+    `base` is what depth and width were measured from: 'max', 'avg', 'min',
+    or 'custom' for a peak set with the Bandwidth markers. A header is
     written only when the target file does not yet exist.
     """
     peak_dict = {
@@ -89,6 +90,7 @@ def save_csv_peak_row(label, wl, depth, fwhm, file_path, temperature=None, loss=
         "I.L."           : [loss],
         "Depth"          : [round(depth, 5)],
         "Width (pm)"     : [round(fwhm, 4)],
+        "Base"           : [base],
         "Temperature"    : [temperature],
     }
 
@@ -112,6 +114,11 @@ def save_csv_peak_row(label, wl, depth, fwhm, file_path, temperature=None, loss=
             log.info("One or more existing peak data will be overwritten by this peak: %s", existing_df.loc[same_label & close_wl, "Wavelength (nm)"].tolist())
         existing_df = existing_df[~(same_label & close_wl)]
         peak_df = pd.concat([existing_df, peak_df], ignore_index=True)
+        # concat puts a column the file doesn't have yet (Base, in a file saved
+        # before it existed) last. Keep this row's column order; any other
+        # columns stay at the end.
+        columns = list(peak_dict)
+        peak_df = peak_df[columns + [c for c in peak_df.columns if c not in columns]]
         peak_df.to_csv(file_path, index=False)
     else:
         peak_df.to_csv(file_path, index=False)

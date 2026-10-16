@@ -8,7 +8,7 @@ import tkinter.font as tkfont
 from tkinter import ttk
 import tomlkit
 from tomlkit.exceptions import TOMLKitError
-from constants import CONFIG_WINDOW_FONT
+from constants import CONFIG_WINDOW_FONT, PEAK_BASE_DEFAULT
 from datapath import data_path
 
 import logging
@@ -53,6 +53,10 @@ PASSFAIL_KEYS    = {
 }
 PASSFAIL_BOUNDS  = ("min", "max")
 PASSFAIL_DEFAULT = "0"
+
+# The base the peak test measures depth and width from. Its options are
+# constants.PEAK_BASE_OPTIONS.
+PEAK_BASE_LABEL = "Base"
 
 
 def passfail_col(label, bound):
@@ -191,6 +195,8 @@ PASSFAIL_PRESET_KEYS = {
     "Peak Depth (dB)"     : "peak_depth_db",
     "Peak Width (pm)"     : "peak_width_pm",
 }
+# The peak test's base. It goes after the pairs, as in the window.
+PEAK_BASE_PRESET_KEY = "peak_base"
 # A key missing from a preset gets its field's default.
 PRESET_DEFAULTS = {**dict(zip(FIELD_LABELS, DEFAULTS)), **EXTRA_DEFAULTS, CHANNEL_LABEL: CHANNEL_DEFAULT}
 # Dropdowns: a number read from a file shows as the option it equals, so a
@@ -202,7 +208,8 @@ PRESET_FILE_HEADER = """\
 Sweep presets for the source in this file's name, one [section] per preset.
 The config window writes this file (Manage Presets). Change values only,
 never the keys. Units are part of the keys; "lambda" is the wavelength.
-Peak test bounds are [min, max]. 0 means "not set"."""
+Peak test bounds are [min, max]. 0 means "not set".
+peak_base is "max", "avg", or "min"."""
 
 
 def preset_path(source):
@@ -246,6 +253,8 @@ def _preset_items(vals):
         items[key] = list(parse_channels(text)) if label == CHANNEL_LABEL else _preset_value(text)
     for label, key in PASSFAIL_PRESET_KEYS.items():
         items[key] = [_preset_value(vals.get(passfail_col(label, b), "")) for b in PASSFAIL_BOUNDS]
+    # Old preset CSVs have no base; their presets were tested with the default.
+    items[PEAK_BASE_PRESET_KEY] = vals.get(PEAK_BASE_LABEL, PEAK_BASE_DEFAULT)
     return items
 
 
@@ -269,7 +278,9 @@ def _preset_vals(table, where):
             pair = [PASSFAIL_DEFAULT] * 2
         for bound, value in zip(PASSFAIL_BOUNDS, pair):
             vals[passfail_col(label, bound)] = _preset_text(value)
-    unknown = set(table) - set(PRESET_KEYS.values()) - set(PASSFAIL_PRESET_KEYS.values())
+    vals[PEAK_BASE_LABEL] = _preset_text(table.get(PEAK_BASE_PRESET_KEY, PEAK_BASE_DEFAULT))
+    unknown = (set(table) - set(PRESET_KEYS.values()) - set(PASSFAIL_PRESET_KEYS.values())
+               - {PEAK_BASE_PRESET_KEY})
     if unknown:
         log.warning("%s: unknown keys ignored: %s", where, ", ".join(sorted(unknown)))
     return vals

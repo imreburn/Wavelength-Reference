@@ -10,7 +10,7 @@ import dpi_awareness  # noqa: F401
 
 log = logging.getLogger(__name__)
 
-from constants import APP_VERSION, TLS_SOURCES, DETECTOR
+from constants import APP_VERSION, TLS_SOURCES, DETECTOR, PEAK_BASE_OPTIONS, PEAK_BASE_DEFAULT
 from shutdown import IDLE_SECONDS, IDLE_POLL_MS
 from structs import Params
 from readout_tk import ReadoutSection
@@ -18,7 +18,8 @@ from config_helper import (
     FIELD_LABELS, DEFAULTS, SWEEP_SPEED_OPTIONS,
     EXTRA_LABELS, EXTRA_DEFAULTS, PADDING_LABEL, PM_RANGE_LABEL, DYN_SCAN_LABEL, DECREMENT_LABEL,
     CHANNEL_LABEL, CHANNEL_OPTIONS, CHANNEL_DEFAULT, channels_to_str, parse_channels, padding_nm,
-    PASSFAIL_LABELS, PASSFAIL_KEYS, PASSFAIL_DEFAULT, PASSFAIL_COLUMNS, passfail_col, label_text,
+    PASSFAIL_LABELS, PASSFAIL_KEYS, PASSFAIL_BOUNDS, PASSFAIL_DEFAULT, PASSFAIL_COLUMNS, passfail_col, label_text,
+    PEAK_BASE_LABEL,
     preset_path, load_presets, save_preset, delete_preset, convert_csv_presets,
     section_header, make_extra_widgets,
     use_ui_font, ui_font,
@@ -213,6 +214,11 @@ def get_inputs(readout=None, auto_run=False, source=None):
         if error:
             validation_error(error, result_label, num_data, avg_time, saved, run_btn)
             return
+        # The dropdown offers only valid options, but a preset file can hold any text.
+        if peak_base_var.get() not in PEAK_BASE_OPTIONS:
+            validation_error(f"Peak Test Criteria: {PEAK_BASE_LABEL} must be selected from the dropdown list.",
+                             result_label, num_data, avg_time, saved, run_btn)
+            return
 
         params.wl_start   = values[0]
         params.wl_stop    = values[1]
@@ -231,6 +237,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
             lo, hi = pf_values[label]
             setattr(params, lo_key, lo)
             setattr(params, hi_key, hi)
+        params.peak_base = peak_base_var.get()
 
         params.padding    = padding
         params.wl_st_pad  = params.wl_start - padding
@@ -331,6 +338,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
             vals[CHANNEL_LABEL] = CHANNEL_DEFAULT
             for col in PASSFAIL_COLUMNS:
                 vals[col] = PASSFAIL_DEFAULT
+            vals[PEAK_BASE_LABEL] = PEAK_BASE_DEFAULT
             num_data.set("0")
             avg_time.set("0")
             duration.set("0")
@@ -354,6 +362,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
             for entry, bound in ((mn, "min"), (mx, "max")):
                 entry.delete(0, tk.END)
                 entry.insert(0, vals[passfail_col(label, bound)])
+        peak_base_var.set(vals[PEAK_BASE_LABEL])
         on_entry_change()
         if name == "none":
             return
@@ -406,6 +415,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
         _last["extras"] = {label: extra_vars[label].get() for label in EXTRA_LABELS}
         _last["channels"] = channels_to_str(ch for ch in CHANNEL_OPTIONS if channel_vars[ch].get())
         _last["passfail"] = {label: (mn.get(), mx.get()) for label, (mn, mx) in passfail_entries.items()}
+        _last["peak_base"] = peak_base_var.get()
 
         ran["ok"] = True
         _state["pos"] = (root.winfo_x(), root.winfo_y())
@@ -430,6 +440,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
         for label, (mn, mx) in passfail_entries.items():
             preset_vals[passfail_col(label, "min")] = mn.get()
             preset_vals[passfail_col(label, "max")] = mx.get()
+        preset_vals[PEAK_BASE_LABEL] = peak_base_var.get()
 
         existing, error = load_presets(preset_file)
         if error:
@@ -701,34 +712,50 @@ def get_inputs(readout=None, auto_run=False, source=None):
     right_col = tk.Frame(frame)
     right_col.grid(row=0, column=2, rowspan=RESULT_ROW + 1, sticky="n", padx=(40, 0))
 
-    # Peak Test Criteria: each criterion has a min and max float entry placed
-    # side by side; values are validated and saved (and stored in presets)
-    # alongside the parameters.
+    # Peak Test Criteria: a table with a min and a max column under one header
+    # row, a row of float entries per criterion, then the Base dropdown. The
+    # values are validated and saved (and stored in presets) alongside the
+    # parameters.
     pf_container = tk.Frame(right_col)
     pf_container.pack(anchor="w", fill="x")
-    pf_container.columnconfigure(1, weight=1)
-    section_header(pf_container, "Peak Test Criteria (Optional)", 0, info=PASSFAIL_INFO)
+    # Columns: criterion, min, max, and an empty one that takes the spare
+    # width, so the min and max columns stay as wide as their entries.
+    pf_container.columnconfigure(3, weight=1)
+    section_header(pf_container, "Peak Test Criteria (Optional)", 0, info=PASSFAIL_INFO, span=4)
+    bound_padx = {"min": (0, 12), "max": 0}   # a gap between the two columns
+    for col, bound in enumerate(PASSFAIL_BOUNDS, start=1):
+        tk.Label(pf_container, text=bound).grid(row=2, column=col, padx=bound_padx[bound])
     init_passfail = _last.get("passfail", {})
     passfail_entries = {}   # label -> (min_entry, max_entry)
     passfail_widgets = []   # flat list for lock/unlock
     pf_labels = []          # their widths line up the Label & Auto-Save fields below
     for j, label in enumerate(PASSFAIL_LABELS):
+        row = j + 3
         pf_label = tk.Label(pf_container, text=label_text(label), anchor="e")
-        pf_label.grid(row=j + 2, column=0, pady=4, padx=(0, 8), sticky="e")
+        pf_label.grid(row=row, column=0, pady=4, padx=(0, 8), sticky="e")
         pf_labels.append(pf_label)
-        pf_frame = tk.Frame(pf_container)
-        pf_frame.grid(row=j + 2, column=1, pady=4, sticky="w")
-        lo_init, hi_init = init_passfail.get(label, (PASSFAIL_DEFAULT, PASSFAIL_DEFAULT))
+        inits = init_passfail.get(label, (PASSFAIL_DEFAULT, PASSFAIL_DEFAULT))
         row_entries = []
-        for bound_label, bound_init, pad in (("min", lo_init, (2, 12)), ("max", hi_init, (2, 0))):
-            tk.Label(pf_frame, text=bound_label).pack(side="left")
-            e = tk.Entry(pf_frame, width=8)
-            e.insert(0, bound_init)
-            e.pack(side="left", padx=pad)
+        for col, (bound, init) in enumerate(zip(PASSFAIL_BOUNDS, inits), start=1):
+            e = tk.Entry(pf_container, width=8)
+            e.insert(0, init)
+            e.grid(row=row, column=col, pady=4, padx=bound_padx[bound], sticky="w")
             e.bind("<Key>", on_entry_change)
             row_entries.append(e)
             passfail_widgets.append(e)
         passfail_entries[label] = tuple(row_entries)
+
+    # Base: which base the depth and width are measured from (PASSFAIL_INFO).
+    # It spans the min and max columns, so it can't widen the min column.
+    base_row = len(PASSFAIL_LABELS) + 3
+    base_label = tk.Label(pf_container, text=PEAK_BASE_LABEL, anchor="e")
+    base_label.grid(row=base_row, column=0, pady=4, padx=(0, 8), sticky="e")
+    pf_labels.append(base_label)
+    peak_base_var = tk.StringVar(value=_last.get("peak_base", PEAK_BASE_DEFAULT))
+    base_menu = tk.OptionMenu(pf_container, peak_base_var, *PEAK_BASE_OPTIONS)
+    base_menu.grid(row=base_row, column=1, columnspan=2, pady=4, sticky="w")
+    peak_base_var.trace_add("write", on_entry_change)
+    passfail_widgets.append(base_menu)
 
     # More Info: an optional label (prefix + zero-padded counter) and auto-save.
     # Session-only (kept in _last, not presets) and never locked by Save; Run
