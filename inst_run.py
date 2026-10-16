@@ -178,10 +178,19 @@ def sweep_laser(laser, params: Params):
     ilog.info("Start a continuous sweep")
     laser.write(":SOURCE0:WAV:SWE:STATE 1")
 
-    # Hold execution until sweep finishes
-    while int(laser.query(":SOURCE0:WAV:SWE:STATE?")) == 1:
-        ilog.info("Sweeping...")
-        time.sleep(1)
+    # Hold execution until sweep finishes. The elapsed time counts up on one
+    # console line (print, not the log), like the external laser's wait. The
+    # config window's "Duration / Sweep" (the log time) is shown for reference;
+    # the laser reports sweeping a few seconds longer (3-4 s at 0.5 nm/s).
+    duration = params.num_data * params.at_us / 1e6   # s
+    start = time.time()
+    try:
+        while int(laser.query(":SOURCE0:WAV:SWE:STATE?")) == 1:
+            elapsed = time.time() - start
+            print(f"\r Laser busy... {int(elapsed)} s (Duration / Sweep: {duration:,.2f} s)", end="", flush=True)
+            time.sleep(1)
+    finally:
+        print()   # end the counter line before the next log line, even on an error
     
     wait_opc(laser)
     ilog.info("Sweep finished")

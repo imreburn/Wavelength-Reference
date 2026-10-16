@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [2.0.4] - 2026-10-19
 
 ### Added
 
@@ -17,6 +17,12 @@
 - In the config window, "Wavelength" in field names is now "λ"
 - In the config window, "λ Padding (pm)" moved up, between "λ Stop (nm)" and "Sweep Speed (nm/s)".
 - In the config window, "Laser Source" is renamed to "Source". In the graph window's "Sweep info", "Laser source" is now "Source" too.
+- In the console, "Sweeping..." no longer repeats every second during a sweep. Instead, a single line shows the elapsed time and the config window's sweep time: "Laser busy... 5 s (Duration / Sweep: 2.04 s)". The laser takes a few seconds longer than "Duration / Sweep" because of its overhead.
+- In the graph window, "|ΔP| (dB)" in the Delta table and "Depth (dB)" in the Custom peak table now show 3 decimal places by default instead of 2.
+
+### Fixed
+
+- Close & Repeat no longer starts the Power Readout in the config window, so the laser goes straight into the next sweep.
 
 ## [2.0.3] - 2026-10-12
 

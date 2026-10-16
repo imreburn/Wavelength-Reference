@@ -95,8 +95,9 @@ TABLES = {
         'locked': 'Peak',
         'units': {'x': 'nm', 'y': 'dB|dBm', 'Depth': 'dB', 'Width': 'pm', 'Amplitude': 'dB',
                   'base_x': 'nm', 'base_y': 'dB|dBm'},
-        # As fine as the Manual "Bandwidth amplitude (dB)" field's 0.001 step.
-        'decimals': {'Amplitude': 3},
+        # Amplitude: as fine as the Manual "Bandwidth amplitude (dB)" field's
+        # 0.001 step. Depth: as fine as the B1 and B2 powers it comes from.
+        'decimals': {'Amplitude': 3, 'Depth': 3},
         'striped': True,   # its only row is the first, so it's shaded
     },
     'delta': {
@@ -109,6 +110,7 @@ TABLES = {
         'locked': 'Marker',
         'units': {'x': 'nm', 'y': 'dB|dBm', 'mid_x': 'nm', 'mid_y': 'dB|dBm', 'dx': 'nm',
                   'dy': 'dB', 'slope': 'dB/nm'},
+        'decimals': {'dy': 3},   # as fine as the two powers it comes from
         'striped': True,
     },
     'peak': {

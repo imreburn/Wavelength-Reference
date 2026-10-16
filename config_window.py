@@ -105,8 +105,9 @@ def _bind_checkbox_key(root, letter, checkbox):
 
 def get_inputs(readout=None, auto_run=False, source=None):
     # readout: the session's readout.PowerReadout, shown live in its own section
-    # for as long as this window is up (stopped before Run tears it down). None
-    # runs the window without a readout, e.g. a UI test with no instruments.
+    # for as long as this window is up (stopped before Run tears it down). Not
+    # started for a Repeat's auto-Run, unless that Run is refused. None runs the
+    # window without a readout, e.g. a UI test with no instruments.
     # auto_run: re-run the previous sweep without manual interaction (set by the
     # plot window's Repeat button). It is a control flag only — never stored on
     # Params, which holds run parameters exclusively.
@@ -227,8 +228,8 @@ def get_inputs(readout=None, auto_run=False, source=None):
             setattr(params, hi_key, hi)
 
         params.padding    = padding
-        params.wl_st_pad  = params.wl_start - padding
-        params.wl_sp_pad  = params.wl_stop  + padding
+        params.wl_st_pad  = round(params.wl_start - padding, 5)
+        params.wl_sp_pad  = round(params.wl_stop  + padding, 5)
         # TODO #95
         params.name       = "unknown" if preset_var.get() == "none" else preset_var.get()
 
@@ -816,7 +817,8 @@ def get_inputs(readout=None, auto_run=False, source=None):
     update_label_ui()
 
     # Power Readout: live meter values plus the laser wavelength/power controls.
-    # Started once the window is up (below); Run and Close stop it.
+    # Started once the window is up (below), except on a Repeat; Run and Close
+    # stop it.
     if readout is not None:
         readout_section = ReadoutSection(right_col, readout)
         readout_section.frame.pack(anchor="w", fill="x", pady=(16, 0))
@@ -879,8 +881,15 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # Repeat from the plot window: the values are already saved (above), so just
     # fire Run once the window is up. Only valid when there are prior values to
     # re-run; a fresh session (no _last) can't auto-run.
-    if auto_run and "fields" in _last:
-        root.after(500, on_run)
+    auto_running = auto_run and "fields" in _last
+    if auto_running:
+        def _auto_run():
+            on_run()
+            # Run refused (e.g. the label counter is past its digit limit): the
+            # window stays up for the fix, so the readout starts as usual.
+            if not ran["ok"] and readout_section:
+                readout_section.start()
+        root.after(500, _auto_run)
 
     # ---- Idle timeout ----------------------------------------------------
     # Close after IDLE_SECONDS with no keyboard/button activity. On expiry reuse
@@ -907,8 +916,10 @@ def get_inputs(readout=None, auto_run=False, source=None):
     _idle_job["id"] = root.after(IDLE_POLL_MS, _check_idle)
 
     # Start the live readout. It defers itself one event-loop pass, so the
-    # window paints before the instrument check (which sleeps) runs.
-    if readout_section:
+    # window paints before the instrument check (which sleeps) runs. Not on a
+    # Repeat: the window closes again before anyone can read it, and the sweep
+    # sets up the meter and laser itself. _auto_run starts it if Run is refused.
+    if readout_section and not auto_running:
         readout_section.start()
 
     # Grab keyboard focus so Enter works without clicking the window first

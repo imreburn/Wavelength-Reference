@@ -13,3 +13,5 @@ tempCodeRunnerFile.py
 Raw Data/
 Peaks/
 .ruff_cache
+.bak
+.toml
