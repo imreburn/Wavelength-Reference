@@ -17,23 +17,25 @@ import logging
 log = logging.getLogger(__name__)
 
 import shutdown
-from constants import GRAPH_WINDOW_ZOOM, PEAK_BASE_OPTIONS, PEAK_BASE_DEFAULT
+from constants import GRAPH_WINDOW_ZOOM
 from structs import Params, Dataset
 from analyze_data import peak_detection, find_bandwidth, exam_peak
-from save_csv import save_csv_raw, save_csv_peak_row, auto_raw_path,COL_CH, COL_REF, COL_SCAN, RAW_DIR, PEAKS_DIR
+from save_csv import save_csv_raw, auto_raw_path,COL_CH, COL_REF, COL_SCAN, RAW_DIR, PEAKS_DIR
 from plot_helper import lttb, lttb_multi, pre_process
 from filters import FILTER_LABELS, FILTER_PARAMS, apply_filter, FilterError
 from readout import READOUT_COLUMNS, DASH_REFRESH_MS, format_row, format_actual, format_wl
 import plot_tables as pt
 from plot_tables import DATA_CSS_FONT, WINDOW_CSS_FONT
+import peak_dialog as pdlg
+import peak_file as pf
 
-# Remembered across display_plot() calls (i.e. across loop iterations) so the
-# "Save peak info" dialog starts with the file, label, temperature, and base
-# used last time.
-_last_peak_file   = ''
-_last_peak_label  = ''
-_last_temperature = None
-_last_peak_base   = PEAK_BASE_DEFAULT
+# Remembered across display_plot() calls (i.e. across loop iterations) for the
+# "Save peak info" dialog: the file saved to last (a name in PEAKS_DIR), and a
+# new file's columns ([{'item': key} or {'text': name}] after the fixed ones)
+# and decimals (item key -> decimals). Label (SN) and Temperature aren't.
+_last_peak_file = ''
+_peak_columns   = []
+_peak_decimals  = {}
 # Also remembered across display_plot() calls: each table's columns and
 # decimals from its Customize dialog, and the peak numbers hidden in the peak
 # table (by number, so P3 stays hidden in a later sweep that finds a P3).
@@ -44,7 +46,13 @@ _hidden_peaks = []
 _hidden_items = set()
 
 # Page template: Dash's default plus one style block. Buttons and form fields
-# don't inherit the page font by default, so they're told to.
+# don't inherit the page font by default, so they're told to. The pf- rules
+# are for the Save peak info table (peak_dialog._label): an option's label
+# holds a one-line text for the open list (.pf-menu) and a two-line one for
+# the field (.pf-field). Dropdowns with class pf-dd show the two-line one,
+# left-aligned, in a narrower field. The list opens outside the dropdown's
+# element, so it keeps the one-line text. Dash's field grid puts the text in
+# an auto-width first column; 1fr gives the text the free space instead.
 INDEX_STRING = '''<!DOCTYPE html>
 <html>
     <head>
@@ -55,6 +63,20 @@ INDEX_STRING = '''<!DOCTYPE html>
         <style>
             body { font-family: __FONT__; }
             button, input, select, textarea { font-family: inherit; }
+            .pf-field { display: none; }
+            .pf-dd .pf-menu { display: none; }
+            .pf-dd .pf-field { display: block; }
+            .pf-dd .pf-l1, .pf-dd .pf-l2 {
+                display: block; overflow: hidden; text-overflow: ellipsis; }
+            .pf-dd .dash-dropdown-value {
+                white-space: nowrap; line-height: 1.15;
+                justify-self: stretch; text-align: left; }
+            .pf-dd .dash-dropdown-trigger { padding: 0 6px; gap: 4px; }
+            .pf-dd .dash-dropdown-grid-container { grid-template-columns: 1fr auto; }
+            .pf-dd .dash-dropdown-grid-container:has(> :nth-child(3)) {
+                grid-template-columns: 1fr auto auto; }
+            .pf-dd .dash-dropdown-grid-container:has(> :nth-child(4)) {
+                grid-template-columns: 1fr auto auto auto; }
         </style>
     </head>
     <body>
@@ -565,11 +587,11 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         'backgroundColor': '#ecf0f1', 'overflow': 'hidden', 'whiteSpace': 'nowrap'})
 
     # ------------------------------------------------------------------
-    # "Save peak info" modal — choose a detected peak (or the custom one)
-    # and enter a label, then append a row to the fixed Peak Analyses CSV.
+    # "Save peak info" dialog (peak_dialog.py): pick a peak file, then the
+    # columns and the peaks in a table that previews the rows to save.
     # ------------------------------------------------------------------
     if pk is not None:
-        # Put the highlighted peak (max Depth_max, see line ~329) at the top.
+        # The tested peak first, then the deepest (max Depth_max), then the rest.
         max_peak = int(peak_df.loc[peak_df['Depth_max'].idxmax(), 'Peak'])
         if exam_idx is not None:
             ordered_peaks = [exam_idx] + ([max_peak] if max_peak != exam_idx else [] ) + [int(p) for p in peak_df['Peak'] if int(p) not in [exam_idx, max_peak]]
@@ -580,25 +602,62 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         for p in ordered_peaks:
             label = f'P{p}'
             if exam_idx is not None and p == exam_idx:
-                label += " (tested) "
+                label += " (tested)"
             if p == max_peak:
                 label += " (deepest)"
             peak_options.append({'label': label, 'value': f'peak:{p}'})
     else:
-        peak_options = []
-    peak_options += [{'label': 'custom', 'value': 'custom'}]
+        ordered_peaks, peak_options = [], []
 
-    # Default filename for a new peak CSV (saved under PEAKS_DIR).
-    DEFAULT_PEAK_FILENAME = '.csv'
+    # What every row of this sweep shares: its date, insertion loss (the IL
+    # marker's value) and settings.
+    _sweep_values = pf.sweep_values(params, -gmax_y if params.reference else None)
+
+    def _has_custom(m2):
+        """Whether both Bandwidth markers are set, so "custom" is a peak to save."""
+        return bool(m2 and m2.get('base'))
+
+    def _peak_choices(m2):
+        """The peak dropdowns' options: the detected peaks, then "custom"."""
+        return peak_options + ([{'label': 'custom', 'value': 'custom'}] if _has_custom(m2) else [])
+
+    def _default_peak(m2):
+        """A new dialog's one row: the tested peak, else the deepest, else custom."""
+        if ordered_peaks:
+            return f'peak:{ordered_peaks[0]}'
+        return 'custom' if _has_custom(m2) else None
+
+    def _peak_name(peak):
+        """A peak's name in messages: "P2" or "custom"."""
+        return 'custom' if peak == 'custom' else f"P{peak.split(':')[1]}"
+
+    def _row_values(peak, m2):
+        """Item key -> value for a row with this peak; a value it doesn't have
+        is missing. A detected peak has no custom values, and the custom peak
+        (the Bandwidth markers: B1 the peak, B2 the base) has no max, avg or
+        min ones. Full precision: the dialog rounds them for display and Save."""
+        values = dict(_sweep_values)
+        if peak == 'custom':
+            if _has_custom(m2):
+                base_y = m2['base']['y']
+                values.update(wl=m2['x'], depth_custom=base_y - m2['y'],
+                              width_custom=m2.get('width_pm'))
+                if params.reference:
+                    # Negated like IL, so a base above the reference reads as a gain.
+                    values['il_custom'] = -base_y
+        elif peak and pk is not None:
+            i = int(peak.split(':')[1]) - 1
+            values['wl'] = float(pk.x_nm[i])
+            for base in ('max', 'avg', 'min'):
+                widths = getattr(pk, base)
+                values[f'depth_{base}'] = float(widths.depth[i])
+                values[f'width_{base}'] = float(widths.w_pm[i])
+        return values
 
     def _peak_file_options():
-        """Dropdown options for existing CSVs in PEAKS_DIR, plus an empty item."""
-        files = sorted(f for f in os.listdir(PEAKS_DIR)
-                       if f.lower().endswith('.csv')
-                       and os.path.isfile(os.path.join(PEAKS_DIR, f)))
-        opts = [{'label': f'Create new file', 'value': ''}]
-        opts += [{'label': f, 'value': f} for f in files]
-        return opts
+        """The file dropdown: "New file…", then the .xlsx files in PEAKS_DIR."""
+        return ([{'label': 'New file…', 'value': ''}]
+                + [{'label': f, 'value': f} for f in pf.list_files(PEAKS_DIR)])
 
     def _remembered_file_value(opts):
         """Last-used file if it still exists among the options, else ''."""
@@ -613,93 +672,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
     MODAL_HIDDEN = {**MODAL_OVERLAY, 'display': 'none'}
     MODAL_SHOWN  = {**MODAL_OVERLAY, 'display': 'flex'}
 
-    def _peak_stats(sel, m2, base):
-        """Resolve (wavelength, depth, width) for the selected peak, mirroring
-        the values used when saving: a detected peak's depth and width are
-        measured from `base`. Returns None for any value that isn't
-        available (e.g. a 'custom' peak without both Bandwidth markers yet)."""
-        try:
-            if sel == 'custom':
-                if m2 is None or m2.get('base') is None:
-                    return None, None, None
-                return m2['x'], m2['base']['y'] - m2['y'], m2.get('width_pm')
-            i   = int(sel.split(':')[1])
-            row = peak_df[peak_df['Peak'] == i].iloc[0]
-            return float(row['x']), float(row[f'Depth_{base}']), float(row[f'FWHM_{base}'])
-        except Exception:
-            return None, None, None
-
-    def _fmt_stat(v, nd):
-        """Format a stat value to nd decimals, or '' when unavailable."""
-        return '' if v is None else f'{float(v):.{nd}f}'
-
-    # Insertion loss for the global maximum, same expression used at save time.
-    _il_value = round(-gmax_y, 5) if params.reference else None
-
-    # Initial read-only stats for the default (first) peak selection.
-    _init_wl, _init_depth, _init_width = _peak_stats(peak_options[0]['value'], None, _last_peak_base)
-
-    _stat_label_style = {'fontWeight': 'bold', 'display': 'block', 'marginBottom': '4px'}
-    _stat_input_style = {'width': '100%', 'boxSizing': 'border-box',
-                         'marginBottom': '8px', 'backgroundColor': '#F2F2F2'}
-
-    peak_modal = html.Div(
-        id='peak-modal',
-        style=MODAL_HIDDEN,
-        children=html.Div([
-            html.H4('Save peak info', style={'marginTop': 0}),
-            html.Label('Select peak', style={'fontWeight': 'bold', 'display': 'block', 'marginBottom': '4px'}),
-            dcc.Dropdown(id='peak-select', options=peak_options,
-                         value=peak_options[0]['value'], clearable=False,
-                         style={'marginBottom': '12px'}),
-            # What a detected peak's depth and width are measured from. Off for
-            # a custom peak: its base is the B2 marker.
-            html.Label('Base', style=_stat_label_style),
-            dcc.Dropdown(id='peak-base', options=PEAK_BASE_OPTIONS, value=_last_peak_base,
-                         clearable=False, disabled=peak_options[0]['value'] == 'custom',
-                         style={'marginBottom': '12px'}),
-            html.Label('Wavelength (nm)', style=_stat_label_style),
-            dcc.Input(id='peak-wavelength', type='text', readOnly=True,
-                      value=_fmt_stat(_init_wl, 7), style=_stat_input_style),
-            html.Label('Depth (dB)', style=_stat_label_style),
-            dcc.Input(id='peak-depth', type='text', readOnly=True,
-                      value=_fmt_stat(_init_depth, 5), style=_stat_input_style),
-            html.Label('Width (pm)', style=_stat_label_style),
-            dcc.Input(id='peak-width', type='text', readOnly=True,
-                      value=_fmt_stat(_init_width, 3), style=_stat_input_style),
-            html.Label('Insertion loss (IL)', style=_stat_label_style),
-            dcc.Input(id='peak-loss', type='text', value=_il_value, readOnly=True, placeholder="Optional", style=_stat_input_style),
-            html.Label('Label (SN)', style={'fontWeight': 'bold', 'display': 'block',
-                                       'marginBottom': '4px'}),
-            dcc.Input(id='peak-label', type='text', value=params.label or _last_peak_label, debounce=False, placeholder="Required",
-                      style={'width': '100%', 'boxSizing': 'border-box',
-                             'marginBottom': '8px'}),
-            html.Label('Temperature (\u00B0C)', style={'fontWeight': 'bold', 'display': 'block',
-                                             'marginBottom': '4px'}),
-            dcc.Input(id='peak-temperature', type='number', value=_last_temperature, debounce=False, placeholder="Optional",
-                      style={'width': '100%', 'boxSizing': 'border-box',
-                             'marginBottom': '8px'}),
-            html.Label('Choose file', style={'fontWeight': 'bold', 'display': 'block',
-                                               'marginBottom': '4px'}),
-            dcc.Dropdown(id='peak-file-select', options=_peak_file_options(),
-                         value=_remembered_file_value(_peak_file_options()),
-                         clearable=False,
-                         style={'marginBottom': '12px'}),
-            html.Div(id='peak-modal-error',
-                     style={'color': '#C0392B', 'fontSize': '12px',
-                            'minHeight': '16px', 'marginBottom': '8px'}),
-            html.Div([
-                html.Button('Cancel (Esc)', id='peak-cancel', n_clicks=0),
-                html.Button('Save', id='peak-save-confirm', n_clicks=0,
-                            style={'marginLeft': '8px'}),
-            ], style={'textAlign': 'right'}),
-        ], style={'backgroundColor': 'white', 'padding': '20px 24px',
-                  'borderRadius': '8px', 'width': '320px',
-                  # Scrolls rather than running off a short window.
-                  'maxHeight': '90vh', 'overflowY': 'auto',
-                  'fontFamily': WINDOW_CSS_FONT,
-                  'boxShadow': '0 4px 20px rgba(0,0,0,0.25)'}),
-    )
+    peak_modal = pdlg.modal(MODAL_HIDDEN)
 
     # ------------------------------------------------------------------
     # "Apply filter" modal — pick a smoothing filter and its parameters,
@@ -1204,10 +1177,12 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         Input('repeat-btn', 'n_clicks'),
     )
 
-    # Esc dismisses the open modal by clicking its button in MODAL_CLOSE_BTNS,
-    # even while typing in one of its fields. An open dcc.Dropdown menu gets Esc
-    # first: Dash 4's menu closes on it and preventDefaults the event, so the
-    # modal stays open until the next Esc.
+    # Esc dismisses the open modal by clicking its button in MODAL_CLOSE_BTNS.
+    # In a text or number field, the first Esc only leaves the field and keeps
+    # what was typed (a debounced field sends its value then); the next Esc
+    # closes the modal. An open dcc.Dropdown menu also gets Esc first: Dash 4's
+    # menu closes on it and preventDefaults the event, so the modal stays open
+    # until the next Esc.
     app.clientside_callback(
         """
         function(n) {
@@ -1219,6 +1194,14 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
                     for (var id in closers) {
                         var m = document.getElementById(id);
                         if (m && m.style.display !== 'none') {
+                            var t = e.target;
+                            var tag = t && t.tagName ? t.tagName.toUpperCase() : '';
+                            if (tag === 'TEXTAREA' ||
+                                    (tag === 'INPUT' && !/^(checkbox|radio)$/i.test(t.type))) {
+                                e.preventDefault();
+                                t.blur();
+                                return;
+                            }
                             var btn = document.getElementById(closers[id]);
                             if (btn) {
                                 e.preventDefault();
@@ -1358,34 +1341,96 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
             window.destroy()
         return ''
 
+    # ------------------------------------------------------------------
+    # Save peak info: open the dialog, keep its state (pf-state) in step with
+    # the table's controls, draw the table, and Save or Cancel.
+    # ------------------------------------------------------------------
     @app.callback(
         Output('peak-modal', 'style'),
         Output('peak-file-select', 'options'),
         Output('peak-file-select', 'value'),
+        Output('peak-label', 'value'),
+        Output('peak-temperature', 'value'),
+        Output('peak-modal-error', 'children', allow_duplicate=True),
         Input('save-peak-btn', 'n_clicks'),
         prevent_initial_call=True,
     )
     def open_peak_modal(n_clicks):
+        # Label (SN) starts with the sweep's label, and Temperature empty.
         opts = _peak_file_options()
-        return MODAL_SHOWN, opts, _remembered_file_value(opts)
+        return MODAL_SHOWN, opts, _remembered_file_value(opts), params.label or '', None, ''
+
+    def _fresh_peak_state(file_value, m2):
+        """The dialog's state for the chosen file ('' = a new file), with
+        one row for the default peak."""
+        if file_value:
+            path = os.path.join(os.path.abspath(PEAKS_DIR), file_value)
+            state = pdlg.file_state(path, _peak_decimals)
+        else:
+            state = pdlg.new_file_state(_peak_columns, _peak_decimals)
+        peak = _default_peak(m2)
+        if peak and not state['bad']:
+            pdlg.add_row(state, peak)
+        return state
+
+    # Opening the dialog or picking a file starts the state over. Any other
+    # trigger is a control in the table: peak_dialog.update works out the
+    # change from every control's current value.
+    @app.callback(
+        Output('pf-state', 'data'),
+        Input('save-peak-btn', 'n_clicks'),
+        Input('peak-file-select', 'value'),
+        Input({'type': 'pf-col', 'col': ALL}, 'value'),
+        Input({'type': 'pf-name', 'col': ALL}, 'value'),
+        Input({'type': 'pf-dec', 'col': ALL, 'step': ALL}, 'n_clicks'),
+        Input({'type': 'pf-row', 'row': ALL}, 'value'),
+        Input({'type': 'pf-text', 'row': ALL, 'col': ALL}, 'value'),
+        Input({'type': 'pf-add', 'what': ALL}, 'value'),
+        State('pf-state', 'data'),
+        State('mode2-info-store', 'data'),
+        prevent_initial_call=True,
+    )
+    def update_peak_state(_open, file_value, *rest):
+        state, m2 = rest[-2], rest[-1]
+        props = callback_context.triggered_prop_ids
+        if 'save-peak-btn.n_clicks' in props or 'peak-file-select.value' in props:
+            return _fresh_peak_state(file_value, m2)
+        if not state:
+            return dash.no_update
+        current = {}
+        for group in callback_context.inputs_list[2:]:
+            for item in group:
+                current.setdefault(item['id']['type'], []).append((item['id'], item.get('value')))
+        changes = [(json.loads(t['prop_id'].rsplit('.', 1)[0]), t.get('value'))
+                   for t in callback_context.triggered if t['prop_id'].startswith('{')]
+        new = pdlg.update(state, changes, current)
+        if new is None:
+            return dash.no_update
+        if new['mode'] == 'new':
+            # A new file's columns and decimals carry over to the next one,
+            # in this and later plot windows.
+            _peak_columns[:] = pdlg.session_columns(new)
+            _peak_decimals.clear()
+            _peak_decimals.update(new['dec'])
+        return new
 
     @app.callback(
-        Output('peak-wavelength', 'value'),
-        Output('peak-depth', 'value'),
-        Output('peak-width', 'value'),
-        Output('peak-base', 'disabled'),
-        Input('peak-select', 'value'),
-        Input('peak-base', 'value'),
-        # Also recompute when the modal is (re)opened: the dropdown retains its
-        # value across openings, so a selection that hasn't changed (e.g. a
-        # 'custom' peak that was edited in the meantime) would otherwise keep
-        # showing stale stats until the user switches selection and back.
-        Input('save-peak-btn', 'n_clicks'),
+        Output('pf-table', 'children'),
+        Output('pf-file-msg', 'children'),
+        Output('peak-modal-error', 'children', allow_duplicate=True),
+        Input('pf-state', 'data'),
+        Input('peak-label', 'value'),
+        Input('peak-temperature', 'value'),
         State('mode2-info-store', 'data'),
+        prevent_initial_call=True,
     )
-    def update_peak_stats(sel, base, _n_clicks, m2):
-        wl_v, depth, fwhm = _peak_stats(sel, m2, base)
-        return _fmt_stat(wl_v, 7), _fmt_stat(depth, 5), _fmt_stat(fwhm, 3), sel == 'custom'
+    def render_peak_dialog(state, label, temperature, m2):
+        # Any change also clears the last Save's error message.
+        if not state:
+            return [], '', ''
+        table = pdlg.table(state, _peak_choices(m2), lambda peak: _row_values(peak, m2),
+                           label, temperature)
+        return table, pdlg.file_message(state), ''
 
     @app.callback(
         Output('peak-modal', 'style', allow_duplicate=True),
@@ -1393,69 +1438,63 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         Output('peak-modal-error', 'children'),
         Input('peak-cancel', 'n_clicks'),
         Input('peak-save-confirm', 'n_clicks'),
-        State('peak-select', 'value'),
+        State('pf-state', 'data'),
         State('peak-label', 'value'),
-        State('peak-loss', 'value'),
         State('peak-temperature', 'value'),
         State('peak-file-select', 'value'),
         State('mode2-info-store', 'data'),
-        State('peak-base', 'value'),
         prevent_initial_call=True,
     )
-    def close_or_save_peak(cancel, confirm, sel, label, loss, temperature, chosen_file, m2, base):
-        triggered = callback_context.triggered[0]['prop_id']
-        if 'peak-cancel' in triggered:
-            return MODAL_HIDDEN, dash.no_update, ""
-
-        if not label or not label.strip():
-            return dash.no_update, dash.no_update, "Please enter a label."
-
-        if sel == 'custom':
-            if m2 is None or m2.get('base') is None:
-                return (dash.no_update, dash.no_update,
-                        "Custom peak needs both Bandwidth markers: B1 (peak) and B2 (base).")
-            wl_v  = m2['x']
-            # B2 (the base) minus B1 (the dip): dBm runs negative-down, so the
-            # base sits above the dip and this order keeps depth positive.
-            depth = m2['base']['y'] - m2['y']
-            fwhm  = m2.get('width_pm')
-            saved_base = 'custom'
-        else:
-            i     = int(sel.split(':')[1])
-            row   = peak_df[peak_df['Peak'] == i].iloc[0]
-            wl_v  = float(row['x'])
-            depth = float(row[f'Depth_{base}'])
-            fwhm  = float(row[f'FWHM_{base}'])
-            saved_base = base
+    def close_or_save_peak(cancel, confirm, state, label, temperature, chosen_file, m2):
+        if callback_context.triggered_id == 'peak-cancel':
+            return MODAL_HIDDEN, dash.no_update, ''
+        if not state:
+            return dash.no_update, dash.no_update, ''
+        label = (label or '').strip()
+        trouble = pdlg.problem(state, label, lambda peak: _row_values(peak, m2).get('wl'), _peak_name)
+        if trouble:
+            return dash.no_update, dash.no_update, trouble
+        rows = [{**_row_values(r['peak'], m2), 'label': label, 'temperature': temperature,
+                 'texts': pdlg.row_texts(state, r)} for r in state['rows']]
 
         window = _window_holder.get('window')
         if window is None:
             return dash.no_update, dash.no_update, "Window not ready."
+        try:
+            if state['mode'] == 'new':
+                result = window.create_file_dialog(
+                    FileDialog.SAVE,
+                    directory=os.path.abspath(PEAKS_DIR),
+                    save_filename='.xlsx',
+                    file_types=('Excel files (*.xlsx)', 'All files (*.*)'),
+                )
+                if not result:
+                    # User cancelled the file dialog — keep the modal open.
+                    return dash.no_update, dash.no_update, ''
+                path = result[0] if isinstance(result, (list, tuple)) else result
+                if not path.lower().endswith('.xlsx'):
+                    path += '.xlsx'
+                added, replaced = pf.save(path, rows, columns=pdlg.file_columns(state),
+                                          decimals=state['dec'])
+            else:
+                path = os.path.join(os.path.abspath(PEAKS_DIR), chosen_file)
+                added, replaced = pf.save(path, rows, decimals=state['dec'])
+        except pf.PeakFileError as e:
+            return dash.no_update, dash.no_update, str(e)
 
-        if chosen_file:
-            # User picked an existing file — save directly, skip the dialog.
-            file_path = os.path.join(os.path.abspath(PEAKS_DIR), chosen_file)
-        else:
-            result = window.create_file_dialog(
-                FileDialog.SAVE,
-                directory=os.path.abspath(PEAKS_DIR),
-                save_filename=DEFAULT_PEAK_FILENAME,
-                file_types=('CSV files (*.csv)', 'All files (*.*)'),
-            )
-            if not result:
-                # User cancelled the file dialog — keep the modal open.
-                return dash.no_update, dash.no_update, ""
-            file_path = result[0] if isinstance(result, (list, tuple)) else result
-
-        save_csv_peak_row(label.strip(), wl_v, depth, fwhm, loss=loss, file_path=file_path, temperature=temperature, date=params.date, base=saved_base)
-        
-        global _last_peak_file, _last_peak_label, _last_temperature, _last_peak_base
-        _last_peak_file   = os.path.basename(file_path)
-        _last_peak_label  = label
-        _last_temperature = temperature
-        if sel != 'custom':   # a custom peak doesn't use the Base dropdown
-            _last_peak_base = base
-        return MODAL_HIDDEN, _status(f"Peak data saved: {os.path.basename(file_path)}"), ""
+        global _last_peak_file
+        # Remembered only when it's in PEAKS_DIR, the folder the dialog lists.
+        in_peaks = (os.path.normcase(os.path.dirname(os.path.abspath(path)))
+                    == os.path.normcase(os.path.abspath(PEAKS_DIR)))
+        _last_peak_file = os.path.basename(path) if in_peaks else ''
+        log.info(f"Saved peak info: {path} (rows added {added}, replaced {replaced})")
+        done = []
+        if added:
+            done.append(f"{len(added)} new row" + ('s' if len(added) > 1 else ''))
+        if replaced:
+            done.append(f"replaced row{'s' if len(replaced) > 1 else ''} "
+                        + ', '.join(str(r) for r in replaced))
+        return MODAL_HIDDEN, _status(f"Peak info saved: {os.path.basename(path)} ({', '.join(done)})"), ''
 
     # ------------------------------------------------------------------
     # Apply-filter modal: open / cancel / apply
@@ -2172,7 +2211,7 @@ if __name__ == "__main__":
     from open_csv import plot_raw
     from inst_dummy import dummy_readout
     # csv_path = "Raw Data/hc13n_watt_reference.csv"
-    csv_path = "Raw Data/Tri-CO-12-02608520.csv"
+    csv_path = "Raw Data/02609299.csv"
     # Dummy instruments, so the Power Readout modal can be exercised here.
     plot_raw(csv_path, readout=dummy_readout("N7778C"))
     

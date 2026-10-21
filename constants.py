@@ -44,8 +44,8 @@ VISA_ADDRS = {
 }
 
 # The bases a peak's depth and width can be measured from: the Width
-# attributes of structs.Peak, in the order the dropdowns list them. Used by the
-# config window's peak test and the graph window's "Save peak info".
+# attributes of structs.Peak, in the order the dropdown lists them. Used by the
+# config window's peak test.
 PEAK_BASE_OPTIONS = ["max", "avg", "min"]
 PEAK_BASE_DEFAULT = "max"
 

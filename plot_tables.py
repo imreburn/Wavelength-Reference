@@ -48,7 +48,7 @@ GROUP_TH_STYLE = {**TH_STYLE, 'fontSize': f'{round(CELL_PX * 11 / 14, 1)}px', 'c
                   'borderBottom': '1px solid #ddd', 'paddingBottom': '1px'}
 DEEPEST_BG  = '#FFF3B0'   # peak table: the deepest peak
 CRITERIA_BG = '#ADD8E6'   # peak table: the peak checked against Pass/Fail criteria
-STRIPE_BG   = '#F2F2F2'   # every other row of the marker and Pass/Fail tables (same as Save peak info's read-only fields)
+STRIPE_BG   = '#F2F2F2'   # every other row of the marker and Pass/Fail tables
 
 # ---- number formatting ----------------------------------------------------------
 # Default decimal places by unit: 'dB|dBm' is a power reading (P: dB with a

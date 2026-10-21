@@ -5,9 +5,10 @@
 ### Added
 
 - In the config window, "Peak Test Criteria" has a new "Base" dropdown: max (the default), avg, or min. It sets the base the peak test measures depth and width from.
-- In the graph window, "Save peak info" has a "Base" dropdown too: max (the default), avg, or min. Peak files get a "Base" column next to "Width (pm)".
 
 ### Changed
+- "Save peak info" saves to Excel files (.xlsx) instead of CSV files. In its table, you pick the columns and their decimals, and you can save several peaks at once.
+- In the graph window's dialogs, Esc in a text box now only leaves the box. Press Esc again to close the dialog.
 - In the config window, "Peak Test Criteria" is laid out as a table: "min" and "max" are column headers instead of labels on every row.
 - Presets are now saved in TOML files (`preset_N7778C.toml`, `preset_81600B.toml`) instead of CSV files, in the same folder. The first time the config window opens for a source, its presets are moved from `preset_<source>.csv` to the new file, and the CSV is renamed to `preset_<source>.csv.bak`.
 
