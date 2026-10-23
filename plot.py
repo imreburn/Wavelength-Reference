@@ -17,7 +17,7 @@ import logging
 log = logging.getLogger(__name__)
 
 import shutdown
-from constants import GRAPH_WINDOW_ZOOM
+from constants import GRAPH_WINDOW_ZOOM, FILENAME_BAD_CHARS
 from structs import Params, Dataset
 from analyze_data import peak_detection, find_bandwidth, exam_peak
 from save_csv import save_csv_raw, auto_raw_path,COL_CH, COL_REF, COL_SCAN, RAW_DIR, PEAKS_DIR
@@ -119,21 +119,14 @@ def _status(text, error=False):
     return html.Span(text, style={'color': '#c0392b' if error else '#555'})
 
 
-def _add_label_annotation(fig, params):
-    """Put the run label above the plot's top-left corner, if there is one.
-
-    Paper coordinates keep it in the corner through zoom/pan, and sitting in the
-    top margin keeps it off the traces. No callback patches layout.annotations,
-    so it survives every figure update.
-    """
-    if not params.label:
-        return
-    fig.add_annotation(
-        text=f'Label (SN): {params.label}',
-        xref='paper', yref='paper', x=0, y=1,
-        xanchor='left', yanchor='bottom',
-        showarrow=False, font=dict(size=13, weight='bold'),
-    )
+def _label_error(text):
+    """Why `text` can't be the label, or None. The label goes into file names,
+    so it follows the config window's rules for its prefix."""
+    if any(c in FILENAME_BAD_CHARS for c in text):
+        return f"Can't use {' '.join(FILENAME_BAD_CHARS)}."
+    if text != text.rstrip(' .'):
+        return "Can't end with a space or a dot."
+    return None
 
 
 def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorption Spectrum",
@@ -369,7 +362,6 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         margin=dict(l=50, t=30, b=5),
         uirevision='constant',
     )
-    _add_label_annotation(initial_fig, params)
 
     initial_fig.update_xaxes(tickformat='.7~f', hoverformat='.12~f')
     initial_fig.update_xaxes(showspikes=True, spikecolor="gray", spikemode="across", spikethickness=1)
@@ -414,9 +406,22 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
     BW_SETTINGS_STYLE = {'marginTop': '10px', 'width': '140px'}
     BW_SETTINGS_HIDDEN = {**BW_SETTINGS_STYLE, 'display': 'none'}
 
-    # Two sections, top to bottom: Plot sampling and Click mode, each under a
-    # bold title. Show / hide lives in its own popup (menu bar, H).
+    # Three sections, top to bottom: Label (SN), Plot sampling and Click mode,
+    # each under a bold title. Show / hide lives in its own popup (menu bar, H).
     right_sidebar = html.Div([
+        # The sweep's label, which the user can change here (update_label).
+        # Below it, what happened to the last change. That line is always two
+        # lines tall, even when empty, so the sections below never move. A
+        # longer message (a long label) is cut with "…" at the end of line 2.
+        html.Div([
+            html.Label("Label (SN)", style=HEADING_STYLE),
+            dcc.Input(id='label-input', type='text', value=params.label or '',
+                      placeholder='No label', debounce=False, style=INPUT_STYLE),
+            html.Div(id='label-status',
+                     style={**NOTE_STYLE, 'marginTop': '4px', 'lineHeight': '1.2', 'height': '2.4em',
+                            'display': '-webkit-box', 'WebkitBoxOrient': 'vertical',
+                            'WebkitLineClamp': '2', 'overflow': 'hidden'}),
+        ]),
         html.Div([
             html.Label("Plot sampling", style=HEADING_STYLE),
             html.Label("Max points per curve (x1000)",
@@ -734,27 +739,32 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
                         style={'marginTop': '5px'}) if exam_out else None
 
     # ------------------------------------------------------------------
-    # "Sweep Info" modal — read-only table of the sweep parameters. Built
-    # once here (params never changes while the window is open) from
+    # "Sweep Info" modal — read-only table of the sweep parameters, from
     # Params.describe(), so a field added to Params shows up on its own.
+    # Rebuilt each time it opens: the label can change while the window is open.
     # ------------------------------------------------------------------
     _info_cell  = {'padding': '1px 12px 1px 0', 'whiteSpace': 'nowrap', 'verticalAlign': 'top'}
     _info_label = {**_info_cell, 'color': '#555'}
     _info_group = {'textAlign': 'left', 'paddingTop': '10px', 'paddingBottom': '2px'}
-    _info_rows, _last_group = [], None
-    for group, label, text in params.describe():
-        if group != _last_group:
-            style = {**_info_group, 'paddingTop': 0} if not _info_rows else _info_group
-            _info_rows.append(html.Tr(html.Th(group, colSpan=2, style=style)))
-            _last_group = group
-        _info_rows.append(html.Tr([html.Td(label, style=_info_label),
-                                   html.Td(text,  style=_info_cell)]))
+
+    def _sweep_info_rows():
+        rows, last_group = [], None
+        for group, label, text in params.describe():
+            if group != last_group:
+                style = {**_info_group, 'paddingTop': 0} if not rows else _info_group
+                rows.append(html.Tr(html.Th(group, colSpan=2, style=style)))
+                last_group = group
+            rows.append(html.Tr([html.Td(label, style=_info_label),
+                                 html.Td(text,  style=_info_cell)]))
+        return rows
+
     sweep_info_modal = html.Div(
         id='sweep-info-modal',
         style=MODAL_HIDDEN,
         children=html.Div([
             html.H4('Sweep info', style={'marginTop': 0}),
-            html.Table(_info_rows, style={'borderCollapse': 'collapse', 'fontSize': '13px'}),
+            html.Table(_sweep_info_rows(), id='sweep-info-table',
+                       style={'borderCollapse': 'collapse', 'fontSize': '13px'}),
             html.Div(html.Button('Close (Esc)', id='sweep-info-close', n_clicks=0),
                      style={'textAlign': 'right', 'marginTop': '12px'}),
         ], style={'backgroundColor': 'white', 'padding': '20px 24px',
@@ -1057,7 +1067,6 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
             # No width: to_html makes the plot responsive, so it fills the window.
             height=750, margin=dict(l=55, t=30, b=40),
         )
-        _add_label_annotation(fig, params)
         fig.update_xaxes(tickformat='.8~f', hoverformat='.12~f', showspikes=True,
                          spikecolor='gray', spikemode='across', spikethickness=1)
         fig.update_yaxes(showspikes=True, spikemode='across',
@@ -1451,7 +1460,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         if not state:
             return dash.no_update, dash.no_update, ''
         label = (label or '').strip()
-        trouble = pdlg.problem(state, label, lambda peak: _row_values(peak, m2).get('wl'), _peak_name)
+        trouble = pdlg.problem(state, label, lambda peak: _row_values(peak, m2), _peak_name)
         if trouble:
             return dash.no_update, dash.no_update, trouble
         rows = [{**_row_values(r['peak'], m2), 'label': label, 'temperature': temperature,
@@ -1574,15 +1583,44 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         return MODAL_HIDDEN, patched, ""
 
     # Sweep-info modal: open / close. Read-only, so there is nothing to apply.
+    # Opening rebuilds the table, which picks up a changed label.
     @app.callback(
         Output('sweep-info-modal', 'style'),
+        Output('sweep-info-table', 'children'),
         Input('sweep-info-btn', 'n_clicks'),
         Input('sweep-info-close', 'n_clicks'),
         prevent_initial_call=True,
     )
     def toggle_sweep_info(open_clicks, close_clicks):
         triggered = callback_context.triggered[0]['prop_id']
-        return MODAL_HIDDEN if 'sweep-info-close' in triggered else MODAL_SHOWN
+        if 'sweep-info-close' in triggered:
+            return MODAL_HIDDEN, dash.no_update
+        return MODAL_SHOWN, _sweep_info_rows()
+
+    # The Label field (right panel). Each change is the sweep's label at once,
+    # so even closing the window with its own X keeps it. Save raw data, Save
+    # peak info and Sweep info read params.label, and so does main.py once the
+    # window closes (config_window.relabel). A label that can't go into a file
+    # name isn't used: the last good one stays.
+    _run_label = params.label or ''
+
+    @app.callback(
+        Output('label-status', 'children'),
+        Input('label-input', 'value'),
+        prevent_initial_call=True,
+    )
+    def update_label(text):
+        text = text or ''
+        error = _label_error(text)
+        if error:
+            used = f" Still using {params.label}." if params.label else " Still no label."
+            return html.Span(error + used, style={'color': '#c0392b'})
+        params.label = text or None
+        if not text:
+            return "Label removed."
+        if text == _run_label:
+            return f"Back to the original label: {text}"
+        return f"Label updated: {text}"
 
     # Power-readout modal. Opening starts the readout and enables its poll;
     # closing stops both. start() blocks for the instrument check (~1 s).

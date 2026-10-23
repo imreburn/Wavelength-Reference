@@ -120,7 +120,8 @@ TABLES = {
         'locked': 'Peak',
         'units': {'x': 'nm', 'y': 'dB|dBm', 'IL': 'dB', 'Depth_max': 'dB', 'FWHM_max': 'pm',
                   'Depth_avg': 'dB', 'FWHM_avg': 'pm', 'Depth_min': 'dB', 'FWHM_min': 'pm'},
-        'decimals': {'IL': 1},
+        # Depth: as fine as the peak and base powers it comes from.
+        'decimals': {'IL': 1, 'Depth_max': 3, 'Depth_avg': 3, 'Depth_min': 3},
         'striped': False,  # its rows have their own highlight colors
     },
     'passfail': {
@@ -133,6 +134,7 @@ TABLES = {
                    'width': ('Measured', 'Width (pm)')},
         'locked': None,
         'units': {'x': 'nm', 'depth': 'dB', 'width': 'pm'},
+        'decimals': {'depth': 3},   # the same as the Peak table's depths
         'striped': True,
     },
 }

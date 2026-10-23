@@ -8,7 +8,7 @@ import tkinter.font as tkfont
 from tkinter import ttk
 import tomlkit
 from tomlkit.exceptions import TOMLKitError
-from constants import CONFIG_WINDOW_FONT, PEAK_BASE_DEFAULT
+from constants import CONFIG_WINDOW_FONT, PEAK_BASE_DEFAULT, FILENAME_BAD_CHARS
 from datapath import data_path
 
 import logging
@@ -91,8 +91,6 @@ def label_text(label):
 LABEL_DIGIT_OPTIONS = ["0", "1", "2", "3", "4"]
 LABEL_DIGIT_DEFAULT = "0"
 LABEL_START_DEFAULT = "1"
-# The label goes into the auto-save filename, so reject what Windows forbids.
-FILENAME_BAD_CHARS  = '\\/:*?"<>|'
 # The auto-save filename's time part: the strftime format Run stamps onto
 # params.time, and how the config window spells it out before a time exists.
 TIME_FORMAT      = "%Y-%m-%d_%H-%M-%S"
@@ -131,6 +129,18 @@ def validate_label(prefix, digits_s, start_s):
     if not label:
         return None, None, "label is empty. Enter a prefix or choose 1 or more digits."
     return label, n, None
+
+
+def label_counter(label, prefix, digits):
+    """The counter in `label` when it's `prefix` followed by exactly `digits`
+    digits, such as 4 for "SN04" with prefix "SN" and 2 digits. None when it
+    doesn't fit, or with 0 digits (no counter)."""
+    if not digits or not label.startswith(prefix):
+        return None
+    counter = label[len(prefix):]
+    if len(counter) != digits or not (counter.isascii() and counter.isdigit()):
+        return None
+    return int(counter)
 
 
 # SI prefixes from 10^-24 to 10^24; index 8 is the blank (10^0) slot, which keeps

@@ -295,9 +295,10 @@ def update(state, changes, current):
     return None if s == state else s
 
 
-def problem(state, label, wl_of, name_of):
+def problem(state, label, values_of, name_of):
     """Why Save can't go ahead, worded for the dialog, or None.
-    wl_of(peak) -> the peak's λ; name_of(peak) -> its name, like "P2"."""
+    values_of(peak) -> item key -> value for that peak's row, as for table();
+    name_of(peak) -> its name, like "P2"."""
     if state.get('bad'):
         return state['msg']
     if not label:
@@ -314,15 +315,14 @@ def problem(state, label, wl_of, name_of):
             pa, pb = ra['peak'], rb['peak']
             if pa == pb:
                 return f'{name_of(pa)} is in the table twice. Remove one.'
-            wa, wb = wl_of(pa), wl_of(pb)
+            wa, wb = values_of(pa).get('wl'), values_of(pb).get('wl')
             if wa is not None and wb is not None and abs(wa - wb) <= pf.SAME_PEAK_NM:
                 return (f'{name_of(pa)} and {name_of(pb)} are within {pf.SAME_PEAK_NM} nm, '
                         "so they'd be the same row in the file. Remove one.")
     if state['mode'] == 'file':
         taken = {}
         for r in rows:
-            wl = wl_of(r['peak'])
-            target = pf.find_saved(state['saved'], label, wl) if wl is not None else None
+            target = pf.find_saved(state['saved'], {**values_of(r['peak']), 'label': label})
             if target is None:
                 continue
             if target in taken:
@@ -430,7 +430,7 @@ def table(state, peak_options, values_of, label, temperature):
                             value=r['peak'], clearable=True, className='pf-dd', style=DROPDOWN)
         first = [peak]
         if not is_new and label and values.get('wl') is not None:
-            target = pf.find_saved(state['saved'], label, values['wl'])
+            target = pf.find_saved(state['saved'], values)
             if target is not None:
                 replaced.add(target)
             first.append(_status(target))

@@ -23,8 +23,10 @@ from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
 SHEET = 'Peaks'
-# Rows with the same Label (SN) and a λ this close (nm) are the same peak: a
-# new row replaces the saved one.
+# A new row replaces a saved one with the same values here and a λ this close
+# (nm): the same peak, measured on the same day with the same instruments. A
+# file without one of these columns isn't compared on it.
+SAME_PEAK_KEYS = ['label', 'date', 'source', 'detector']
 SAME_PEAK_NM = 0.01
 MAX_DECIMALS = 10           # the same limit as the tables' Customize dialog
 DATE_FORMAT = 'mm/dd/yyyy'  # Excel's format for the Date column
@@ -48,10 +50,10 @@ ITEMS = [
     Item('detector',     'Detector',           'Fixed'),
     Item('label',        'Label (SN)',         'Fixed'),
     Item('wl',           'λ (nm)',             'Fixed', 4),
-    Item('depth_max',    'Depth, max (dB)',    'Peak', 2),
-    Item('depth_avg',    'Depth, avg (dB)',    'Peak', 2),
-    Item('depth_min',    'Depth, min (dB)',    'Peak', 2),
-    Item('depth_custom', 'Depth, custom (dB)', 'Peak', 2),
+    Item('depth_max',    'Depth, max (dB)',    'Peak', 3),
+    Item('depth_avg',    'Depth, avg (dB)',    'Peak', 3),
+    Item('depth_min',    'Depth, min (dB)',    'Peak', 3),
+    Item('depth_custom', 'Depth, custom (dB)', 'Peak', 3),
     Item('width_max',    'Width, max (pm)',    'Peak', 1),
     Item('width_avg',    'Width, avg (pm)',    'Peak', 1),
     Item('width_min',    'Width, min (pm)',    'Peak', 1),
@@ -71,8 +73,8 @@ ITEMS = [
 ]
 ITEM = {i.key: i for i in ITEMS}
 # A new file's columns always start with the fixed items. An existing file
-# only needs the ones the app relies on: Date, plus Label (SN) and λ to find
-# the row a new one replaces.
+# only needs the ones the app relies on: Date, Label (SN) and λ, to find the
+# row a new one replaces (see SAME_PEAK_KEYS).
 FIXED = [i.key for i in ITEMS if i.group == 'Fixed']
 REQUIRED = ['date', 'label', 'wl']
 RECENT_ROWS = 5   # the saved rows the dialog shows from an existing file
@@ -287,14 +289,31 @@ def _layout(ws, name):
     return cols, decimals
 
 
+def _match_value(key, value):
+    """A value as the same-peak rule compares it (SAME_PEAK_KEYS): a date as
+    YYYY-MM-DD, text without its outer spaces, None when it's empty. Plain
+    data, since the dialog keeps the saved rows in a dcc.Store."""
+    if isinstance(value, dt.date):   # a datetime too
+        return value.strftime('%Y-%m-%d')
+    text = '' if value is None else str(value).strip()
+    if key == 'date' and text:
+        date = parse_date(text)
+        return date.isoformat() if date else text
+    return text or None
+
+
 def _saved(ws, cols):
-    """[Excel row, label, λ] for each saved row with both."""
+    """[Excel row, {key: value}, λ] for each saved row with a label and a λ.
+    The dict holds the row's SAME_PEAK_KEYS values that the file has columns
+    for, as _match_value gives them."""
     col = {key: idx for idx, key, _ in cols if key}
+    keys = [k for k in SAME_PEAK_KEYS if k in col]
     out = []
     for r in range(2, _last_row(ws) + 1):
-        label, wl = ws.cell(r, col['label']).value, ws.cell(r, col['wl']).value
-        if label not in (None, '') and _is_number(wl):
-            out.append([r, str(label).strip(), float(wl)])
+        match = {k: _match_value(k, ws.cell(r, col[k]).value) for k in keys}
+        wl = ws.cell(r, col['wl']).value
+        if match['label'] and _is_number(wl):
+            out.append([r, match, float(wl)])
     return out
 
 
@@ -330,7 +349,7 @@ def _recent(ws, cols):
 def read(path):
     """What the dialog needs from a peak file: its columns in order ({'item':
     key} or {'text': header}), the decimals its numbers show, its saved rows
-    ([Excel row, label, λ]), and the last few rows as text (see _recent).
+    (see _saved), and the last few rows as text (see _recent).
     Raises PeakFileError."""
     wb = _load(path)
     try:
@@ -344,13 +363,18 @@ def read(path):
         wb.close()
 
 
-def find_saved(saved, label, wl):
-    """The Excel row a new row with this label and λ replaces: the saved row
-    with the same label and the closest λ within SAME_PEAK_NM. None if none."""
+def find_saved(saved, values):
+    """The Excel row a new row with these values (item key -> value) replaces:
+    the saved row with the same SAME_PEAK_KEYS values and the closest λ within
+    SAME_PEAK_NM. None if none, or if the new row has no λ."""
+    wl = values.get('wl')
+    if not _is_number(wl):
+        return None
     best = None
-    for row, saved_label, saved_wl in saved:
+    for row, match, saved_wl in saved:
         gap = abs(saved_wl - wl)
-        if saved_label == label and gap <= SAME_PEAK_NM and (best is None or gap < best[1]):
+        if (gap <= SAME_PEAK_NM and (best is None or gap < best[1])
+                and all(_match_value(k, values.get(k)) == v for k, v in match.items())):
             best = (row, gap)
     return best[0] if best else None
 
@@ -403,9 +427,10 @@ def save(path, rows, *, columns=None, decimals=None):
     the columns and its numbers set the decimals.
     decimals: item key -> decimals for a new file, and the fallback for an
     existing file's column that has no number yet.
-    A row with the same Label (SN) and a λ within SAME_PEAK_NM of a saved row
-    overwrites that row in place, including its empty cells; the other rows
-    go after the last row. Raises PeakFileError.
+    A row that matches a saved row (find_saved: the same label, date, source
+    and detector, and a λ within SAME_PEAK_NM) overwrites that row in place,
+    including its empty cells; the other rows go after the last row. Raises
+    PeakFileError.
     """
     name = os.path.basename(path)
     decimals = {**DEFAULT_DECIMALS, **(decimals or {})}
@@ -431,8 +456,7 @@ def save(path, rows, *, columns=None, decimals=None):
     added, replaced = [], []
     for values in rows:
         texts = {norm(h): t for h, t in values.get('texts', {}).items()}
-        row = (find_saved(saved, str(values['label']).strip(), values['wl'])
-               if _is_number(values.get('wl')) else None)
+        row = find_saved(saved, values)
         if row is None:
             row = next_row
             next_row += 1
@@ -442,5 +466,10 @@ def save(path, rows, *, columns=None, decimals=None):
         for idx, key, header in cols:
             value = values.get(key) if key else texts.get(norm(header))
             _write(ws.cell(row, idx), key, value, decimals)
+    # Excel's filter buttons on the header row, stretched over every column
+    # and row, new ones included. A filter set in Excel keeps its first cell,
+    # so its settings stay on their columns.
+    first = ws.auto_filter.ref.split(':')[0] if ws.auto_filter.ref else 'A1'
+    ws.auto_filter.ref = f'{first}:{get_column_letter(cols[-1][0])}{_last_row(ws)}'
     _save_atomic(wb, path)
     return added, replaced

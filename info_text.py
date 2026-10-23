@@ -99,9 +99,9 @@ The fields in this section don't lock after Save, so you can change them without
 
 **Label**
 
-- Check "Add label (SN)" to give each sweep a label: a prefix followed by a counter. For example, in SN007, SN is the prefix and 007 is the counter. The label is previewed next to the checkbox.
+- Check "Add label (SN)" to give each sweep a label: **a prefix followed by a counter.** For example, in SN007, SN is the prefix and 007 is the counter. The label is previewed next to the checkbox.
 
-- You can leave out either the prefix or the counter, but not both. The prefix can be any text, even just numbers, but it can't contain \\ / : * ? " < > | or end with a space or a dot, because the label can become part of a file name.
+- **You can leave out either the prefix or the counter, but not both.** The prefix can be any text, even just numbers, but it can't contain \\ / : * ? " < > | or end with a space or a dot, because the label can become part of a file name.
 
 - The counter is set with two fields: "Digits" and "Starting from". "Digits" (0 to 4) sets how many digits the counter has, and 0 means no counter. The counter is padded with zeros, so 3 digits starting from 7 gives 007.
 
@@ -109,7 +109,9 @@ The fields in this section don't lock after Save, so you can change them without
 
 - **The counter automatically increases by 1 after each sweep finishes. Numbers in the prefix never change.** After a cancelled or failed sweep, the counter stays the same, so you can try again with the same label. Once the last value is used (99 with 2 digits), the window shows an error, and Run won't start until you change "Digits" or "Starting from".
 
-- The label is shown above the top-left corner of the plot in the graph window. It also fills in the "Label / Serial number" field in the "Save peak info" window.
+- The label is shown in the graph window's right panel, where you can change it. "Save raw data" and "Save peak info" use the changed label.
+
+- **If you change only the counter there, the counter here continues from it.** For example, change SN05 to SN04, and the next label is SN05. Any other change is for that sweep only: "Close & Repeat" then stops here with a message, so you can check the label before you click Run.
 
 
 **Auto-save raw data**

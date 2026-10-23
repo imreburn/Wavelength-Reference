@@ -20,17 +20,6 @@ DATA_FONT          = "Tahoma"   # graph window: tables and plot text
 # 100% (1.25 x 0.8 = 1). 1.0 = no change. Ignored on macOS.
 GRAPH_WINDOW_ZOOM = 1.0
 
-# Font families. None = the system's interface font (Segoe UI on Windows,
-# San Francisco on macOS). Tahoma ships with Windows and macOS.
-CONFIG_WINDOW_FONT = None       # every widget in the config window
-GRAPH_WINDOW_FONT  = "Tahoma"       # graph window: buttons, sidebar, dialogs
-DATA_FONT          = "Tahoma"   # graph window: tables and plot text
-
-# Page zoom for the graph windows on Windows, on top of the display scale, like
-# Ctrl+minus in a browser. 0.8 at 125% scaling draws them as they'd look at
-# 100% (1.25 x 0.8 = 1). 1.0 = no change. Ignored on macOS.
-GRAPH_WINDOW_ZOOM = 1.0
-
 # Instrument VISA addresses
 PM  = "POWER METER"
 LAS = "LASER"
@@ -52,6 +41,11 @@ PEAK_BASE_DEFAULT = "max"
 # The power meter, the same with every laser source. The config window shows
 # it as "Detector", and Params.detector records it.
 DETECTOR = "N7748A"
+
+# A label goes into file names (auto-save, Save raw data), so it can't contain
+# what Windows forbids there. Checked in the config window and the graph
+# window's label field.
+FILENAME_BAD_CHARS = '\\/:*?"<>|'
 
 
 # Laser sources offered at startup. "external": the app never talks to it —

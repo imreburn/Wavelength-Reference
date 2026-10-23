@@ -24,7 +24,7 @@ from config_helper import (
     section_header, make_extra_widgets,
     use_ui_font, ui_font,
     validate_inputs, validate_extras, validate_passfail, validation_error,
-    LABEL_DIGIT_OPTIONS, LABEL_DIGIT_DEFAULT, LABEL_START_DEFAULT, validate_label,
+    LABEL_DIGIT_OPTIONS, LABEL_DIGIT_DEFAULT, LABEL_START_DEFAULT, validate_label, label_counter,
     TIME_FORMAT, TIME_PLACEHOLDER,
 )
 from info_text import PASSFAIL_INFO, REFERENCE_INFO, PARAMETERS_INFO, AUTOSAVE_INFO
@@ -50,7 +50,10 @@ KEY_QUIET_S = 1.0
 #                   label had no number (or there was no label)
 #   pos           — last window position (x, y); None until first close, then
 #                   tracks wherever the user moved it
-_state = {"ref_available": False, "reference": False, "label_n": None, "pos": None}
+#   notice        — why the graph window's label edit wasn't carried over
+#                   (see relabel); the next window shows it once
+_state = {"ref_available": False, "reference": False, "label_n": None, "pos": None,
+          "notice": None}
 
 
 def mark_ref_available():
@@ -67,6 +70,31 @@ def advance_label():
     retry. Past the digit limit, the reopened window refuses to Run."""
     if _state["label_n"] is not None:
         _last["info"]["start"] = str(_state["label_n"] + 1)
+
+
+def relabel(run_label, label):
+    """Carry a label changed in the graph window over to the counter. main.py
+    calls this once the window has closed, with the label Run gave the sweep
+    and the one it ended with.
+
+    With "Add label" off, a change is for that sweep only. A change that keeps
+    the prefix and only changes the counter (the same number of digits) moves
+    the counter on from it: SN05 changed to SN04 makes the next label SN05. Any
+    other change is discarded. Then the next window shows why, and this
+    returns that message, so main.py doesn't auto-run. Otherwise it returns
+    None. A counter moved past the digit limit is refused at Run, as usual.
+    """
+    info = _last.get("info", {})
+    if not info.get("add_label") or label == run_label:
+        return None
+    n = label_counter(label or "", info.get("prefix", ""), int(info.get("digits", "0")))
+    if n is not None:
+        info["start"] = str(n + 1)
+        return None
+    _state["notice"] = (f'The label was changed to "{label or ""}" in the graph window, but it '
+                        "doesn't fit the prefix and counter, so the counter wasn't updated. "
+                        "Check the label, then press Run.")
+    return _state["notice"]
 
 
 def preset_names(presets):
@@ -917,6 +945,10 @@ def get_inputs(readout=None, auto_run=False, source=None):
         _, _, label_error = validate_label(prefix_var.get(), digits_var.get(), start_var.get())
         if label_error:
             result_label.config(text=f"Label: {label_error}", fg="red")
+    # The last graph window's label change that couldn't be carried over.
+    if _state["notice"]:
+        result_label.config(text=_state["notice"], fg="red")
+        _state["notice"] = None
 
     # Repeat from the plot window: the values are already saved (above), so just
     # fire Run once the window is up. Only valid when there are prior values to

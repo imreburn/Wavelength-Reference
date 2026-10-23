@@ -1,5 +1,5 @@
 from inst_helper import prep_inst, close_inst, InstrumentError
-from config_window import get_inputs, mark_ref_available, advance_label
+from config_window import get_inputs, mark_ref_available, advance_label, relabel
 from inst_run import run_sweep, SweepCancelled
 from inst_run_ext import run_sweep_ext
 from analyze_data import combine_scans
@@ -131,12 +131,18 @@ try:
                 log.exception("Auto-save of raw data failed")
                 autosaved_to, autosave_error = None, str(e)
 
+        # The graph window can change params.label (its Label field).
+        run_label = params.label
         auto_run = display_plot(raw_w, params=params, readout=readout,
                                 autosaved_to=autosaved_to, autosave_error=autosave_error)
         # The plot window sets this on idle timeout; its normal close would
         # otherwise loop back to the config window instead of exiting.
         if shutdown.requested():
             break
+        # A changed label moves the counter on, or, when it doesn't fit the
+        # prefix and counter, the config window waits for Run and says why.
+        if relabel(run_label, params.label):
+            auto_run = False
 
 except Exception:
     log.exception("Unhandled error")
