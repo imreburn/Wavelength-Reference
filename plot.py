@@ -18,6 +18,7 @@ log = logging.getLogger(__name__)
 
 import shutdown
 from constants import GRAPH_WINDOW_ZOOM, FILENAME_BAD_CHARS
+from datapath import data_path
 from structs import Params, Dataset
 from analyze_data import peak_detection, find_bandwidth, exam_peak
 from save_csv import save_csv_raw, auto_raw_path,COL_CH, COL_REF, COL_SCAN, RAW_DIR, PEAKS_DIR
@@ -30,12 +31,17 @@ import peak_dialog as pdlg
 import peak_file as pf
 
 # Remembered across display_plot() calls (i.e. across loop iterations) for the
-# "Save peak info" dialog: the file saved to last (a name in PEAKS_DIR), and a
-# new file's columns ([{'item': key} or {'text': name}] after the fixed ones)
-# and decimals (item key -> decimals). Label (SN) and Temperature aren't.
+# "Save peak info" dialog: the file saved to last (a full path), where the
+# dialog starts, and a new file's columns ([{'item': key} or {'text': name}]
+# after the fixed ones) and decimals (item key -> decimals). Label (SN) and
+# Temperature aren't.
 _last_peak_file = ''
 _peak_columns   = []
 _peak_decimals  = {}
+# The files "Save peak info" opened or saved to lately, kept across runs:
+# newest first, one path per line (see peak_file.remember). The File menu
+# lists them under "Recent files".
+RECENT_PEAK_FILES = data_path('recent_peak_files.txt', mkdir=False)
 # Also remembered across display_plot() calls: each table's columns and
 # decimals from its Customize dialog, and the peak numbers hidden in the peak
 # table (by number, so P3 stays hidden in a later sweep that finds a P3).
@@ -53,6 +59,8 @@ _hidden_items = set()
 # left-aligned, in a narrower field. The list opens outside the dropdown's
 # element, so it keeps the one-line text. Dash's field grid puts the text in
 # an auto-width first column; 1fr gives the text the free space instead.
+# The File menu (class pf-file-dd) always shows its placeholder, "File menu",
+# so the placeholder gets the normal text color.
 INDEX_STRING = '''<!DOCTYPE html>
 <html>
     <head>
@@ -77,6 +85,7 @@ INDEX_STRING = '''<!DOCTYPE html>
                 grid-template-columns: 1fr auto auto; }
             .pf-dd .dash-dropdown-grid-container:has(> :nth-child(4)) {
                 grid-template-columns: 1fr auto auto auto; }
+            .pf-file-dd .dash-dropdown-placeholder { color: inherit; }
         </style>
     </head>
     <body>
@@ -660,14 +669,30 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         return values
 
     def _peak_file_options():
-        """The file dropdown: "New file…", then the .xlsx files in PEAKS_DIR."""
-        return ([{'label': 'New file…', 'value': ''}]
-                + [{'label': f, 'value': f} for f in pf.list_files(PEAKS_DIR)])
+        """The File menu, with the recent files that still exist."""
+        return pdlg.file_options([p for p in pf.recent_files(RECENT_PEAK_FILES)
+                                  if os.path.isfile(p)])
 
-    def _remembered_file_value(opts):
-        """Last-used file if it still exists among the options, else ''."""
-        values = {o['value'] for o in opts}
-        return _last_peak_file if _last_peak_file in values and _last_peak_file else ''
+    def _remember_peak_file(path):
+        """Put path at the top of the recent files."""
+        try:
+            pf.remember(RECENT_PEAK_FILES, path)
+        except OSError as e:
+            # Nothing else depends on the list; the File menu just misses the file.
+            log.warning("Could not update %s: %s", RECENT_PEAK_FILES, e)
+
+    def _first_peak_file():
+        """The file the dialog starts with: the file saved to last in this
+        run, or a new file ('') when there's none or it's gone."""
+        return _last_peak_file if _last_peak_file and os.path.isfile(_last_peak_file) else ''
+
+    def _peak_folder(current):
+        """Where the system's Open and Save dialogs start: the folder of the
+        dialog's file, else of the newest recent file, else Peaks."""
+        for path in [current] + pf.recent_files(RECENT_PEAK_FILES):
+            if path and os.path.isdir(os.path.dirname(path)):
+                return os.path.dirname(path)
+        return os.path.abspath(PEAKS_DIR)
 
     MODAL_OVERLAY = {
         'position': 'fixed', 'top': 0, 'left': 0, 'right': 0, 'bottom': 0,
@@ -1351,29 +1376,14 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         return ''
 
     # ------------------------------------------------------------------
-    # Save peak info: open the dialog, keep its state (pf-state) in step with
-    # the table's controls, draw the table, and Save or Cancel.
+    # Save peak info: open the dialog, pick its file, keep its state
+    # (pf-state) in step with the table's controls, draw the table, and Save
+    # or Cancel.
     # ------------------------------------------------------------------
-    @app.callback(
-        Output('peak-modal', 'style'),
-        Output('peak-file-select', 'options'),
-        Output('peak-file-select', 'value'),
-        Output('peak-label', 'value'),
-        Output('peak-temperature', 'value'),
-        Output('peak-modal-error', 'children', allow_duplicate=True),
-        Input('save-peak-btn', 'n_clicks'),
-        prevent_initial_call=True,
-    )
-    def open_peak_modal(n_clicks):
-        # Label (SN) starts with the sweep's label, and Temperature empty.
-        opts = _peak_file_options()
-        return MODAL_SHOWN, opts, _remembered_file_value(opts), params.label or '', None, ''
-
-    def _fresh_peak_state(file_value, m2):
-        """The dialog's state for the chosen file ('' = a new file), with
-        one row for the default peak."""
-        if file_value:
-            path = os.path.join(os.path.abspath(PEAKS_DIR), file_value)
+    def _fresh_peak_state(path, m2):
+        """The dialog's state for the chosen file (its path, or '' for a new
+        file), with one row for the default peak."""
+        if path:
             state = pdlg.file_state(path, _peak_decimals)
         else:
             state = pdlg.new_file_state(_peak_columns, _peak_decimals)
@@ -1382,13 +1392,69 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
             pdlg.add_row(state, peak)
         return state
 
-    # Opening the dialog or picking a file starts the state over. Any other
-    # trigger is a control in the table: peak_dialog.update works out the
-    # change from every control's current value.
+    # Opening the dialog starts its state over, with the file saved to last.
+    # The state is built here, in one response with the File menu: Dash drops
+    # a callback's unfinished run when the callback fires again, so a state
+    # left to update_peak_state could be lost to the table's controls firing it.
+    @app.callback(
+        Output('peak-modal', 'style'),
+        Output('peak-file-select', 'options', allow_duplicate=True),
+        Output('pf-state', 'data', allow_duplicate=True),
+        Output('peak-label', 'value'),
+        Output('peak-temperature', 'value'),
+        Output('peak-modal-error', 'children', allow_duplicate=True),
+        Input('save-peak-btn', 'n_clicks'),
+        State('mode2-info-store', 'data'),
+        prevent_initial_call=True,
+    )
+    def open_peak_modal(n_clicks, m2):
+        # Label (SN) starts with the sweep's label, and Temperature empty.
+        return (MODAL_SHOWN, _peak_file_options(), _fresh_peak_state(_first_peak_file(), m2),
+                params.label or '', None, '')
+
+    # A pick in the File menu. Its value goes back to None, so it shows "File
+    # menu" again. "Open file…" asks the system's Open dialog for the file. A
+    # file other than the dialog's own starts the state over, built here (see
+    # open_peak_modal), and goes to the top of the recent files if it opens
+    # without an error. The dialog's own file, or Cancel in the Open dialog,
+    # changes nothing.
+    @app.callback(
+        Output('peak-file-select', 'value'),
+        Output('peak-file-select', 'options'),
+        Output('pf-state', 'data', allow_duplicate=True),
+        Input('peak-file-select', 'value'),
+        State('pf-state', 'data'),
+        State('mode2-info-store', 'data'),
+        prevent_initial_call=True,
+    )
+    def pick_peak_file(value, state, m2):
+        if value is None or not state:
+            return dash.no_update, dash.no_update, dash.no_update
+        path = '' if value == pdlg.NEW_FILE else value
+        if value == pdlg.OPEN_FILE:
+            window = _window_holder.get('window')
+            result = None
+            if window is not None:
+                result = window.create_file_dialog(
+                    FileDialog.OPEN,
+                    directory=_peak_folder(state['path']),
+                    file_types=('Excel files (*.xlsx)',),
+                )
+            if not result:
+                return None, dash.no_update, dash.no_update
+            path = os.path.abspath(result[0] if isinstance(result, (list, tuple)) else result)
+        if path == state['path'] or (path and state['path'] and pf.same_file(path, state['path'])):
+            return None, dash.no_update, dash.no_update
+        new = _fresh_peak_state(path, m2)
+        if not path or new['bad']:
+            return None, dash.no_update, new
+        _remember_peak_file(path)
+        return None, _peak_file_options(), new
+
+    # Any other change is a control in the table: peak_dialog.update works
+    # out the change from every control's current value.
     @app.callback(
         Output('pf-state', 'data'),
-        Input('save-peak-btn', 'n_clicks'),
-        Input('peak-file-select', 'value'),
         Input({'type': 'pf-col', 'col': ALL}, 'value'),
         Input({'type': 'pf-name', 'col': ALL}, 'value'),
         Input({'type': 'pf-dec', 'col': ALL, 'step': ALL}, 'n_clicks'),
@@ -1396,18 +1462,14 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         Input({'type': 'pf-text', 'row': ALL, 'col': ALL}, 'value'),
         Input({'type': 'pf-add', 'what': ALL}, 'value'),
         State('pf-state', 'data'),
-        State('mode2-info-store', 'data'),
         prevent_initial_call=True,
     )
-    def update_peak_state(_open, file_value, *rest):
-        state, m2 = rest[-2], rest[-1]
-        props = callback_context.triggered_prop_ids
-        if 'save-peak-btn.n_clicks' in props or 'peak-file-select.value' in props:
-            return _fresh_peak_state(file_value, m2)
+    def update_peak_state(*rest):
+        state = rest[-1]
         if not state:
             return dash.no_update
         current = {}
-        for group in callback_context.inputs_list[2:]:
+        for group in callback_context.inputs_list:
             for item in group:
                 current.setdefault(item['id']['type'], []).append((item['id'], item.get('value')))
         changes = [(json.loads(t['prop_id'].rsplit('.', 1)[0]), t.get('value'))
@@ -1425,6 +1487,8 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
 
     @app.callback(
         Output('pf-table', 'children'),
+        Output('pf-file-path', 'children'),
+        Output('pf-save-hint', 'children'),
         Output('pf-file-msg', 'children'),
         Output('peak-modal-error', 'children', allow_duplicate=True),
         Input('pf-state', 'data'),
@@ -1436,10 +1500,10 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
     def render_peak_dialog(state, label, temperature, m2):
         # Any change also clears the last Save's error message.
         if not state:
-            return [], '', ''
+            return [], '', '', '', ''
         table = pdlg.table(state, _peak_choices(m2), lambda peak: _row_values(peak, m2),
                            label, temperature)
-        return table, pdlg.file_message(state), ''
+        return table, pdlg.file_line(state), pdlg.save_hint(state), pdlg.file_message(state), ''
 
     @app.callback(
         Output('peak-modal', 'style', allow_duplicate=True),
@@ -1450,11 +1514,10 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         State('pf-state', 'data'),
         State('peak-label', 'value'),
         State('peak-temperature', 'value'),
-        State('peak-file-select', 'value'),
         State('mode2-info-store', 'data'),
         prevent_initial_call=True,
     )
-    def close_or_save_peak(cancel, confirm, state, label, temperature, chosen_file, m2):
+    def close_or_save_peak(cancel, confirm, state, label, temperature, m2):
         if callback_context.triggered_id == 'peak-cancel':
             return MODAL_HIDDEN, dash.no_update, ''
         if not state:
@@ -1473,7 +1536,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
             if state['mode'] == 'new':
                 result = window.create_file_dialog(
                     FileDialog.SAVE,
-                    directory=os.path.abspath(PEAKS_DIR),
+                    directory=_peak_folder(state['path']),
                     save_filename='.xlsx',
                     file_types=('Excel files (*.xlsx)', 'All files (*.*)'),
                 )
@@ -1486,16 +1549,14 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
                 added, replaced = pf.save(path, rows, columns=pdlg.file_columns(state),
                                           decimals=state['dec'])
             else:
-                path = os.path.join(os.path.abspath(PEAKS_DIR), chosen_file)
+                path = state['path']
                 added, replaced = pf.save(path, rows, decimals=state['dec'])
         except pf.PeakFileError as e:
             return dash.no_update, dash.no_update, str(e)
 
         global _last_peak_file
-        # Remembered only when it's in PEAKS_DIR, the folder the dialog lists.
-        in_peaks = (os.path.normcase(os.path.dirname(os.path.abspath(path)))
-                    == os.path.normcase(os.path.abspath(PEAKS_DIR)))
-        _last_peak_file = os.path.basename(path) if in_peaks else ''
+        _last_peak_file = os.path.abspath(path)
+        _remember_peak_file(path)
         log.info(f"Saved peak info: {path} (rows added {added}, replaced {replaced})")
         done = []
         if added:

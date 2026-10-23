@@ -1,6 +1,7 @@
 """
 peak_file.py - The "Save peak info" Excel file: the columns a saved row can
-have, and reading and writing the .xlsx files in the Peaks folder.
+have, reading and writing the .xlsx files, and the list of the files saved
+to lately.
 
 A peak file has one sheet named "Peaks". Row 1 holds the column headers, and
 each row below it is one saved peak. Columns are found by their header, so
@@ -77,7 +78,8 @@ ITEM = {i.key: i for i in ITEMS}
 # row a new one replaces (see SAME_PEAK_KEYS).
 FIXED = [i.key for i in ITEMS if i.group == 'Fixed']
 REQUIRED = ['date', 'label', 'wl']
-RECENT_ROWS = 5   # the saved rows the dialog shows from an existing file
+RECENT_ROWS = 5    # the saved rows the dialog shows from an existing file
+RECENT_FILES = 10  # the files the recent list keeps (see remember)
 DEFAULT_DECIMALS = {i.key: i.decimals for i in ITEMS if i.decimals is not None}
 
 
@@ -206,16 +208,42 @@ def format_decimals(fmt):
     return n
 
 
-# ---- the folder and its files ------------------------------------------------------
-def list_files(folder):
-    """The .xlsx files in folder, by name. Excel's "~$" lock files are left out."""
+# ---- the recent files and the files themselves -----------------------------------
+def same_file(a, b):
+    """Whether two paths name the same file. Case doesn't count where the
+    system ignores it (Windows)."""
+    return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+
+def recent_files(list_path):
+    """The peak files saved to lately, newest first: the lines of the text
+    file at list_path, one path per line. [] when it doesn't exist yet or
+    can't be read."""
     try:
-        names = os.listdir(folder)
-    except OSError:
+        with open(list_path, encoding='utf-8') as f:
+            return [line.strip() for line in f if line.strip()]
+    except (OSError, ValueError):   # ValueError: not UTF-8
         return []
-    return sorted((f for f in names
-                   if f.lower().endswith('.xlsx') and not f.startswith('~$')
-                   and os.path.isfile(os.path.join(folder, f))), key=str.lower)
+
+
+def remember(list_path, path):
+    """Put path at the top of the recent list at list_path, which keeps the
+    newest RECENT_FILES. A file that's gone stays on the list, in case its
+    drive comes back, until newer files push it off. Raises OSError when the
+    list can't be written."""
+    path = os.path.abspath(path)
+    paths = [path] + [p for p in recent_files(list_path) if not same_file(p, path)]
+    tmp = f'{list_path}.tmp'
+    try:
+        with open(tmp, 'w', encoding='utf-8') as f:
+            f.writelines(p + '\n' for p in paths[:RECENT_FILES])
+        os.replace(tmp, list_path)
+    except OSError:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def in_use(path):
@@ -240,6 +268,8 @@ def _load(path):
         return openpyxl.load_workbook(path)
     except PermissionError:
         raise PeakFileError(f"Can't open {name}. If another program is using it, close it.")
+    except FileNotFoundError:
+        raise PeakFileError(f"{name} isn't there anymore. It may have been moved or deleted.")
     except Exception as e:
         raise PeakFileError(f"Can't read {name}: it isn't a valid .xlsx file ({e}).")
 

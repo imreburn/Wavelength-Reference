@@ -17,3 +17,4 @@ Peaks/
 .ruff_cache
 .bak
 .toml
+recent_peak_files.txt

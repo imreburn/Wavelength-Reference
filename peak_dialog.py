@@ -7,6 +7,8 @@ across plot windows. peak_file.py reads and writes the files.
 The state lives in a dcc.Store ('pf-state') as a plain dict:
   mode   'new' for a new file, where you pick the columns, or 'file' for an
          existing file, whose header sets them
+  path   for a file: its full path. '' for a new file, which gets its name
+         when Save asks for it
   cols   the columns. For a new file, the ones after the fixed columns
          (Date, Source, Detector, Label (SN), λ (nm)); for a file, all of
          them in its order. Each is {'id': n, 'item': key}, or {'id': n,
@@ -32,6 +34,10 @@ from plot_tables import DATA_CSS_FONT, WINDOW_CSS_FONT, SMALL_BTN_STYLE
 # A new file's fixed columns get ids of their own (the others are numbers).
 FIXED_IDS = {'date': 'f-date', 'source': 'f-source', 'detector': 'f-detector',
              'label': 'f-label', 'wl': 'f-wl'}
+# The File menu's values for its two commands. Its files' values are their paths.
+NEW_FILE = '__new'
+OPEN_FILE = '__open'
+FOLDER_CHARS = 60   # a longer folder is shortened in the File menu
 # The headers the table shows on two lines, to keep columns narrow. Any other
 # header is one line.
 TWO_LINES = {
@@ -116,17 +122,55 @@ def _peak_option(option):
 COLUMN_OPTIONS = [_column_option(o) for o in pf.column_options()]
 
 
+def _short_folder(folder):
+    """A folder as the File menu shows it: whole, or when it's longer than
+    FOLDER_CHARS, its first part, "…", and the last parts that fit. The
+    list opens as wide as its longest line, so a long folder would push it
+    past the window."""
+    parts = folder.split(os.sep)
+    if len(folder) <= FOLDER_CHARS or len(parts) < 3:   # < 3: nothing in the middle
+        return folder
+    tail = parts[-1]
+    for part in reversed(parts[1:-1]):
+        if len(parts[0]) + len(part) + len(tail) + 4 > FOLDER_CHARS:
+            break
+        tail = part + os.sep + tail
+    return os.sep.join([parts[0], '…', tail])
+
+
+def file_options(paths):
+    """The File menu: New file, Open file…, then the files in paths (newest
+    first) under a "Recent files" heading, each with its folder (the whole
+    folder on hover). Plain text: in Dash 4.1, a dropdown whose options are
+    components can go back to old options and value when its list opens
+    after a callback has changed them."""
+    opts = [{'label': 'New file', 'value': NEW_FILE},
+            {'label': 'Open file…', 'value': OPEN_FILE}]
+    if paths:
+        opts.append({'label': '——— Recent files ———', 'value': '__recent', 'disabled': True})
+    for path in paths:
+        name, folder = os.path.basename(path), os.path.dirname(path)
+        opts.append({'label': f'{name} — {_short_folder(folder)}', 'value': path, 'title': path})
+    return opts
+
+
 def modal(hidden_style):
-    """The dialog, hidden until "Save peak info" opens it. The file comes
-    first, then the Label (SN) and Temperature boxes that every row shares,
-    then the table. Temperature is saved only when its column is in the
-    table, but its box is always there."""
+    """The dialog, hidden until "Save peak info" opens it. The File menu
+    comes first, then the Label (SN) and Temperature boxes that every row
+    shares, then the table. Temperature is saved only when its column is in
+    the table, but its box is always there."""
     return html.Div(id='peak-modal', style=hidden_style, children=html.Div([
         html.H4('Save peak info', style={'marginTop': 0}),
         html.Div([
-            html.Div([html.Label('File', style=LABEL_STYLE),
-                      dcc.Dropdown(id='peak-file-select', options=[], value='',
-                                   clearable=False, style={'width': '280px'})]),
+            # The File menu: a pick acts, and then the value goes back to
+            # None, so the field always shows its placeholder, "File menu"
+            # (plot.py's pick_peak_file). The line below names the file. No
+            # search box. Tall enough for the whole list: 2 commands, a
+            # heading and pf.RECENT_FILES files.
+            html.Div(dcc.Dropdown(id='peak-file-select', options=[], value=None,
+                                  placeholder='File menu', clearable=False, searchable=False,
+                                  maxHeight=480, className='pf-file-dd',
+                                  style={'width': '280px'})),
             html.Div([html.Label('Label (SN)', style=LABEL_STYLE),
                       dcc.Input(id='peak-label', type='text', placeholder='Required',
                                 debounce=False, style=FIELD_STYLE)]),
@@ -136,6 +180,12 @@ def modal(hidden_style):
                 dcc.Input(id='peak-temperature', type='number', placeholder='Optional',
                           debounce=False, style={**FIELD_STYLE, 'width': '170px'})]),
         ], style={'display': 'flex', 'gap': '16px', 'alignItems': 'flex-end', 'flexWrap': 'wrap'}),
+        # Under the File menu: the file Save writes to (see file_line), then a
+        # reminder to press Save (see save_hint).
+        html.Div(id='pf-file-path', style={'fontSize': '12px', 'marginTop': '4px',
+                                           'overflowWrap': 'anywhere'}),
+        html.Div(id='pf-save-hint', style={'fontSize': '12px', 'color': SAVED_COLOR,
+                                           'marginTop': '2px'}),
         html.Div(id='pf-file-msg', style={'fontSize': '12px', 'minHeight': '16px', 'marginTop': '6px'}),
         # Scrolls sideways when there are more columns than fit. Dash 4's
         # dropdown menus are position: fixed, so this doesn't clip them.
@@ -158,7 +208,7 @@ def new_file_state(columns, decimals):
     """A new file's state, from the remembered columns ([{'item': key} or
     {'text': name}]) and decimals."""
     cols = [{'id': i, **c} for i, c in enumerate(columns, start=1)]
-    return {'mode': 'new', 'cols': cols, 'dec': {**pf.DEFAULT_DECIMALS, **decimals},
+    return {'mode': 'new', 'path': '', 'cols': cols, 'dec': {**pf.DEFAULT_DECIMALS, **decimals},
             'rows': [], 'saved': [], 'recent': [], 'msg': '', 'bad': False,
             'next': len(cols) + 1}
 
@@ -170,14 +220,14 @@ def file_state(path, decimals):
     try:
         info = pf.read(path)
     except pf.PeakFileError as e:
-        return {'mode': 'file', 'cols': [], 'dec': dict(pf.DEFAULT_DECIMALS), 'rows': [],
-                'saved': [], 'recent': [], 'msg': str(e), 'bad': True, 'next': 1}
+        return {'mode': 'file', 'path': path, 'cols': [], 'dec': dict(pf.DEFAULT_DECIMALS),
+                'rows': [], 'saved': [], 'recent': [], 'msg': str(e), 'bad': True, 'next': 1}
     cols = [{'id': i, **c} for i, c in enumerate(info['columns'], start=1)]
     msg = ''
     if pf.in_use(path):
         msg = (f'{os.path.basename(path)} is open in another program, probably Excel. '
                'Close it before you press Save.')
-    return {'mode': 'file', 'cols': cols,
+    return {'mode': 'file', 'path': path, 'cols': cols,
             'dec': {**pf.DEFAULT_DECIMALS, **decimals, **info['decimals']},
             'rows': [], 'saved': info['saved'], 'recent': info['recent'],
             'msg': msg, 'bad': False, 'next': len(cols) + 1}
@@ -456,6 +506,21 @@ def table(state, peak_options, values_of, label, temperature):
         style=ROW_HEAD)))
     return html.Table([html.Thead([html.Tr(decs), html.Tr(heads)]), html.Tbody(body)],
                       style={'borderCollapse': 'collapse'})
+
+
+def file_line(state):
+    """The line under the File menu: the file's full path, or for a new
+    file, when it gets its name."""
+    return state.get('path') or "New file. You'll name it when you press Save."
+
+
+def save_hint(state):
+    """The grey line under file_line's, for a file that can be used: choosing
+    a file or a peak doesn't save anything by itself. A new file needs none,
+    since its line already mentions Save."""
+    if state['mode'] == 'file' and not state['bad']:
+        return 'Press Save to write these peaks to the file.'
+    return ''
 
 
 def file_message(state):
