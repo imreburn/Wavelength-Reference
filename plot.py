@@ -23,7 +23,7 @@ from structs import Params, Dataset
 from analyze_data import peak_detection, find_bandwidth, exam_peak
 from save_csv import save_csv_raw, auto_raw_path,COL_CH, COL_REF, COL_SCAN, RAW_DIR, PEAKS_DIR
 from plot_helper import lttb, lttb_multi, pre_process
-from filters import FILTER_LABELS, FILTER_PARAMS, apply_filter, FilterError
+from filters import FILTER_LABELS, FILTER_OFF, FILTER_PARAMS, apply_filter, FilterError
 from readout import READOUT_COLUMNS, DASH_REFRESH_MS, format_row, format_actual, format_wl
 import plot_tables as pt
 from plot_tables import DATA_CSS_FONT, WINDOW_CSS_FONT
@@ -706,7 +706,8 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
 
     # ------------------------------------------------------------------
     # "Apply filter" modal — pick a smoothing filter and its parameters,
-    # then draw the filtered channel-1 signal as the "Smoothed" trace.
+    # then draw the filtered channel-1 signal as the "Smoothed" trace, or
+    # pick "Off" (last in the list) to remove it.
     # Each filter's parameter controls live in their own block; the dropdown
     # toggles which block is visible, so new filters can be added by dropping
     # in another block + a branch in `apply_filter`.
@@ -721,7 +722,8 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
             dcc.Dropdown(
                 id='filter-select',
                 options=[{'label': name, 'value': val}
-                         for val, name in FILTER_LABELS.items()],
+                         for val, name in FILTER_LABELS.items()]
+                        + [{'label': 'Off', 'value': FILTER_OFF}],
                 value=next(iter(FILTER_LABELS)),
                 clearable=False, searchable=False,
                 # Tall enough for every option so the menu never inner-scrolls
@@ -730,17 +732,20 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
                 maxHeight=300,
                 style={'marginBottom': '12px'},
             ),
-            html.Label('Parameters', style=LABEL_STYLE),
-            # Two generic parameter inputs; their labels/visibility are set per
-            # filter from FILTER_PARAMS by the `update_filter_params` callback.
-            # parameter1 maps to the first param, parameter2 to the second.
-            html.Label(id='param1-label', style=PARAM_LABEL_STYLE),
-            dcc.Input(id='param1-input', type='number', step=1, value=21, debounce=False,
-                      style={'width': '100%', 'boxSizing': 'border-box', 'marginBottom': '8px'}),
-            html.Div(id='param2-row', children=[
-                html.Label(id='param2-label', style=PARAM_LABEL_STYLE),
-                dcc.Input(id='param2-input', type='number', step=1, value=3, debounce=False,
+            # Hidden for "Off", which has no parameters.
+            html.Div(id='filter-params', children=[
+                html.Label('Parameters', style=LABEL_STYLE),
+                # Two generic parameter inputs; their labels/visibility are set per
+                # filter from FILTER_PARAMS by the `update_filter_params` callback.
+                # parameter1 maps to the first param, parameter2 to the second.
+                html.Label(id='param1-label', style=PARAM_LABEL_STYLE),
+                dcc.Input(id='param1-input', type='number', step=1, value=21, debounce=False,
                           style={'width': '100%', 'boxSizing': 'border-box', 'marginBottom': '8px'}),
+                html.Div(id='param2-row', children=[
+                    html.Label(id='param2-label', style=PARAM_LABEL_STYLE),
+                    dcc.Input(id='param2-input', type='number', step=1, value=3, debounce=False,
+                              style={'width': '100%', 'boxSizing': 'border-box', 'marginBottom': '8px'}),
+                ]),
             ]),
             html.Div(id='filter-modal-error',
                      style={'color': '#C0392B', 'fontSize': '12px',
@@ -1578,24 +1583,28 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         return MODAL_SHOWN
 
     # Relabel the two generic parameter inputs (and their defaults) for the
-    # selected filter, hiding the second input for single-parameter filters.
+    # selected filter, hiding the second input for single-parameter filters,
+    # and all of them for "Off".
     @app.callback(
         Output('param1-label', 'children'),
         Output('param1-input', 'value'),
         Output('param2-label', 'children'),
         Output('param2-input', 'value'),
         Output('param2-row', 'style'),
+        Output('filter-params', 'style'),
         Input('filter-select', 'value'),
     )
     def update_filter_params(filt):
+        if filt == FILTER_OFF:
+            return (dash.no_update,) * 5 + ({'display': 'none'},)
         specs = FILTER_PARAMS.get(filt, [])
         if not specs:
-            return (dash.no_update,) * 5
+            return (dash.no_update,) * 6
         label1, default1 = specs[0]
         if len(specs) > 1:
             label2, default2 = specs[1]
-            return label1, default1, label2, default2, {}
-        return label1, default1, dash.no_update, dash.no_update, {'display': 'none'}
+            return label1, default1, label2, default2, {}, {}
+        return label1, default1, dash.no_update, dash.no_update, {'display': 'none'}, {}
 
     @app.callback(
         Output('filter-modal', 'style', allow_duplicate=True),
@@ -1615,6 +1624,15 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         triggered = callback_context.triggered[0]['prop_id']
         if 'filter-cancel' in triggered:
             return MODAL_HIDDEN, dash.no_update, ""
+
+        if filt == FILTER_OFF:
+            # Remove the line, legend entry included; zooming no longer redraws it.
+            _smooth['y'] = None
+            patched = Patch()
+            patched['data'][smooth_idx]['x'] = []
+            patched['data'][smooth_idx]['y'] = []
+            patched['data'][smooth_idx]['visible'] = False
+            return MODAL_HIDDEN, patched, ""
 
         try:
             _smooth['y'] = apply_filter(filt, dbm, parameter1, parameter2)

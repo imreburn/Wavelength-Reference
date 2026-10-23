@@ -22,6 +22,10 @@ FILTER_LABELS = {
     'savgol' : 'Savitzky-Golay',
 }
 
+# The dropdown's value for "Off", listed after the filters: it removes the
+# filtered trace. Not a filter, so apply_filter never gets it.
+FILTER_OFF = 'off'
+
 # value -> list of (label, default) for its parameters, in order. The modal
 # shows one input per entry (max two): the first maps to `parameter1`, the
 # second to `parameter2`. A single-entry list hides the second input.
