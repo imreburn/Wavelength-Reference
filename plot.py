@@ -2,11 +2,12 @@ import copy
 import threading
 import os
 import sys
+from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import dash
-from dash import dcc, html, Input, Output, State, Patch, ALL, callback_context
+from dash import dcc, html, Input, Output, State, Patch, ALL, callback_context, set_props
 import flask
 import webview
 from webview import FileDialog
@@ -43,10 +44,11 @@ _peak_decimals  = {}
 # lists them under "Recent files".
 RECENT_PEAK_FILES = data_path('recent_peak_files.txt', mkdir=False)
 # Also remembered across display_plot() calls: each table's columns and
-# decimals from its Customize dialog, and the peak numbers hidden in the peak
-# table (by number, so P3 stays hidden in a later sweep that finds a P3).
+# decimals from its Customize dialog, and the peak numbers hidden in each
+# range tab's peak table, by tab key (by number, so P3 stays hidden in a
+# later sweep that finds a P3).
 _table_views  = {t: pt.default_view(t) for t in pt.TABLES}
-_hidden_peaks = []
+_hidden_peaks = {}
 # Also remembered: the Show / hide items left unticked, by key (e.g. 'lbase'),
 # kept even through a sweep that doesn't have the item.
 _hidden_items = set()
@@ -138,21 +140,79 @@ def _label_error(text):
     return None
 
 
-def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorption Spectrum",
-                 autosaved_to=None, autosave_error=None):
-    """
-    Parameters
-    ----------
-    readout : readout.PowerReadout, optional
-        The session's live power readout, shown in the "Power Readout" modal.
-        None (e.g. plotting a saved CSV) leaves the button disabled.
+MAX_DISPLAY  = 10000  # max points rendered at once for the spectrum
 
-    Notes
-    -----
-    This call is BLOCKING — control does not return to the caller until
-    the user closes the window. It must be called from the main thread
-    (a pywebview requirement).
+# Every line is solid; each line (main, reference or scan) gets its own
+# color, assigned in draw order from this palette.
+LINE_COLORS = [
+    '#378ADD', '#D85A30', '#2A9D8F', '#9B59B6', '#E8A020', '#50C878',
+    '#E63946', '#457B9D', '#F4A261', '#264653', '#8E44AD', '#16A085',
+]
+MARKER_BORDER = dict(width=1, color='#333')   # the outline of every marker symbol
+
+# ------------------------------------------------------------------
+# Right sidebar styles. The container sets the 14px default font, which
+# cascades to labels/checklists/radio items. Form controls (<input>)
+# don't inherit font-size, so INPUT_STYLE restates it. Section titles use
+# HEADING_STYLE; field labels and notes the smaller NOTE_STYLE (11px).
+# ------------------------------------------------------------------
+HEADING_STYLE = {'fontWeight': 'bold', 'display': 'block', 'marginBottom': '6px'}
+NOTE_STYLE = {'fontSize': '11px', 'color': '#888', 'display': 'block'}
+# NOTE: text stays left-aligned — WebKit (pywebview) ignores text-align on
+# type='number' inputs, and centering would require dropping the -/+ steppers.
+INPUT_STYLE = {'width': '140px', 'boxSizing': 'border-box',
+               'fontSize': '14px', 'padding': '2px 5px'}
+INPUT_STYLE_FULL = {**INPUT_STYLE, 'width': '100%'}
+# The Bandwidth marker's settings, under Click mode. Hidden while Click
+# mode is Delta (show_bandwidth_settings), which is also where it starts.
+BW_SETTINGS_STYLE = {'marginTop': '10px', 'width': '140px'}
+BW_SETTINGS_HIDDEN = {**BW_SETTINGS_STYLE, 'display': 'none'}
+# A tab's part of the right sidebar (Plot sampling and Click mode): spaced
+# like the sidebar's own sections, so it reads as two more of them.
+PANEL_STYLE = {'display': 'flex', 'flexDirection': 'column', 'gap': '20px'}
+
+# The Bandwidth markers' clicked x positions, [B1 (peak), B2 (base)], and
+# which of them the next click places or moves (0 = B1, 1 = B2).
+BW_EMPTY = {'points': [], 'next': 0}
+
+# Everything the "Show / hide" popup can list, as (value, label) per group,
+# in its order. A window lists an item only when one of its tabs has it (see
+# _range_tab's sh_keys): peaks found, peak test criteria set (the table
+# exam_div shows), a reference (the insertion loss marker). The Peak test
+# result table shows even with no peak found, so then it's the Peak group's
+# only item.
+SH_ALL = {
+    'peak': [('peak', 'Peak'), ('lbase', 'Peak:Left base'), ('rbase', 'Peak:Right base'),
+             # The two tables in their on-screen order: the test result first.
+             ('passfail', 'Peak test result'),
+             # Keeps "table" here, unlike the table's own caption ("Peak").
+             ('table', 'Peak table')],
+    'width': [('max', 'Width (max base)'), ('avg', 'Width (avg base)'),
+              ('min', 'Width (min base)')],
+    'other': [('il', 'Insertion loss')],
+}
+
+
+def _table_absent(params):
+    """Columns a table doesn't have in this window. They keep their place (and
+    shown/hidden choice) in the remembered column order for later windows."""
+    return {'custom': (), 'delta': (), 'passfail': (),
+            'peak': () if params.reference else ('IL',)}
+
+
+def _range_tab(app, key, raw_w: Dataset, params: Params):
+    """One range's tab: its plot, the tables under it, its part of the right
+    sidebar (Plot sampling and Click mode), and the callbacks behind them.
+
+    Every component id ends in "-<key>" (spectrum-1, markers-store-1, ...),
+    so each tab's copy has its own. The menu bar, the dialogs and the Label
+    field belong to the window (display_plot), which places this tab's parts
+    and reaches its data and helpers through what this returns (see the end).
     """
+    def rid(name):
+        """This tab's id for the component called `name`."""
+        return f'{name}-{key}'
+
     wl, watt_s, dbm_s = pre_process(raw_w, params)
     d_x = round(wl[1] - wl[0], 7)
     channels = tuple(params.channel)
@@ -161,22 +221,14 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         mainplots = dbm_s.diff
     else:
         mainplots = dbm_s.data
-    
+
     dbm = mainplots[0]
     overlays = dbm_s.scans if len(dbm_s.scans) > 1 else []
     peak_df = pd.DataFrame()
 
-    MAX_DISPLAY  = 10000  # max points rendered at once for the spectrum
-
     # ------------------------------------------------------------------
     # Initial figure (built once, captures the data)
     # ------------------------------------------------------------------
-    # Every line is solid; each line (main, reference or scan) gets its own
-    # color, assigned in draw order from this palette.
-    LINE_COLORS = [
-        '#378ADD', '#D85A30', '#2A9D8F', '#9B59B6', '#E8A020', '#50C878',
-        '#E63946', '#457B9D', '#F4A261', '#264653', '#8E44AD', '#16A085',
-    ]
     _color_state = {'i': 0}
     def _next_color():
         c = LINE_COLORS[_color_state['i'] % len(LINE_COLORS)]
@@ -201,51 +253,50 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
     main_traces    = [(0, dbm)]
     ref_traces     = []
     overlay_traces = []
-    _border = dict(width=1, color='#333')
     # data[1..4] use SVG scatter to match data[0] and the peak traces below —
     # keep the whole figure on one renderer (mixing scattergl draws WebGL
     # traces on a separate layer above the SVG line).
     # data[1] — mode-1 accumulated markers
     initial_fig.add_scatter(
         x=[], y=[], mode='markers+text', name='Delta',
-        marker=dict(symbol='diamond', size=7, color='#D85A30', line=_border),
+        marker=dict(symbol='diamond', size=7, color='#D85A30', line=MARKER_BORDER),
         text=[], textposition='top center',
     )
     # data[2] — mode-2 markers B1 (peak) and B2 (base); clicks alternate between them
     initial_fig.add_scatter(
         x=[], y=[], mode='markers+text', name='Bandwidth',
-        marker=dict(symbol='x', size=11, color='#E8A020', line=_border),
+        marker=dict(symbol='x', size=11, color='#E8A020', line=MARKER_BORDER),
         text=[], textposition='bottom right',
     )
     # data[3] — mode-2 left offset marker
     initial_fig.add_scatter(
         x=[], y=[], mode='markers', name='Bandwidth:Left',
-        marker=dict(symbol='triangle-right', size=10, color='#50C878', line=_border),
+        marker=dict(symbol='triangle-right', size=10, color='#50C878', line=MARKER_BORDER),
         text=[], textposition='top center',
     )
     # data[4] — mode-2 right offset marker
     initial_fig.add_scatter(
         x=[], y=[], mode='markers+text', name='Bandwidth:Right',
-        marker=dict(symbol='triangle-left', size=10, color='#50C878', line=_border),
+        marker=dict(symbol='triangle-left', size=10, color='#50C878', line=MARKER_BORDER),
         text=[], textposition='middle right',
     )
-    
+
     pk = peak_detection(wl, dbm)
     exam = exam_peak(pk, params)
     exam_out, exam_idx = exam['verdict'], exam['peak']
     if pk is not None:
         # data[5..10] — peak annotation traces (Peaks, L/R bases, FWHM max/avg/min)
-        initial_fig.add_scatter(x=pk.x_nm, y=dbm[pk.x_idx], mode='markers+text', name='Peak', marker=dict(size=5, color='#E63946', symbol='circle', line=_border), text=[f"P{i}" for i, _ in enumerate(pk.x_idx, start=1)], textposition='bottom center')
-        
-        initial_fig.add_scatter(x=wl[pk.l_idx], y=dbm[pk.l_idx], mode='markers+text', name='Peak:Left base', marker=dict(size=8, color='#2A9D8F', symbol='triangle-up', line=_border), text=[f"P{i}:L({e[0]:.3f}, {e[1]:.3f})" for i, e in enumerate(zip(wl[pk.l_idx], dbm[pk.l_idx]), start=1)], textposition='top right')
-        
-        initial_fig.add_scatter(x=wl[pk.r_idx], y=dbm[pk.r_idx], mode='markers+text', name='Peak:Right base', marker=dict(size=8, color='#2A9D8F', symbol='triangle-down', line=_border), text=[f"P{i}:R({e[0]:.3f}, {e[1]:.3f})" for i, e in enumerate(zip(wl[pk.r_idx], dbm[pk.r_idx]), start=1)], textposition='top left')
-        
-        initial_fig.add_scatter(x=np.concatenate([pk.max.l_nm, pk.max.r_nm]), y=np.concatenate([pk.max.w_y, pk.max.w_y]), mode='markers', name="Width (max base)", visible=True, marker=dict(size=8, color='#F4A261', symbol='square', line=_border))
+        initial_fig.add_scatter(x=pk.x_nm, y=dbm[pk.x_idx], mode='markers+text', name='Peak', marker=dict(size=5, color='#E63946', symbol='circle', line=MARKER_BORDER), text=[f"P{i}" for i, _ in enumerate(pk.x_idx, start=1)], textposition='bottom center')
 
-        initial_fig.add_scatter(x=np.concatenate([pk.avg.l_nm, pk.avg.r_nm]), y=np.concatenate([pk.avg.w_y, pk.avg.w_y]), mode='markers', name="Width (avg base)", visible=True, marker=dict(size=8, color='#457B9D', symbol='diamond', line=_border))
+        initial_fig.add_scatter(x=wl[pk.l_idx], y=dbm[pk.l_idx], mode='markers+text', name='Peak:Left base', marker=dict(size=8, color='#2A9D8F', symbol='triangle-up', line=MARKER_BORDER), text=[f"P{i}:L({e[0]:.3f}, {e[1]:.3f})" for i, e in enumerate(zip(wl[pk.l_idx], dbm[pk.l_idx]), start=1)], textposition='top right')
 
-        initial_fig.add_scatter(x=np.concatenate([pk.min.l_nm, pk.min.r_nm]), y=np.concatenate([pk.min.w_y, pk.min.w_y]), mode='markers', name="Width (min base)", visible=True, marker=dict(size=8, color='#8E44AD', symbol='hexagon', line=_border))
+        initial_fig.add_scatter(x=wl[pk.r_idx], y=dbm[pk.r_idx], mode='markers+text', name='Peak:Right base', marker=dict(size=8, color='#2A9D8F', symbol='triangle-down', line=MARKER_BORDER), text=[f"P{i}:R({e[0]:.3f}, {e[1]:.3f})" for i, e in enumerate(zip(wl[pk.r_idx], dbm[pk.r_idx]), start=1)], textposition='top left')
+
+        initial_fig.add_scatter(x=np.concatenate([pk.max.l_nm, pk.max.r_nm]), y=np.concatenate([pk.max.w_y, pk.max.w_y]), mode='markers', name="Width (max base)", visible=True, marker=dict(size=8, color='#F4A261', symbol='square', line=MARKER_BORDER))
+
+        initial_fig.add_scatter(x=np.concatenate([pk.avg.l_nm, pk.avg.r_nm]), y=np.concatenate([pk.avg.w_y, pk.avg.w_y]), mode='markers', name="Width (avg base)", visible=True, marker=dict(size=8, color='#457B9D', symbol='diamond', line=MARKER_BORDER))
+
+        initial_fig.add_scatter(x=np.concatenate([pk.min.l_nm, pk.min.r_nm]), y=np.concatenate([pk.min.w_y, pk.min.w_y]), mode='markers', name="Width (min base)", visible=True, marker=dict(size=8, color='#8E44AD', symbol='hexagon', line=MARKER_BORDER))
 
         peak_dict = {
             "x"           : np.round(pk.x_nm, decimals=7),
@@ -257,7 +308,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
             "Depth_min"   : np.round(pk.min.depth, decimals=5),
             "FWHM_min"    : np.round(pk.min.w_pm, decimals=3),
                      }
-        
+
         peak_df = pd.DataFrame(peak_dict)
         peak_df.insert(0, "Peak", [i+1 for i in range(len(peak_df))])
         peak_df.insert(0, "Ch", [channels[0] for _ in range(len(peak_df))])
@@ -269,7 +320,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
     # Remaining channels (channel 1 is data[0] above). Appended AFTER the
     # fixed-index marker/peak traces so data[1..10] stay put. Solid line,
     # one color per channel.
-    # ------------------------------------------------------------------    
+    # ------------------------------------------------------------------
     for k, (ch, d_arr) in enumerate(zip(channels, mainplots)):
         if k == 0:
             continue
@@ -293,7 +344,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         gmax_x, gmax_y = float(wl[gmax_idx]), float(dbm[gmax_idx])
         initial_fig.add_scatter(
             x=[gmax_x], y=[gmax_y], mode='markers+text', name='Insertion loss',
-            marker=dict(symbol='star', size=9, color='#C0392B', line=_border),
+            marker=dict(symbol='star', size=9, color='#C0392B', line=MARKER_BORDER),
             # Negated (not abs) so a negative IL still reads as negative — that
             # means the device came out above the reference, usually a bad ref sweep.
             text=[f"IL: {-gmax_y:.5f} dB"], textposition='bottom center',
@@ -377,233 +428,24 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
     initial_fig.update_xaxes(showspikes=True, spikecolor="gray", spikemode="across", spikethickness=1)
     initial_fig.update_yaxes(showspikes=True, spikemode="across", spikecolor="gray", spikethickness=1)
 
-    # ------------------------------------------------------------------
-    # Dash app
-    # ------------------------------------------------------------------
-    # Holder so callbacks (running on the server thread) can reach the
-    # pywebview window, which is only created later in this function.
-    _window_holder = {}
-    # Set by the Repeat button; read after the window closes to tell the caller
-    # to auto-Run the next sweep. NOT part of Params (which stays run-only).
-    _repeat = {'flag': False}
-
-    # Dash callbacks run on the Flask server thread; an unhandled exception
-    # there is caught by Dash and would otherwise surface only as an HTTP 500 in
-    # the browser/console — it never propagates back through webview.start() to
-    # main.py's try/except, so it would miss the log file. Route it through our
-    # logger, the same fix as config_window's report_callback_exception override.
-    def _log_dash_error(err):
-        log.error("Dash callback error", exc_info=err)
-
-    app = dash.Dash(__name__, on_error=_log_dash_error)
-    app.index_string = INDEX_STRING
-
-    # ------------------------------------------------------------------
-    # Right sidebar styles. The container sets the 14px default font, which
-    # cascades to labels/checklists/radio items. Form controls (<input>)
-    # don't inherit font-size, so INPUT_STYLE restates it. Section titles use
-    # HEADING_STYLE; field labels and notes the smaller NOTE_STYLE (11px).
-    # ------------------------------------------------------------------
-    HEADING_STYLE = {'fontWeight': 'bold', 'display': 'block', 'marginBottom': '6px'}
-    NOTE_STYLE = {'fontSize': '11px', 'color': '#888', 'display': 'block'}
-    # NOTE: text stays left-aligned — WebKit (pywebview) ignores text-align on
-    # type='number' inputs, and centering would require dropping the -/+ steppers.
-    INPUT_STYLE = {'width': '140px', 'boxSizing': 'border-box',
-                   'fontSize': '14px', 'padding': '2px 5px'}
-    INPUT_STYLE_FULL = {**INPUT_STYLE, 'width': '100%'}
-    # The Bandwidth marker's settings, under Click mode. Hidden while Click
-    # mode is Delta (show_bandwidth_settings), which is also where it starts.
-    BW_SETTINGS_STYLE = {'marginTop': '10px', 'width': '140px'}
-    BW_SETTINGS_HIDDEN = {**BW_SETTINGS_STYLE, 'display': 'none'}
-
-    # Three sections, top to bottom: Label (SN), Plot sampling and Click mode,
-    # each under a bold title. Show / hide lives in its own popup (menu bar, H).
-    right_sidebar = html.Div([
-        # The sweep's label, which the user can change here (update_label).
-        # Below it, what happened to the last change. That line is always two
-        # lines tall, even when empty, so the sections below never move. A
-        # longer message (a long label) is cut with "…" at the end of line 2.
-        html.Div([
-            html.Label("Label (SN)", style=HEADING_STYLE),
-            dcc.Input(id='label-input', type='text', value=params.label or '',
-                      placeholder='No label', debounce=False, style=INPUT_STYLE),
-            html.Div(id='label-status',
-                     style={**NOTE_STYLE, 'marginTop': '4px', 'lineHeight': '1.2', 'height': '2.4em',
-                            'display': '-webkit-box', 'WebkitBoxOrient': 'vertical',
-                            'WebkitLineClamp': '2', 'overflow': 'hidden'}),
-        ]),
-        html.Div([
-            html.Label("Plot sampling", style=HEADING_STYLE),
-            html.Label("Max points per curve (x1000)",
-                       style={**NOTE_STYLE, 'marginBottom': '4px'}),
-            dcc.Input(
-                id='max-display-input',
-                type='number', min=0, max=1000, value=MAX_DISPLAY // 1000,
-                debounce=True,
-                style=INPUT_STYLE,
-            ),
-            html.Div("0 = no downsampling (may be slow)",
-                     style={**NOTE_STYLE, 'marginTop': '2px'}),
-        ]),
-        html.Div([
-            html.Label("Click mode", style=HEADING_STYLE),
-            dcc.RadioItems(
-                id='click-mode',
-                options=[{'label': 'Delta', 'value': 1}, {'label': 'Bandwidth', 'value': 2}],
-                value=1,
-                inline=True,
-                labelStyle={'display': 'inline-block', 'marginRight': '16px'},
-                style={'display': 'inline-block'},
-            ),
-            html.Button('Clear all', id='clear-btn', n_clicks=0,
-                        style={'width': '150px', 'fontSize': '13px',
-                               'padding': '5px 12px', 'marginTop': '5px'}),
-            # The width at the Bandwidth markers' peak, B1. Bandwidth mode picks
-            # how its level is set: Automatic measures at a % of the depth
-            # from B1 up to B2 (the base), searching as far out as B2 is;
-            # Manual takes a fixed amplitude and search range.
-            # Shown only while Click mode is Bandwidth.
-            html.Div([
-                html.Div(id='mode2-marker-info',
-                         style={'display': 'none'}),
-                html.Label("Bandwidth mode",
-                           style={**NOTE_STYLE, 'marginTop': '12px', 'marginBottom': '4px'}),
-                dcc.RadioItems(
-                    id='bw-mode',
-                    options=[{'label': 'Automatic', 'value': 'auto'}, {'label': 'Manual', 'value': 'manual'}],
-                    value='auto',
-                    inline=True,
-                    labelStyle={'display': 'inline-block', 'marginRight': '16px'},
-                ),
-                html.Div([
-                    html.Label("Bandwidth amplitude (%)",
-                               style={**NOTE_STYLE, 'marginTop': '12px', 'marginBottom': '4px'}),
-                    dcc.Input(
-                        id='bw-pct-input',
-                        type='number', step=1,
-                        min=1, max=99, value=50,
-                        debounce=True,
-                        style=INPUT_STYLE_FULL,
-                    ),
-                ], id='bw-auto-fields'),
-                html.Div([
-                    html.Label("Bandwidth amplitude (dB)",
-                               style={**NOTE_STYLE, 'marginTop': '12px', 'marginBottom': '4px'}),
-                    dcc.Input(
-                        id='mode2-offset-input',
-                        type='number', step=0.001,
-                        min=0, max=50, value=0.1,
-                        debounce=True,
-                        style=INPUT_STYLE_FULL,
-                    ),
-                ], id='bw-manual-fields', style={'display': 'none'}),
-                html.Div(id='mode2-offset-info',
-                         style={'display': 'none'}),
-                # Why there's no width, or why it's cut short (orange).
-                html.Div(id='bw-hint', style={**NOTE_STYLE, **pt.HINT_STYLE, 'marginTop': '6px'}),
-            ], id='bw-settings', style=BW_SETTINGS_HIDDEN),
-        ]),
-    # A fixed width, so the graph beside it doesn't resize when the Bandwidth
-    # settings appear or hide. It fits the widest item, the 150px Clear all button.
-    ], style={'padding': '20px 10px', 'display': 'flex', 'flexDirection': 'column',
-              'gap': '20px', 'fontSize': '14px', 'fontFamily': WINDOW_CSS_FONT,
-              'width': '150px', 'flexShrink': 0})
-
-    # ------------------------------------------------------------------
-    # Horizontal menu bar (top of the window). The action buttons live
-    # here instead of the sidebar; their ids are unchanged so all the
-    # existing callbacks (and the Enter keybind) keep working.
-    # ------------------------------------------------------------------
-    NAV_BTN_STYLE = {
-        'fontSize': '12px', 'padding': '2px 12px', 'border': 'none',
-        'background': 'transparent', 'color': '#fff', 'cursor': 'pointer',
-        'fontFamily': WINDOW_CSS_FONT,
-    }
-
-    # What the "Show / hide" popup lists, as (value, label) per group. An item
-    # is listed only when this window has it: peaks found, peak test criteria
-    # set (the table exam_div shows), a reference (the insertion loss marker).
-    # The Peak test result table shows even with no peak found, so then it's
-    # the Peak group's only item.
-    SH_ITEMS = {
-        'peak': ([('peak', 'Peak'), ('lbase', 'Peak:Left base'), ('rbase', 'Peak:Right base')]
-                 if pk is not None else [])
-                # The two tables in their on-screen order: the test result first.
-                + ([('passfail', 'Peak test result')] if exam_out in ('Pass', 'Fail') else [])
-                # Keeps "table" here, unlike the table's own caption ("Peak").
-                + ([('table', 'Peak table')] if pk is not None else []),
-        'width': [('max', 'Width (max base)'), ('avg', 'Width (avg base)'),
-                  ('min', 'Width (min base)')] if pk is not None else [],
-        'other': [('il', 'Insertion loss')] if il_idx is not None else [],
-    }
-    SH_KEYS = {group: [value for value, _ in items] for group, items in SH_ITEMS.items()}
-    has_show_hide = any(SH_KEYS.values())
-    # The plot trace behind each item: data[5] the peaks, [6]/[7] their
-    # left/right bases, [8..10] the max/avg/min-base widths (fixed indices).
+    # The plot trace behind each "Show / hide" item: data[5] the peaks,
+    # [6]/[7] their left/right bases, [8..10] the max/avg/min-base widths
+    # (fixed indices). The items this tab has (sh_keys) are those, the Peak
+    # table with them, and the Peak test result when the test is on.
     SH_TRACES = {'peak': 5, 'lbase': 6, 'rbase': 7, 'max': 8, 'avg': 9, 'min': 10} if pk is not None else {}
     if il_idx is not None:
         SH_TRACES['il'] = il_idx
+    sh_keys = (set(SH_TRACES) | ({'table'} if pk is not None else set())
+               | ({'passfail'} if exam_out in ('Pass', 'Fail') else set()))
     # Start from the remembered choices. apply_show_hide runs only on a
     # change, so what _hidden_items hides is hidden here from the start (the
     # Pass/Fail table and the Peak table get the same treatment in the layout).
-    for key, i in SH_TRACES.items():
-        if key in _hidden_items:
+    for item, i in SH_TRACES.items():
+        if item in _hidden_items:
             initial_fig.data[i].visible = 'legendonly'
 
-    top_navbar = html.Nav([
-        html.Button('Save raw data...(S)', id='save-raw-btn', n_clicks=0, style=NAV_BTN_STYLE),
-        html.Button(['Save peak info...(P)'], id='save-peak-btn', n_clicks=0, style=NAV_BTN_STYLE),
-        html.Button('Apply filter...(F)', id='apply-filter-btn', n_clicks=0, style=NAV_BTN_STYLE),
-        # Disabled when there's nothing to show or hide (no peaks, criteria or reference).
-        html.Button('Show / hide...(H)', id='show-hide-btn', n_clicks=0,
-                    disabled=not has_show_hide,
-                    style=NAV_BTN_STYLE if has_show_hide
-                    else {**NAV_BTN_STYLE, 'opacity': 0.4, 'cursor': 'default'}),
-        html.Button('Plot in Watt...', id='plot-watt-btn', n_clicks=0, style=NAV_BTN_STYLE),
-        html.Div(id='plot-watt-dummy', style={'display': 'none'}),
-        html.Button('Sweep info...(I)', id='sweep-info-btn', n_clicks=0, style=NAV_BTN_STYLE),
-        # Power Readout: live meter values in a modal (readout.PowerReadout).
-        # Disabled when there is no readout, e.g. plotting a saved CSV.
-        html.Button('Power readout...(R)', id='readout-btn', n_clicks=0,
-                    disabled=readout is None,
-                    style=NAV_BTN_STYLE if readout is not None
-                    else {**NAV_BTN_STYLE, 'opacity': 0.4, 'cursor': 'default'}),
-
-        # Close & Repeat: close this plot window and auto-Run the next sweep with the same parameters. Also bound to the Enter key (see the clientside callback below).
-        html.Button('Close & Repeat (Enter)', id='repeat-btn', n_clicks=0,
-                    style={**NAV_BTN_STYLE, 'fontWeight': 'bold', 'marginLeft': 'auto'}),
-        # Dummy sink for the keybind clientside callback; the keydown
-        # listener it installs is what actually clicks the button.
-        html.Div(id='repeat-keybind-dummy', style={'display': 'none'}),
-                # Close Window: just close this plot window (same as the window's close
-        # button). marginLeft: auto pushes it and the Repeat button to the right edge.
-        html.Button('Close window (W)', id='close-btn', n_clicks=0,
-                    style={**NAV_BTN_STYLE}),
-        html.Div(id='close-dummy', style={'display': 'none'}),
-        # No visible button: the X shortcut clicks this to reset the plot's
-        # zoom, like the modebar's Autoscale (see the clientside callback right
-        # after KEY_SHORTCUTS).
-        html.Button(id='reset-zoom-btn', n_clicks=0, style={'display': 'none'}),
-    ], style={'display': 'flex', 'alignItems': 'center', 'gap': '4px',
-              'padding': '2px 16px', 'backgroundColor': '#2c3e50'})
-
-    # Status strip under the nav bar: one line, the newest message replaces the
-    # last. Fixed height so the graph doesn't shift as messages come and go.
-    # Opens with the auto-save result, if main.py auto-saved this sweep.
-    if autosave_error:
-        initial_status = _status("Auto-save failed; use Save raw data.", error=True)
-    elif autosaved_to:
-        initial_status = _status(f"Auto-saved: {os.path.basename(autosaved_to)}")
-    else:
-        initial_status = ""
-    nav_status = html.Div(initial_status, id='nav-status', style={
-        'height': '20px', 'lineHeight': '20px', 'padding': '0 30px',
-        'fontSize': '12px', 'fontFamily': WINDOW_CSS_FONT,
-        'backgroundColor': '#ecf0f1', 'overflow': 'hidden', 'whiteSpace': 'nowrap'})
-
     # ------------------------------------------------------------------
-    # "Save peak info" dialog (peak_dialog.py): pick a peak file, then the
-    # columns and the peaks in a table that previews the rows to save.
+    # This tab's peaks for "Save peak info" (the window's dialog).
     # ------------------------------------------------------------------
     if pk is not None:
         # The tested peak first, then the deepest (max Depth_max), then the rest.
@@ -669,6 +511,745 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
                 values[f'width_{base}'] = float(widths.w_pm[i])
         return values
 
+    # ------------------------------------------------------------------
+    # This tab's part of the right sidebar: Plot sampling and Click mode,
+    # each under a bold title. The window puts the Label (SN) above them.
+    # ------------------------------------------------------------------
+    panel = html.Div([
+        html.Div([
+            html.Label("Plot sampling", style=HEADING_STYLE),
+            html.Label("Max points per curve (x1000)",
+                       style={**NOTE_STYLE, 'marginBottom': '4px'}),
+            dcc.Input(
+                id=rid('max-display-input'),
+                type='number', min=0, max=1000, value=MAX_DISPLAY // 1000,
+                debounce=True,
+                style=INPUT_STYLE,
+            ),
+            html.Div("0 = no downsampling (may be slow)",
+                     style={**NOTE_STYLE, 'marginTop': '2px'}),
+        ]),
+        html.Div([
+            html.Label("Click mode", style=HEADING_STYLE),
+            dcc.RadioItems(
+                id=rid('click-mode'),
+                options=[{'label': 'Delta', 'value': 1}, {'label': 'Bandwidth', 'value': 2}],
+                value=1,
+                inline=True,
+                labelStyle={'display': 'inline-block', 'marginRight': '16px'},
+                style={'display': 'inline-block'},
+            ),
+            html.Button('Clear all', id=rid('clear-btn'), n_clicks=0,
+                        style={'width': '150px', 'fontSize': '13px',
+                               'padding': '5px 12px', 'marginTop': '5px'}),
+            # The width at the Bandwidth markers' peak, B1. Bandwidth mode picks
+            # how its level is set: Automatic measures at a % of the depth
+            # from B1 up to B2 (the base), searching as far out as B2 is;
+            # Manual takes a fixed amplitude and search range.
+            # Shown only while Click mode is Bandwidth.
+            html.Div([
+                html.Div(id=rid('mode2-marker-info'),
+                         style={'display': 'none'}),
+                html.Label("Bandwidth mode",
+                           style={**NOTE_STYLE, 'marginTop': '12px', 'marginBottom': '4px'}),
+                dcc.RadioItems(
+                    id=rid('bw-mode'),
+                    options=[{'label': 'Automatic', 'value': 'auto'}, {'label': 'Manual', 'value': 'manual'}],
+                    value='auto',
+                    inline=True,
+                    labelStyle={'display': 'inline-block', 'marginRight': '16px'},
+                ),
+                html.Div([
+                    html.Label("Bandwidth amplitude (%)",
+                               style={**NOTE_STYLE, 'marginTop': '12px', 'marginBottom': '4px'}),
+                    dcc.Input(
+                        id=rid('bw-pct-input'),
+                        type='number', step=1,
+                        min=1, max=99, value=50,
+                        debounce=True,
+                        style=INPUT_STYLE_FULL,
+                    ),
+                ], id=rid('bw-auto-fields')),
+                html.Div([
+                    html.Label("Bandwidth amplitude (dB)",
+                               style={**NOTE_STYLE, 'marginTop': '12px', 'marginBottom': '4px'}),
+                    dcc.Input(
+                        id=rid('mode2-offset-input'),
+                        type='number', step=0.001,
+                        min=0, max=50, value=0.1,
+                        debounce=True,
+                        style=INPUT_STYLE_FULL,
+                    ),
+                ], id=rid('bw-manual-fields'), style={'display': 'none'}),
+                html.Div(id=rid('mode2-offset-info'),
+                         style={'display': 'none'}),
+                # Why there's no width, or why it's cut short (orange).
+                html.Div(id=rid('bw-hint'), style={**NOTE_STYLE, **pt.HINT_STYLE, 'marginTop': '6px'}),
+            ], id=rid('bw-settings'), style=BW_SETTINGS_HIDDEN),
+        ]),
+    ], id=rid('panel'), style=PANEL_STYLE)
+
+    # Pass/Fail result, shown just above the Peak table: a table of each check
+    # with the overall result in its last column, under a caption with a
+    # Customize link (the Measured row's decimals). render_passfail_table fills
+    # it in. Nothing when the test is off (every criterion 0).
+    exam_div = html.Div([pt.caption('passfail', key), html.Div(id=rid('passfail-table'))],
+                        style={'marginTop': '5px'}) if exam_out else None
+
+    # The plot, and the tables under it.
+    content = [
+        # A responsive graph sizes the plot to this box and follows the
+        # window. The box needs its own height: left to Dash, it's
+        # "100%" of a parent with no set height, which collapses to 0
+        # and lets the plot cover everything below it.
+        dcc.Graph(id=rid('spectrum'), figure=initial_fig,
+                  config={'scrollZoom': True, 'displayModeBar': True,  'displaylogo': False}, responsive=True, style={'height': '550px'}),
+        # Top to bottom, one table per row: the Custom peak table (once
+        # a Bandwidth marker exists), the Delta table (once a Delta
+        # marker exists), the Pass/Fail table, and the Peak table. The
+        # render_* callbacks below fill in the marker and Peak tables.
+        # The Pass/Fail table sits outside the Peak table's container,
+        # so it still shows when no peak was found or the table is
+        # hidden. Its wrapper is what Show / hide's "Peak test result"
+        # hides.
+        html.Div(id=rid('custom-block'), style={'display': 'none', 'marginTop': '5px'}, children=[
+            pt.caption('custom', key), html.Div(id=rid('custom-table'))]),
+        html.Div(id=rid('delta-block'), style={'display': 'none', 'marginTop': '5px'}, children=[
+            pt.caption('delta', key), html.Div(id=rid('delta-table'))]),
+        html.Div(exam_div, id=rid('exam-block'),
+                 style={'display': 'none'} if 'passfail' in _hidden_items else {}),
+        html.Div(id=rid('peak-table-container'), children=[
+            pt.caption('peak', key, [html.Span(id=rid('peak-hint'), style=pt.HINT_STYLE)]),
+            html.Div(id=rid('peak-table')),
+        ], style={'display': 'none'} if 'table' in _hidden_items else {})
+        if pk is not None else None,
+    ]
+
+    # The peak table's rows, also listed in its Customize dialog. Built after
+    # the Save peak section above has tagged the tested peak in Category.
+    # With a reference, each row also carries the sweep's insertion loss (the
+    # same value the IL marker on the plot shows).
+    peak_rows = peak_df.to_dict('records') if pk is not None else []
+    if params.reference:
+        for r in peak_rows:
+            r['IL'] = -gmax_y
+    absent = _table_absent(params)
+
+    stores = [
+        dcc.Store(id=rid('markers-store'), data=[]),
+        dcc.Store(id=rid('bw-anchors-store'), data=BW_EMPTY),
+        dcc.Store(id=rid('mode2-info-store'), data=None),
+    ]
+
+    # ------------------------------------------------------------------
+    # Callbacks
+    # ------------------------------------------------------------------
+    @app.callback(
+        Output(rid('markers-store'), 'data'),
+        Output(rid('bw-anchors-store'), 'data', allow_duplicate=True),
+        Input(rid('spectrum'), 'clickData'),
+        Input(rid('clear-btn'), 'n_clicks'),
+        State(rid('markers-store'), 'data'),
+        State(rid('click-mode'), 'value'),
+        prevent_initial_call=True,
+    )
+    def update_markers(clickData, n_clicks, markers, click_mode):
+        if callback_context.triggered_id == rid('clear-btn'):
+            return [], BW_EMPTY
+        if clickData and click_mode == 1:
+            pt = clickData['points'][0]
+            markers.append({'x': pt['x'], 'y': pt['y']})
+        return markers, dash.no_update
+
+    @app.callback(
+        Output(rid('bw-anchors-store'), 'data'),
+        Input(rid('spectrum'), 'clickData'),
+        State(rid('click-mode'), 'value'),
+        State(rid('bw-anchors-store'), 'data'),
+        prevent_initial_call=True,
+    )
+    def add_bw_marker(clickData, click_mode, anchors):
+        if clickData and click_mode == 2:
+            # Only the click's x-coordinate matters: Bandwidth is always measured
+            # on the first main spectrum (dbm / channels[0]), so the clicked
+            # curve's y is intentionally ignored. With several overlapping spectra
+            # (multi-channel, reference, scans) this keeps the marker pinned to the
+            # first spectrum no matter which line happened to register the click.
+            # Clicks alternate between B1 (peak) and B2 (base): the first two
+            # place them, then the third moves B1, the fourth B2, and so on.
+            points, nxt = list(anchors['points']), anchors['next']
+            new = {'x': clickData['points'][0]['x']}
+            if nxt < len(points):
+                points[nxt] = new
+            else:
+                points.append(new)
+            return {'points': points, 'next': 1 - nxt}
+        return dash.no_update
+
+    # The x-range on screen, as the zoom messages last reported it (None = the
+    # whole sweep). A window resize arrives as {'autosize': True} with no range
+    # while the view stays zoomed, so it must redraw this range, not the sweep.
+    _view = {'x': None}
+    # The Max points field's last value (None until it's changed: the
+    # default), for Apply filter, which the window runs.
+    _sampling = {'max': None}
+
+    def _patch_delta_line(patched, markers):
+        """Add the line between the Delta markers to `patched`, for the view
+        on screen: a point every step or every few steps, so a click "snaps"
+        onto the line (Plotly reports the nearest of these points). Empty
+        until there are at least two markers to join."""
+        lx, ly = delta_line([m['x'] for m in markers], [m['y'] for m in markers], d_x, _view['x'])
+        patched['data'][delta_line_idx]['x'] = lx
+        patched['data'][delta_line_idx]['y'] = ly
+
+    @app.callback(
+        Output(rid('spectrum'), 'figure'),
+        Input(rid('markers-store'), 'data'),
+        prevent_initial_call=True,
+    )
+    def redraw_markers(markers):
+        patched = Patch()
+        patched['data'][1]['x']    = [m['x'] for m in markers]
+        patched['data'][1]['y']    = [m['y'] for m in markers]
+        patched['data'][1]['text'] = [f'D{i+1}' for i in range(len(markers))]
+        _patch_delta_line(patched, markers)
+        return patched
+
+    # ------------------------------------------------------------------
+    # The tables (plot_tables.py builds them). Each re-renders when its
+    # data or its Customize choices (table-views) change.
+    # ------------------------------------------------------------------
+    @app.callback(
+        Output(rid('delta-table'), 'children'),
+        Output(rid('delta-block'), 'style'),
+        Input(rid('markers-store'), 'data'),
+        Input('table-views', 'data'),
+    )
+    def render_delta_table(markers, views):
+        # Shown only while Delta markers exist (e.g. not after Clear).
+        if not markers:
+            return None, {'display': 'none'}
+        return (pt.build_table('delta', views['delta'], pt.delta_rows(markers)),
+                {'marginTop': '5px'})
+
+    @app.callback(
+        Output(rid('custom-table'), 'children'),
+        Output(rid('custom-block'), 'style'),
+        Input(rid('mode2-info-store'), 'data'),
+        Input('table-views', 'data'),
+    )
+    def render_custom_table(m2, views):
+        # Shown once B1 exists; its base columns fill in once B2 does.
+        if m2 is None:
+            return None, {'display': 'none'}
+        return (pt.build_table('custom', views['custom'], [pt.custom_row(channels[0], m2)]),
+                {'marginTop': '5px'})
+
+    if pk is not None:
+        @app.callback(
+            Output(rid('peak-table'), 'children'),
+            Output(rid('peak-hint'), 'children'),
+            Input('table-views', 'data'),
+            Input(rid('peak-show'), 'value'),
+        )
+        def render_peak_table(views, shown_peaks):
+            # Hiding a peak only hides its row here; the plot, the Pass/Fail
+            # table and Save peak info still use every peak.
+            shown = set(shown_peaks or [])
+            rows = [r for r in peak_rows if int(r['Peak']) in shown]
+            n_hidden = len(peak_rows) - len(rows)
+            hint = f'{n_hidden} of {len(peak_rows)} peaks hidden' if n_hidden else ''
+            return pt.build_table('peak', views['peak'], rows, absent=absent['peak']), hint
+
+    if exam_out:
+        @app.callback(
+            Output(rid('passfail-table'), 'children'),
+            Input('table-views', 'data'),
+        )
+        def render_passfail_table(views):
+            # Redrawn when its Customize dialog changes the Measured decimals.
+            return pt.passfail_table(exam, views['passfail'])
+
+    # This tab's Peaks list in the Customize dialog (plot_tables._peak_list).
+    @app.callback(
+        Output(rid('peak-show'), 'value'),
+        Input(rid('show-all-peaks'), 'n_clicks'),
+        prevent_initial_call=True,
+    )
+    def show_all_peaks(_n):
+        _hidden_peaks.pop(key, None)   # also forgets numbers this sweep doesn't have
+        return [int(r['Peak']) for r in peak_rows]
+
+    @app.callback(
+        Input(rid('peak-show'), 'value'),
+        prevent_initial_call=True,
+    )
+    def remember_hidden_peaks(shown):
+        # Keep remembered numbers this sweep doesn't have (e.g. P3 when it found
+        # two peaks), so they stay hidden in a later sweep that has them again.
+        ids = {int(r['Peak']) for r in peak_rows}
+        kept = {p for p in _hidden_peaks.get(key, []) if p not in ids}
+        _hidden_peaks[key] = sorted(kept | (ids - set(shown or [])))
+
+    def _bw_sample(anchor):
+        """The spectrum sample a Bandwidth marker sits on: its clicked x
+        snapped to the nearest point of `wl`. Returns (idx, x, y)."""
+        x_target = anchor['x']
+        i = np.searchsorted(wl, x_target)
+        i = np.clip(i, 1, len(wl) - 1)
+        idx = i if abs(wl[i] - x_target) < abs(wl[i-1] - x_target) else i - 1
+        return idx, float(wl[idx]), float(dbm[idx])
+
+    @app.callback(
+        Output(rid('bw-auto-fields'), 'style'),
+        Output(rid('bw-manual-fields'), 'style'),
+        Input(rid('bw-mode'), 'value'),
+        prevent_initial_call=True,
+    )
+    def show_bw_mode_fields(mode):
+        hidden = {'display': 'none'}
+        return ({}, hidden) if mode == 'auto' else (hidden, {})
+
+    @app.callback(
+        Output(rid('bw-settings'), 'style'),
+        Input(rid('click-mode'), 'value'),
+        prevent_initial_call=True,
+    )
+    def show_bandwidth_settings(click_mode):
+        return BW_SETTINGS_STYLE if click_mode == 2 else BW_SETTINGS_HIDDEN
+
+    @app.callback(
+        Output(rid('spectrum'), 'figure', allow_duplicate=True),
+        Output(rid('mode2-marker-info'), 'children'),
+        Output(rid('mode2-offset-info'), 'children'),
+        Output(rid('mode2-info-store'), 'data'),
+        Output(rid('bw-hint'), 'children'),
+        Input(rid('bw-anchors-store'), 'data'),
+        Input(rid('bw-mode'), 'value'),
+        Input(rid('bw-pct-input'), 'value'),
+        Input(rid('mode2-offset-input'), 'value'),
+        prevent_initial_call=True,
+    )
+    def update_mode2_markers(anchors, mode, pct, manual_offset):
+        patched = Patch()
+        if not anchors['points']:
+            for i in (2, 3, 4):
+                patched['data'][i]['x'] = []
+                patched['data'][i]['y'] = []
+                patched['data'][i]['text'] = []
+            return patched, "", "", None, ""
+        # B1 is the peak (the dip the width is measured at), B2 the base.
+        samples = [_bw_sample(a) for a in anchors['points']]
+        idx, x, y = samples[0]
+        base = {'x': samples[1][1], 'y': samples[1][2]} if len(samples) > 1 else None
+        patched['data'][2]['x'] = [s[1] for s in samples]
+        patched['data'][2]['y'] = [s[2] for s in samples]
+        patched['data'][2]['text'] = [f'B{i + 1}' for i in range(len(samples))]
+
+        # The level to measure at (y_offset dB above the dip's bottom) and how
+        # far out to search on each side, in samples.
+        y_offset, search_range, hint = None, None, ""
+        if mode == 'auto':
+            if base is None:
+                hint = "Click again to place B2 (the base)."
+            elif base['y'] <= y:
+                hint = "B2 (the base) must be above B1 (the peak)."
+            elif pct:
+                # pct of the depth from B1 up to B2 (the depth the Custom peak
+                # table shows), searching out to B2's distance from B1.
+                y_offset = (base['y'] - y) * pct / 100
+                search_range = max(1, round(abs(base['x'] - x) / d_x))
+        elif manual_offset:
+            # No search limit: the whole spectrum (about 1-3 ms even for 2M
+            # points). If the curve never rises that far on a side, there's
+            # no width to show.
+            y_offset = manual_offset
+            search_range = len(wl)
+
+        width_pm = None
+        if y_offset:
+            left_nm, right_nm, width_pm, found = find_bandwidth(wl, dbm, idx, y_offset, search_range)
+            if not found:
+                # A side never reached the level within the search (Manual
+                # searches to the spectrum's end). Its edge would sit at the end
+                # of the search, off the level, so show no width at all.
+                width_pm = None
+                hint = ("No width: the amplitude is too large for this dip." if mode == 'manual' else
+                        f"No width: an edge wasn't found within B2's distance from B1 "
+                        f"(±{search_range * d_x * 1000:g} pm).")
+
+        if width_pm is not None:
+            # Both width markers sit on the level, so they always form a
+            # horizontal line.
+            level = y + y_offset
+            patched['data'][3]['x'] = [float(left_nm)]
+            patched['data'][3]['y'] = [level]
+            patched['data'][3]['text'] = ['L']
+            patched['data'][4]['x'] = [float(right_nm)]
+            patched['data'][4]['y'] = [level]
+            patched['data'][4]['text'] = [f'(width: {width_pm:.3f} pm)']
+
+            width_info = f"width: {width_pm:.3f} pm\n"
+        else:
+            patched['data'][3]['x'] = []
+            patched['data'][3]['y'] = []
+            patched['data'][3]['text'] = []
+            patched['data'][4]['x'] = []
+            patched['data'][4]['y'] = []
+            patched['data'][4]['text'] = []
+            width_info = ""
+        # B1's position, its width and the amplitude it was measured at (None
+        # when there's no width), and B2 as the base (None until placed): what
+        # the Custom peak table and Save peak info read.
+        info = {'x': x, 'y': y, 'width_pm': width_pm,
+                'amplitude_db': y_offset if width_pm is not None else None, 'base': base}
+        return patched, f"Marker:{x:.7f} nm\n       {y:.5f} dBm\n", width_info, info, hint
+
+    def _max_points(max_display):
+        """The real cap from the Max points field's value, which is in
+        thousands of points. None/empty -> default; 0 -> downsampling
+        disabled (full data)."""
+        max_display = MAX_DISPLAY // 1000 if max_display in (None, '') else int(max_display)
+        return max_display * 1000
+
+    def _resample_curves(max_display, x0=None, x1=None):
+        """Patch every spectrum/reference/overlay line to <=max_display points
+        over the wavelength window [x0, x1] (full range when x0/x1 are None).
+
+        Every line shares the same `wl` axis (and the same [x0, x1] slice), so
+        they are downsampled together in a single lttb_multi pass. The trace
+        index + wl-aligned y for each line were recorded during figure build
+        (main_traces / ref_traces / overlay_traces), so only the lines that were
+        actually drawn are touched."""
+        max_display = _max_points(max_display)
+        curves = main_traces + ref_traces + overlay_traces
+        # Include the filtered line once it has been applied.
+        if _smooth['y'] is not None:
+            curves = curves + [(smooth_idx, _smooth['y'])]
+
+        if x0 is None or x1 is None:
+            i0, i1 = 0, len(wl)
+        else:
+            i0 = max(0, int(np.searchsorted(wl, x0)) - 1)
+            i1 = min(len(wl), int(np.searchsorted(wl, x1)) + 1)
+        w_arr = wl[i0:i1]
+        if max_display <= 0:
+            results = [(w_arr, d[i0:i1]) for _, d in curves]
+        else:
+            results = lttb_multi(w_arr, [d[i0:i1] for _, d in curves], max_display)
+
+        patched = Patch()
+        for (idx, _), (w_d, d_d) in zip(curves, results):
+            patched['data'][idx]['x'] = w_d
+            patched['data'][idx]['y'] = d_d
+        return patched
+
+    @app.callback(
+        Output(rid('spectrum'), 'figure', allow_duplicate=True),
+        Input(rid('spectrum'), 'relayoutData'),
+        State(rid('max-display-input'), 'value'),
+        State(rid('markers-store'), 'data'),
+        prevent_initial_call=True,
+    )
+    def resample_on_zoom(relayout, max_display, markers):
+        if not relayout:
+            return dash.no_update
+
+        # Resample over the visible x-window. The Delta line is redrawn for it
+        # too: zoomed in, it gets a point at every step again.
+        if relayout.get('xaxis.autorange'):
+            _view['x'] = None
+        elif 'xaxis.range[0]' in relayout:
+            _view['x'] = (relayout['xaxis.range[0]'], relayout['xaxis.range[1]'])
+        elif not relayout.get('autosize'):
+            return dash.no_update
+        patched = _resample_curves(max_display, *(_view['x'] or ()))
+        _patch_delta_line(patched, markers or [])
+        return patched
+
+    @app.callback(
+        Output(rid('spectrum'), 'figure', allow_duplicate=True),
+        Input(rid('max-display-input'), 'value'),
+        prevent_initial_call=True,
+    )
+    def resample_on_max_display(max_display):
+        # Re-render at the new resolution over the x-range on screen.
+        _sampling['max'] = max_display
+        return _resample_curves(max_display, *(_view['x'] or ()))
+
+    # Show / hide (the window's popup): this tab's plot items and its Pass/Fail
+    # table. The window remembers the choices for the next plot window.
+    @app.callback(
+        Output(rid('spectrum'), 'figure', allow_duplicate=True),
+        Output(rid('exam-block'), 'style'),
+        Input('sh-peak', 'value'),
+        Input('sh-width', 'value'),
+        Input('sh-other', 'value'),
+        prevent_initial_call=True,
+    )
+    def apply_show_hide(peak, width, other):
+        shown = set(peak or []) | set(width or []) | set(other or [])
+        patched = Patch()
+        # A hidden plot item stays in the legend ('legendonly'), where a click
+        # still brings it back.
+        for item, i in SH_TRACES.items():
+            patched['data'][i]['visible'] = True if item in shown else 'legendonly'
+        return patched, ({} if 'passfail' in shown else {'display': 'none'})
+
+    if pk is not None:
+        @app.callback(
+            Output(rid('peak-table-container'), 'style'),
+            Input('sh-peak', 'value'),
+            prevent_initial_call=True,
+        )
+        def toggle_peak_table(value):
+            return {} if 'table' in (value or []) else {'display': 'none'}
+
+    # ------------------------------------------------------------------
+    # For the window's menu: Apply filter and Plot in Watt act on the
+    # open tab.
+    # ------------------------------------------------------------------
+    def _apply_filter(filt, parameter1, parameter2):
+        """A Patch for this tab's plot that draws the filtered channel-1
+        signal as the "Smoothed" trace, or for "Off" removes it. Raises
+        FilterError when the parameters don't suit the filter."""
+        patched = Patch()
+        if filt == FILTER_OFF:
+            # Remove the line, legend entry included; zooming no longer redraws it.
+            _smooth['y'] = None
+            patched['data'][smooth_idx]['x'] = []
+            patched['data'][smooth_idx]['y'] = []
+            patched['data'][smooth_idx]['visible'] = False
+            return patched
+
+        _smooth['y'] = apply_filter(filt, dbm, parameter1, parameter2)
+
+        # Downsample the new line over the currently visible x-range and show it.
+        if _view['x']:
+            i0 = max(0, int(np.searchsorted(wl, _view['x'][0])) - 1)
+            i1 = min(len(wl), int(np.searchsorted(wl, _view['x'][1])) + 1)
+        else:
+            i0, i1 = 0, len(wl)
+        cap = _max_points(_sampling['max'])
+        if cap <= 0:
+            w_d, y_d = wl[i0:i1], _smooth['y'][i0:i1]
+        else:
+            w_d, y_d = lttb(wl[i0:i1], _smooth['y'][i0:i1], cap)
+
+        patched['data'][smooth_idx]['x'] = w_d
+        patched['data'][smooth_idx]['y'] = y_d
+        patched['data'][smooth_idx]['name'] = FILTER_LABELS.get(filt, 'Smoothed')
+        patched['data'][smooth_idx]['visible'] = True
+        return patched
+
+    def _watt_figure():
+        """This tab's sweep in linear (Watt) units, for Plot in Watt: a
+        zoomable viewer only (no Dash callbacks / analysis behind it). Full
+        resolution — no lttb — so deep zoom stays faithful (the static
+        HTML can't re-downsample on zoom the way the main window does)."""
+        _cs = {'i': 0}
+        def _color():
+            c = LINE_COLORS[_cs['i'] % len(LINE_COLORS)]
+            _cs['i'] += 1
+            return c
+
+        def _line(y_arr, name, **kw):
+            fig.add_scatter(
+                x=wl, y=y_arr, mode='lines', name=name,
+                line=dict(color=_color(), width=2),
+                hovertemplate='%{x:.12~f}<br>%{y:.5e}<extra></extra>', **kw,
+            )
+
+        fig = go.Figure()
+        if params.reference:
+            # Main = data - ref (linear); raw data and reference kept legend-only.
+            for ch, d in zip(channels, watt_s.diff):
+                _line(d, f'{COL_CH}{ch}_{watt_s.unit}')
+            for ch, r in zip(channels, watt_s.ref):
+                _line(r, f'{COL_REF}{ch}_{watt_s.unit}', visible='legendonly')
+            for ch, d in zip(channels, watt_s.data):
+                _line(d, f'Raw_{COL_CH}{ch}_{watt_s.unit}', visible='legendonly')
+        else:
+            for ch, d in zip(channels, watt_s.data):
+                _line(d, f'{COL_CH}{ch}_{watt_s.unit}')
+
+        # Dynamic-range scans (display-only, legend-only); only with >1 scan.
+        if len(watt_s.scans) > 1:
+            for s, scan in enumerate(watt_s.scans, start=1):
+                for ch, c_arr in zip(channels, scan):
+                    _line(c_arr, f'{COL_SCAN}{s}_{COL_CH}{ch}_{watt_s.unit}', visible='legendonly')
+
+        fig.update_layout(
+            font=dict(family=DATA_CSS_FONT),
+            xaxis_title=dict(text='λ (nm)', font=dict(size=12), standoff=5),
+            yaxis_title=dict(text=f'Power ({watt_s.unit})', font=dict(size=12)),
+            hovermode='closest', showlegend=True,
+            legend=dict(x=1.0, xanchor='left'),
+            # No width: to_html makes the plot responsive, so it fills the window.
+            height=750, margin=dict(l=55, t=30, b=40),
+        )
+        fig.update_xaxes(tickformat='.8~f', hoverformat='.12~f', showspikes=True,
+                         spikecolor='gray', spikemode='across', spikethickness=1)
+        fig.update_yaxes(showspikes=True, spikemode='across',
+                         spikecolor='gray', spikethickness=1)
+        return fig
+
+    # What the window uses: the parts it places (content: the plot and the
+    # tables; panel: the sidebar part; stores), what Show / hide and the
+    # Customize dialog list, and the helpers for Save peak info, Apply
+    # filter and Plot in Watt.
+    return SimpleNamespace(
+        key=key, id=rid, content=content, panel=panel, stores=stores,
+        sh_keys=sh_keys, peak_rows=peak_rows,
+        has_custom=_has_custom, peak_choices=_peak_choices, default_peak=_default_peak,
+        peak_name=_peak_name, row_values=_row_values, sweep_values=_sweep_values,
+        apply_filter=_apply_filter, watt_figure=_watt_figure,
+    )
+
+
+def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorption Spectrum",
+                 autosaved_to=None, autosave_error=None):
+    """
+    Parameters
+    ----------
+    readout : readout.PowerReadout, optional
+        The session's live power readout, shown in the "Power Readout" modal.
+        None (e.g. plotting a saved CSV) leaves the button disabled.
+
+    Notes
+    -----
+    This call is BLOCKING — control does not return to the caller until
+    the user closes the window. It must be called from the main thread
+    (a pywebview requirement).
+    """
+    # ------------------------------------------------------------------
+    # Dash app
+    # ------------------------------------------------------------------
+    # Holder so callbacks (running on the server thread) can reach the
+    # pywebview window, which is only created later in this function.
+    _window_holder = {}
+    # Set by the Repeat button; read after the window closes to tell the caller
+    # to auto-Run the next sweep. NOT part of Params (which stays run-only).
+    _repeat = {'flag': False}
+
+    # Dash callbacks run on the Flask server thread; an unhandled exception
+    # there is caught by Dash and would otherwise surface only as an HTTP 500 in
+    # the browser/console — it never propagates back through webview.start() to
+    # main.py's try/except, so it would miss the log file. Route it through our
+    # logger, the same fix as config_window's report_callback_exception override.
+    def _log_dash_error(err):
+        log.error("Dash callback error", exc_info=err)
+
+    app = dash.Dash(__name__, on_error=_log_dash_error)
+    app.index_string = INDEX_STRING
+
+    # The range tabs: each builds its plot, tables and sidebar part, and
+    # registers its own callbacks (_range_tab).
+    tabs = [_range_tab(app, '1', raw_w, params)]
+    # The tab the menu bar's Save peak info, Apply filter and Plot in Watt
+    # act on.
+    open_tab = tabs[0]
+
+    # Three sections, top to bottom: Label (SN), then the tab's Plot sampling
+    # and Click mode (its panel), each under a bold title. Show / hide lives
+    # in its own popup (menu bar, H).
+    right_sidebar = html.Div([
+        # The sweep's label, which the user can change here (update_label).
+        # Below it, what happened to the last change. That line is always two
+        # lines tall, even when empty, so the sections below never move. A
+        # longer message (a long label) is cut with "…" at the end of line 2.
+        html.Div([
+            html.Label("Label (SN)", style=HEADING_STYLE),
+            dcc.Input(id='label-input', type='text', value=params.label or '',
+                      placeholder='No label', debounce=False, style=INPUT_STYLE),
+            html.Div(id='label-status',
+                     style={**NOTE_STYLE, 'marginTop': '4px', 'lineHeight': '1.2', 'height': '2.4em',
+                            'display': '-webkit-box', 'WebkitBoxOrient': 'vertical',
+                            'WebkitLineClamp': '2', 'overflow': 'hidden'}),
+        ]),
+        *[t.panel for t in tabs],
+    # A fixed width, so the graph beside it doesn't resize when the Bandwidth
+    # settings appear or hide. It fits the widest item, the 150px Clear all button.
+    ], style={'padding': '20px 10px', 'display': 'flex', 'flexDirection': 'column',
+              'gap': '20px', 'fontSize': '14px', 'fontFamily': WINDOW_CSS_FONT,
+              'width': '150px', 'flexShrink': 0})
+
+    # ------------------------------------------------------------------
+    # Horizontal menu bar (top of the window). The action buttons live
+    # here instead of the sidebar; their ids are unchanged so all the
+    # existing callbacks (and the Enter keybind) keep working.
+    # ------------------------------------------------------------------
+    NAV_BTN_STYLE = {
+        'fontSize': '12px', 'padding': '2px 12px', 'border': 'none',
+        'background': 'transparent', 'color': '#fff', 'cursor': 'pointer',
+        'fontFamily': WINDOW_CSS_FONT,
+    }
+
+    # What the "Show / hide" popup lists, as (value, label) per group: the
+    # items of SH_ALL that some tab has.
+    SH_ITEMS = {group: [(value, label) for value, label in items
+                        if any(value in t.sh_keys for t in tabs)]
+                for group, items in SH_ALL.items()}
+    SH_KEYS = {group: [value for value, _ in items] for group, items in SH_ITEMS.items()}
+    has_show_hide = any(SH_KEYS.values())
+
+    top_navbar = html.Nav([
+        html.Button('Save raw data...(S)', id='save-raw-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        html.Button(['Save peak info...(P)'], id='save-peak-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        html.Button('Apply filter...(F)', id='apply-filter-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        # Disabled when there's nothing to show or hide (no peaks, criteria or reference).
+        html.Button('Show / hide...(H)', id='show-hide-btn', n_clicks=0,
+                    disabled=not has_show_hide,
+                    style=NAV_BTN_STYLE if has_show_hide
+                    else {**NAV_BTN_STYLE, 'opacity': 0.4, 'cursor': 'default'}),
+        html.Button('Plot in Watt...', id='plot-watt-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        html.Div(id='plot-watt-dummy', style={'display': 'none'}),
+        html.Button('Sweep info...(I)', id='sweep-info-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        # Power Readout: live meter values in a modal (readout.PowerReadout).
+        # Disabled when there is no readout, e.g. plotting a saved CSV.
+        html.Button('Power readout...(R)', id='readout-btn', n_clicks=0,
+                    disabled=readout is None,
+                    style=NAV_BTN_STYLE if readout is not None
+                    else {**NAV_BTN_STYLE, 'opacity': 0.4, 'cursor': 'default'}),
+
+        # Close & Repeat: close this plot window and auto-Run the next sweep with the same parameters. Also bound to the Enter key (see the clientside callback below).
+        html.Button('Close & Repeat (Enter)', id='repeat-btn', n_clicks=0,
+                    style={**NAV_BTN_STYLE, 'fontWeight': 'bold', 'marginLeft': 'auto'}),
+        # Dummy sink for the keybind clientside callback; the keydown
+        # listener it installs is what actually clicks the button.
+        html.Div(id='repeat-keybind-dummy', style={'display': 'none'}),
+                # Close Window: just close this plot window (same as the window's close
+        # button). marginLeft: auto pushes it and the Repeat button to the right edge.
+        html.Button('Close window (W)', id='close-btn', n_clicks=0,
+                    style={**NAV_BTN_STYLE}),
+        html.Div(id='close-dummy', style={'display': 'none'}),
+        # No visible button: the X shortcut clicks this to reset the plot's
+        # zoom, like the modebar's Autoscale (see the clientside callback right
+        # after KEY_SHORTCUTS).
+        html.Button(id='reset-zoom-btn', n_clicks=0, style={'display': 'none'}),
+    ], style={'display': 'flex', 'alignItems': 'center', 'gap': '4px',
+              'padding': '2px 16px', 'backgroundColor': '#2c3e50'})
+
+    # Status strip under the nav bar: one line, the newest message replaces the
+    # last. Fixed height so the graph doesn't shift as messages come and go.
+    # Opens with the auto-save result, if main.py auto-saved this sweep.
+    if autosave_error:
+        initial_status = _status("Auto-save failed; use Save raw data.", error=True)
+    elif autosaved_to:
+        initial_status = _status(f"Auto-saved: {os.path.basename(autosaved_to)}")
+    else:
+        initial_status = ""
+    nav_status = html.Div(initial_status, id='nav-status', style={
+        'height': '20px', 'lineHeight': '20px', 'padding': '0 30px',
+        'fontSize': '12px', 'fontFamily': WINDOW_CSS_FONT,
+        'backgroundColor': '#ecf0f1', 'overflow': 'hidden', 'whiteSpace': 'nowrap'})
+
+    # ------------------------------------------------------------------
+    # "Save peak info" dialog (peak_dialog.py): pick a peak file, then the
+    # columns and the peaks in a table that previews the rows to save. The
+    # peaks and their values come from the open tab (_range_tab).
+    # ------------------------------------------------------------------
     def _peak_file_options():
         """The File menu, with the recent files that still exist."""
         return pdlg.file_options([p for p in pf.recent_files(RECENT_PEAK_FILES)
@@ -761,13 +1342,6 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
                   'fontFamily': WINDOW_CSS_FONT,
                   'boxShadow': '0 4px 20px rgba(0,0,0,0.25)'}),
     )
-
-    # Pass/Fail result, shown just above the Peak table: a table of each check
-    # with the overall result in its last column, under a caption with a
-    # Customize link (the Measured row's decimals). render_passfail_table fills
-    # it in. Nothing when the test is off (every criterion 0).
-    exam_div = html.Div([pt.caption('passfail'), html.Div(id='passfail-table')],
-                        style={'marginTop': '5px'}) if exam_out else None
 
     # ------------------------------------------------------------------
     # "Sweep Info" modal — read-only table of the sweep parameters, from
@@ -946,64 +1520,22 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
                   'boxShadow': '0 4px 20px rgba(0,0,0,0.25)'}),
     )
 
-    # The peak table's rows, also listed in its Customize dialog. Built after
-    # the Save peak section above has tagged the tested peak in Category.
-    # With a reference, each row also carries the sweep's insertion loss (the
-    # same value the IL marker on the plot shows).
-    peak_rows = peak_df.to_dict('records') if pk is not None else []
-    if params.reference:
-        for r in peak_rows:
-            r['IL'] = -gmax_y
-    # Columns a table doesn't have in this window. They keep their place (and
-    # shown/hidden choice) in the remembered column order for later windows.
-    TABLE_ABSENT = {'custom': (), 'delta': (), 'passfail': (),
-                    'peak': () if params.reference else ('IL',)}
-
-    # The Bandwidth markers' clicked x positions, [B1 (peak), B2 (base)], and
-    # which of them the next click places or moves (0 = B1, 1 = B2).
-    BW_EMPTY = {'points': [], 'next': 0}
+    # Columns a table doesn't have in this window (see _table_absent).
+    TABLE_ABSENT = _table_absent(params)
 
     app.layout = html.Div([
         top_navbar,
         nav_status,
         html.Div([
-            html.Div([
-                # A responsive graph sizes the plot to this box and follows the
-                # window. The box needs its own height: left to Dash, it's
-                # "100%" of a parent with no set height, which collapses to 0
-                # and lets the plot cover everything below it.
-                dcc.Graph(id='spectrum', figure=initial_fig, 
-                          config={'scrollZoom': True, 'displayModeBar': True,  'displaylogo': False}, responsive=True, style={'height': '550px'}),
-                # Top to bottom, one table per row: the Custom peak table (once
-                # a Bandwidth marker exists), the Delta table (once a Delta
-                # marker exists), the Pass/Fail table, and the Peak table. The
-                # render_* callbacks below fill in the marker and Peak tables.
-                # The Pass/Fail table sits outside the Peak table's container,
-                # so it still shows when no peak was found or the table is
-                # hidden. Its wrapper is what Show / hide's "Peak test result"
-                # hides.
-                html.Div(id='custom-block', style={'display': 'none', 'marginTop': '5px'}, children=[
-                    pt.caption('custom'), html.Div(id='custom-table')]),
-                html.Div(id='delta-block', style={'display': 'none', 'marginTop': '5px'}, children=[
-                    pt.caption('delta'), html.Div(id='delta-table')]),
-                html.Div(exam_div, id='exam-block',
-                         style={'display': 'none'} if 'passfail' in _hidden_items else {}),
-                html.Div(id='peak-table-container', children=[
-                    pt.caption('peak', [html.Span(id='peak-hint', style=pt.HINT_STYLE)]),
-                    html.Div(id='peak-table'),
-                ], style={'display': 'none'} if 'table' in _hidden_items else {})
-                if pk is not None else None,
             # Takes all the width the sidebar leaves. Below 900px the page
             # scrolls sideways instead of squeezing the plot.
-            ], style={'flex': '1', 'minWidth': '900px'}),
+            html.Div(open_tab.content, style={'flex': '1', 'minWidth': '900px'}),
             right_sidebar,
         ], style={'display': 'flex', 'alignItems': 'flex-start'}),
-        dcc.Store(id='markers-store', data=[]),
-        dcc.Store(id='bw-anchors-store', data=BW_EMPTY),
-        dcc.Store(id='mode2-info-store', data=None),
+        *[store for t in tabs for store in t.stores],
         dcc.Store(id='idle-store', data=None),
         # Each table's columns/decimals (starts from the remembered ones) and
-        # which table the Customize dialog is editing.
+        # which table (and tab) the Customize dialog is editing.
         dcc.Store(id='table-views', data=copy.deepcopy(_table_views)),
         dcc.Store(id='customize-table', data=None),
         dcc.Interval(id='idle-check', interval=shutdown.IDLE_POLL_MS, n_intervals=0),
@@ -1013,7 +1545,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         sweep_info_modal,
         readout_modal,
         show_hide_modal,
-        pt.customize_modal(peak_rows, set(_hidden_peaks)),
+        pt.customize_modal([(t.key, t.peak_rows, set(_hidden_peaks.get(t.key, []))) for t in tabs]),
     ])
 
     # ------------------------------------------------------------------
@@ -1054,54 +1586,8 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
     def plot_watt(n_clicks):
         # Option A: build a standalone Plotly figure in linear (Watt) units and
         # open it in a SECOND pywebview window as a self-contained HTML file.
-        # It's a zoomable viewer only (no Dash callbacks / analysis behind it).
-        # Full resolution — no lttb — so deep zoom stays faithful (the static
-        # HTML can't re-downsample on zoom the way the main window does).
-        _cs = {'i': 0}
-        def _color():
-            c = LINE_COLORS[_cs['i'] % len(LINE_COLORS)]
-            _cs['i'] += 1
-            return c
-
-        def _line(y_arr, name, **kw):
-            fig.add_scatter(
-                x=wl, y=y_arr, mode='lines', name=name,
-                line=dict(color=_color(), width=2),
-                hovertemplate='%{x:.12~f}<br>%{y:.5e}<extra></extra>', **kw,
-            )
-
-        fig = go.Figure()
-        if params.reference:
-            # Main = data - ref (linear); raw data and reference kept legend-only.
-            for ch, d in zip(channels, watt_s.diff):
-                _line(d, f'{COL_CH}{ch}_{watt_s.unit}')
-            for ch, r in zip(channels, watt_s.ref):
-                _line(r, f'{COL_REF}{ch}_{watt_s.unit}', visible='legendonly')
-            for ch, d in zip(channels, watt_s.data):
-                _line(d, f'Raw_{COL_CH}{ch}_{watt_s.unit}', visible='legendonly')
-        else:
-            for ch, d in zip(channels, watt_s.data):
-                _line(d, f'{COL_CH}{ch}_{watt_s.unit}')
-
-        # Dynamic-range scans (display-only, legend-only); only with >1 scan.
-        if len(watt_s.scans) > 1:
-            for s, scan in enumerate(watt_s.scans, start=1):
-                for ch, c_arr in zip(channels, scan):
-                    _line(c_arr, f'{COL_SCAN}{s}_{COL_CH}{ch}_{watt_s.unit}', visible='legendonly')
-
-        fig.update_layout(
-            font=dict(family=DATA_CSS_FONT),
-            xaxis_title=dict(text='λ (nm)', font=dict(size=12), standoff=5),
-            yaxis_title=dict(text=f'Power ({watt_s.unit})', font=dict(size=12)),
-            hovermode='closest', showlegend=True,
-            legend=dict(x=1.0, xanchor='left'),
-            # No width: to_html makes the plot responsive, so it fills the window.
-            height=750, margin=dict(l=55, t=30, b=40),
-        )
-        fig.update_xaxes(tickformat='.8~f', hoverformat='.12~f', showspikes=True,
-                         spikecolor='gray', spikemode='across', spikethickness=1)
-        fig.update_yaxes(showspikes=True, spikemode='across',
-                         spikecolor='gray', spikethickness=1)
+        # It's the open tab's sweep (_range_tab's _watt_figure).
+        fig = open_tab.watt_figure()
 
         # Self-contained HTML (plotly.js inlined) so it opens offline / in the
         # packaged build, served by this window's own Dash server (see
@@ -1312,10 +1798,12 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
     # browser: Plotly then reports the change in relayoutData, and
     # resample_on_zoom redraws the curves for the full sweep. A reset sent from
     # the server wouldn't be reported, leaving the zoomed-in sampling in place.
+    # The plot is the open tab's: a tab's graph (spectrum-<key>) is on the page
+    # only while its tab is open.
     app.clientside_callback(
         """
         function(n) {
-            var gd = document.querySelector('#spectrum .js-plotly-plot');
+            var gd = document.querySelector('[id^="spectrum-"] .js-plotly-plot');
             if (gd) Plotly.relayout(gd, {'xaxis.autorange': true, 'yaxis.autorange': true});
             return window.dash_clientside.no_update;
         }
@@ -1390,10 +1878,10 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         """The dialog's state for the chosen file (its path, or '' for a new
         file), with one row for the default peak."""
         if path:
-            state = pdlg.file_state(path, _peak_decimals, _sweep_values)
+            state = pdlg.file_state(path, _peak_decimals, open_tab.sweep_values)
         else:
             state = pdlg.new_file_state(_peak_columns, _peak_decimals)
-        peak = _default_peak(m2)
+        peak = open_tab.default_peak(m2)
         if peak and not state['bad']:
             pdlg.add_row(state, peak)
         return state
@@ -1410,7 +1898,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         Output('peak-temperature', 'value'),
         Output('peak-modal-error', 'children', allow_duplicate=True),
         Input('save-peak-btn', 'n_clicks'),
-        State('mode2-info-store', 'data'),
+        State(open_tab.id('mode2-info-store'), 'data'),
         prevent_initial_call=True,
     )
     def open_peak_modal(n_clicks, m2):
@@ -1430,7 +1918,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         Output('pf-state', 'data', allow_duplicate=True),
         Input('peak-file-select', 'value'),
         State('pf-state', 'data'),
-        State('mode2-info-store', 'data'),
+        State(open_tab.id('mode2-info-store'), 'data'),
         prevent_initial_call=True,
     )
     def pick_peak_file(value, state, m2):
@@ -1500,15 +1988,15 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         Input('pf-state', 'data'),
         Input('peak-label', 'value'),
         Input('peak-temperature', 'value'),
-        State('mode2-info-store', 'data'),
+        State(open_tab.id('mode2-info-store'), 'data'),
         prevent_initial_call=True,
     )
     def render_peak_dialog(state, label, temperature, m2):
         # Any change also clears the last Save's error message.
         if not state:
             return [], '', '', '', ''
-        table = pdlg.table(state, _peak_choices(m2), lambda peak: _row_values(peak, m2),
-                           label, temperature)
+        table = pdlg.table(state, open_tab.peak_choices(m2),
+                           lambda peak: open_tab.row_values(peak, m2), label, temperature)
         return table, pdlg.file_line(state), pdlg.save_hint(state), pdlg.file_message(state), ''
 
     @app.callback(
@@ -1520,7 +2008,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         State('pf-state', 'data'),
         State('peak-label', 'value'),
         State('peak-temperature', 'value'),
-        State('mode2-info-store', 'data'),
+        State(open_tab.id('mode2-info-store'), 'data'),
         prevent_initial_call=True,
     )
     def close_or_save_peak(cancel, confirm, state, label, temperature, m2):
@@ -1529,10 +2017,11 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         if not state:
             return dash.no_update, dash.no_update, ''
         label = (label or '').strip()
-        trouble = pdlg.problem(state, label, lambda peak: _row_values(peak, m2), _peak_name)
+        trouble = pdlg.problem(state, label, lambda peak: open_tab.row_values(peak, m2),
+                               open_tab.peak_name)
         if trouble:
             return dash.no_update, dash.no_update, trouble
-        rows = [{**_row_values(r['peak'], m2), 'label': label, 'temperature': temperature,
+        rows = [{**open_tab.row_values(r['peak'], m2), 'label': label, 'temperature': temperature,
                  'texts': pdlg.row_texts(state, r)} for r in state['rows']]
 
         window = _window_holder.get('window')
@@ -1605,60 +2094,28 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
             return label1, default1, label2, default2, {}, {}
         return label1, default1, dash.no_update, dash.no_update, {'display': 'none'}, {}
 
+    # Apply draws the filter on the open tab's plot (its apply_filter). The
+    # plot isn't an Output: set_props reaches whichever tab is open.
     @app.callback(
         Output('filter-modal', 'style', allow_duplicate=True),
-        Output('spectrum', 'figure', allow_duplicate=True),
         Output('filter-modal-error', 'children'),
         Input('filter-cancel', 'n_clicks'),
         Input('filter-apply-confirm', 'n_clicks'),
         State('filter-select', 'value'),
         State('param1-input', 'value'),
         State('param2-input', 'value'),
-        State('max-display-input', 'value'),
-        State('spectrum', 'figure'),
         prevent_initial_call=True,
     )
-    def close_or_apply_filter(cancel, confirm, filt, parameter1, parameter2,
-                              max_display, figure):
+    def close_or_apply_filter(cancel, confirm, filt, parameter1, parameter2):
         triggered = callback_context.triggered[0]['prop_id']
         if 'filter-cancel' in triggered:
-            return MODAL_HIDDEN, dash.no_update, ""
-
-        if filt == FILTER_OFF:
-            # Remove the line, legend entry included; zooming no longer redraws it.
-            _smooth['y'] = None
-            patched = Patch()
-            patched['data'][smooth_idx]['x'] = []
-            patched['data'][smooth_idx]['y'] = []
-            patched['data'][smooth_idx]['visible'] = False
-            return MODAL_HIDDEN, patched, ""
-
+            return MODAL_HIDDEN, ""
         try:
-            _smooth['y'] = apply_filter(filt, dbm, parameter1, parameter2)
+            patched = open_tab.apply_filter(filt, parameter1, parameter2)
         except FilterError as e:
-            return dash.no_update, dash.no_update, str(e)
-
-        # Downsample the new line over the currently visible x-range and show it.
-        xaxis = (figure or {}).get('layout', {}).get('xaxis', {})
-        rng = None if xaxis.get('autorange') else xaxis.get('range')
-        if rng:
-            i0 = max(0, int(np.searchsorted(wl, rng[0])) - 1)
-            i1 = min(len(wl), int(np.searchsorted(wl, rng[1])) + 1)
-        else:
-            i0, i1 = 0, len(wl)
-        cap = MAX_DISPLAY // 1000 if max_display in (None, '') else int(max_display)
-        cap *= 1000
-        if cap <= 0:
-            w_d, y_d = wl[i0:i1], _smooth['y'][i0:i1]
-        else:
-            w_d, y_d = lttb(wl[i0:i1], _smooth['y'][i0:i1], cap)
-
-        patched = Patch()
-        patched['data'][smooth_idx]['x'] = w_d
-        patched['data'][smooth_idx]['y'] = y_d
-        patched['data'][smooth_idx]['name'] = FILTER_LABELS.get(filt, 'Smoothed')
-        patched['data'][smooth_idx]['visible'] = True
-        return MODAL_HIDDEN, patched, ""
+            return dash.no_update, str(e)
+        set_props(open_tab.id('spectrum'), {'figure': patched})
+        return MODAL_HIDDEN, ""
 
     # Sweep-info modal: open / close. Read-only, so there is nothing to apply.
     # Opening rebuilds the table, which picks up a changed label.
@@ -1773,134 +2230,9 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
             err = readout.set_power(dbm_text)
         return html.Span(err or 'Applied.', style={'color': 'red' if err else 'blue'})
 
-    @app.callback(
-        Output('markers-store', 'data'),
-        Output('bw-anchors-store', 'data', allow_duplicate=True),
-        Input('spectrum', 'clickData'),
-        Input('clear-btn', 'n_clicks'),
-        State('markers-store', 'data'),
-        State('click-mode', 'value'),
-        prevent_initial_call=True,
-    )
-    def update_markers(clickData, n_clicks, markers, click_mode):
-        triggered = callback_context.triggered[0]['prop_id']
-        if 'clear-btn' in triggered:
-            return [], BW_EMPTY
-        if clickData and click_mode == 1:
-            pt = clickData['points'][0]
-            markers.append({'x': pt['x'], 'y': pt['y']})
-        return markers, dash.no_update
-
-    @app.callback(
-        Output('bw-anchors-store', 'data'),
-        Input('spectrum', 'clickData'),
-        State('click-mode', 'value'),
-        State('bw-anchors-store', 'data'),
-        prevent_initial_call=True,
-    )
-    def add_bw_marker(clickData, click_mode, anchors):
-        if clickData and click_mode == 2:
-            # Only the click's x-coordinate matters: Bandwidth is always measured
-            # on the first main spectrum (dbm / channels[0]), so the clicked
-            # curve's y is intentionally ignored. With several overlapping spectra
-            # (multi-channel, reference, scans) this keeps the marker pinned to the
-            # first spectrum no matter which line happened to register the click.
-            # Clicks alternate between B1 (peak) and B2 (base): the first two
-            # place them, then the third moves B1, the fourth B2, and so on.
-            points, nxt = list(anchors['points']), anchors['next']
-            new = {'x': clickData['points'][0]['x']}
-            if nxt < len(points):
-                points[nxt] = new
-            else:
-                points.append(new)
-            return {'points': points, 'next': 1 - nxt}
-        return dash.no_update
-
-    # The x-range on screen, as the zoom messages last reported it (None = the
-    # whole sweep). A window resize arrives as {'autosize': True} with no range
-    # while the view stays zoomed, so it must redraw this range, not the sweep.
-    _view = {'x': None}
-
-    def _patch_delta_line(patched, markers):
-        """Add the line between the Delta markers to `patched`, for the view
-        on screen: a point every step or every few steps, so a click "snaps"
-        onto the line (Plotly reports the nearest of these points). Empty
-        until there are at least two markers to join."""
-        lx, ly = delta_line([m['x'] for m in markers], [m['y'] for m in markers], d_x, _view['x'])
-        patched['data'][delta_line_idx]['x'] = lx
-        patched['data'][delta_line_idx]['y'] = ly
-
-    @app.callback(
-        Output('spectrum', 'figure'),
-        Input('markers-store', 'data'),
-        prevent_initial_call=True,
-    )
-    def redraw_markers(markers):
-        patched = Patch()
-        patched['data'][1]['x']    = [m['x'] for m in markers]
-        patched['data'][1]['y']    = [m['y'] for m in markers]
-        patched['data'][1]['text'] = [f'D{i+1}' for i in range(len(markers))]
-        _patch_delta_line(patched, markers)
-        return patched
-
-    # ------------------------------------------------------------------
-    # The three tables (plot_tables.py builds them). Each re-renders when its
-    # data or its Customize choices (table-views) change.
-    # ------------------------------------------------------------------
-    @app.callback(
-        Output('delta-table', 'children'),
-        Output('delta-block', 'style'),
-        Input('markers-store', 'data'),
-        Input('table-views', 'data'),
-    )
-    def render_delta_table(markers, views):
-        # Shown only while Delta markers exist (e.g. not after Clear).
-        if not markers:
-            return None, {'display': 'none'}
-        return (pt.build_table('delta', views['delta'], pt.delta_rows(markers)),
-                {'marginTop': '5px'})
-
-    @app.callback(
-        Output('custom-table', 'children'),
-        Output('custom-block', 'style'),
-        Input('mode2-info-store', 'data'),
-        Input('table-views', 'data'),
-    )
-    def render_custom_table(m2, views):
-        # Shown once B1 exists; its base columns fill in once B2 does.
-        if m2 is None:
-            return None, {'display': 'none'}
-        return (pt.build_table('custom', views['custom'], [pt.custom_row(channels[0], m2)]),
-                {'marginTop': '5px'})
-
-    if pk is not None:
-        @app.callback(
-            Output('peak-table', 'children'),
-            Output('peak-hint', 'children'),
-            Input('table-views', 'data'),
-            Input('peak-show', 'value'),
-        )
-        def render_peak_table(views, shown_peaks):
-            # Hiding a peak only hides its row here; the plot, the Pass/Fail
-            # table and Save peak info still use every peak.
-            shown = set(shown_peaks or [])
-            rows = [r for r in peak_rows if int(r['Peak']) in shown]
-            n_hidden = len(peak_rows) - len(rows)
-            hint = f'{n_hidden} of {len(peak_rows)} peaks hidden' if n_hidden else ''
-            return pt.build_table('peak', views['peak'], rows, absent=TABLE_ABSENT['peak']), hint
-
-    if exam_out:
-        @app.callback(
-            Output('passfail-table', 'children'),
-            Input('table-views', 'data'),
-        )
-        def render_passfail_table(views):
-            # Redrawn when its Customize dialog changes the Measured decimals.
-            return pt.passfail_table(exam, views['passfail'])
-
     # ------------------------------------------------------------------
     # Customize dialog: one modal for all the tables. The "Customize..."
-    # link beside a table's caption opens it for that table.
+    # link beside a table's caption opens it for that table (and its tab).
     # ------------------------------------------------------------------
     @app.callback(
         Output('customize-modal', 'style'),
@@ -1908,7 +2240,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         Output('customize-title', 'children'),
         Output('customize-peaks', 'style'),
         Output('customize-reset', 'children'),
-        Input({'type': 'tbl-open', 'table': ALL}, 'n_clicks'),
+        Input({'type': 'tbl-open', 'table': ALL, 'range': ALL}, 'n_clicks'),
         Input('customize-close', 'n_clicks'),
         prevent_initial_call=True,
     )
@@ -1919,9 +2251,14 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         if trig is None or not callback_context.triggered[0]['value']:
             return (dash.no_update,) * 5
         table = trig['table']
+        if table == 'peak':
+            # The Peaks list of the tab whose peak table opened the dialog.
+            for t in tabs:
+                set_props(f"customize-peaks-{t.key}",
+                          {'style': {} if t.key == trig['range'] else {'display': 'none'}})
         # A decimals-only table (Pass/Fail) has no columns to show or move.
         reset = 'Reset decimals' if pt.TABLES[table].get('decimals_only') else 'Reset columns'
-        return (pt.DIALOG_SHOWN, table, pt.TABLES[table]['title'],
+        return (pt.DIALOG_SHOWN, {'table': table, 'range': trig['range']}, pt.TABLES[table]['title'],
                 {} if table == 'peak' else {'display': 'none'}, reset)
 
     @app.callback(
@@ -1929,8 +2266,11 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         Input('table-views', 'data'),
         Input('customize-table', 'data'),
     )
-    def render_column_list(views, table):
-        return pt.column_list(table, views[table], TABLE_ABSENT[table]) if table else []
+    def render_column_list(views, opened):
+        if not opened:
+            return []
+        table = opened['table']
+        return pt.column_list(table, views[table], TABLE_ABSENT[table])
 
     @app.callback(
         Output('table-views', 'data'),
@@ -1944,10 +2284,11 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         State('customize-table', 'data'),
         prevent_initial_call=True,
     )
-    def update_table_view(_up, _down, shows, _dec_down, _dec_up, _reset, views, table):
+    def update_table_view(_up, _down, shows, _dec_down, _dec_up, _reset, views, opened):
         trig = callback_context.triggered_id
-        if trig is None or table is None:
+        if trig is None or opened is None:
             return dash.no_update
+        table = opened['table']
         view = copy.deepcopy(views[table])
         if trig == 'customize-reset':
             view = pt.default_view(table)
@@ -1988,215 +2329,9 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         _table_views[table] = copy.deepcopy(view)   # kept for the next plot window
         return {**views, table: view}
 
-    @app.callback(
-        Output('peak-show', 'value'),
-        Input('show-all-peaks', 'n_clicks'),
-        prevent_initial_call=True,
-    )
-    def show_all_peaks(_n):
-        _hidden_peaks.clear()   # also forgets numbers this sweep doesn't have
-        return [int(r['Peak']) for r in peak_rows]
-
-    @app.callback(
-        Input('peak-show', 'value'),
-        prevent_initial_call=True,
-    )
-    def remember_hidden_peaks(shown):
-        # Keep remembered numbers this sweep doesn't have (e.g. P3 when it found
-        # two peaks), so they stay hidden in a later sweep that has them again.
-        ids = {int(r['Peak']) for r in peak_rows}
-        kept = {p for p in _hidden_peaks if p not in ids}
-        _hidden_peaks[:] = sorted(kept | (ids - set(shown or [])))
-
-    def _bw_sample(anchor):
-        """The spectrum sample a Bandwidth marker sits on: its clicked x
-        snapped to the nearest point of `wl`. Returns (idx, x, y)."""
-        x_target = anchor['x']
-        i = np.searchsorted(wl, x_target)
-        i = np.clip(i, 1, len(wl) - 1)
-        idx = i if abs(wl[i] - x_target) < abs(wl[i-1] - x_target) else i - 1
-        return idx, float(wl[idx]), float(dbm[idx])
-
-    @app.callback(
-        Output('bw-auto-fields', 'style'),
-        Output('bw-manual-fields', 'style'),
-        Input('bw-mode', 'value'),
-        prevent_initial_call=True,
-    )
-    def show_bw_mode_fields(mode):
-        hidden = {'display': 'none'}
-        return ({}, hidden) if mode == 'auto' else (hidden, {})
-
-    @app.callback(
-        Output('bw-settings', 'style'),
-        Input('click-mode', 'value'),
-        prevent_initial_call=True,
-    )
-    def show_bandwidth_settings(click_mode):
-        return BW_SETTINGS_STYLE if click_mode == 2 else BW_SETTINGS_HIDDEN
-
-    @app.callback(
-        Output('spectrum', 'figure', allow_duplicate=True),
-        Output('mode2-marker-info', 'children'),
-        Output('mode2-offset-info', 'children'),
-        Output('mode2-info-store', 'data'),
-        Output('bw-hint', 'children'),
-        Input('bw-anchors-store', 'data'),
-        Input('bw-mode', 'value'),
-        Input('bw-pct-input', 'value'),
-        Input('mode2-offset-input', 'value'),
-        prevent_initial_call=True,
-    )
-    def update_mode2_markers(anchors, mode, pct, manual_offset):
-        patched = Patch()
-        if not anchors['points']:
-            for i in (2, 3, 4):
-                patched['data'][i]['x'] = []
-                patched['data'][i]['y'] = []
-                patched['data'][i]['text'] = []
-            return patched, "", "", None, ""
-        # B1 is the peak (the dip the width is measured at), B2 the base.
-        samples = [_bw_sample(a) for a in anchors['points']]
-        idx, x, y = samples[0]
-        base = {'x': samples[1][1], 'y': samples[1][2]} if len(samples) > 1 else None
-        patched['data'][2]['x'] = [s[1] for s in samples]
-        patched['data'][2]['y'] = [s[2] for s in samples]
-        patched['data'][2]['text'] = [f'B{i + 1}' for i in range(len(samples))]
-
-        # The level to measure at (y_offset dB above the dip's bottom) and how
-        # far out to search on each side, in samples.
-        y_offset, search_range, hint = None, None, ""
-        if mode == 'auto':
-            if base is None:
-                hint = "Click again to place B2 (the base)."
-            elif base['y'] <= y:
-                hint = "B2 (the base) must be above B1 (the peak)."
-            elif pct:
-                # pct of the depth from B1 up to B2 (the depth the Custom peak
-                # table shows), searching out to B2's distance from B1.
-                y_offset = (base['y'] - y) * pct / 100
-                search_range = max(1, round(abs(base['x'] - x) / d_x))
-        elif manual_offset:
-            # No search limit: the whole spectrum (about 1-3 ms even for 2M
-            # points). If the curve never rises that far on a side, there's
-            # no width to show.
-            y_offset = manual_offset
-            search_range = len(wl)
-
-        width_pm = None
-        if y_offset:
-            left_nm, right_nm, width_pm, found = find_bandwidth(wl, dbm, idx, y_offset, search_range)
-            if not found:
-                # A side never reached the level within the search (Manual
-                # searches to the spectrum's end). Its edge would sit at the end
-                # of the search, off the level, so show no width at all.
-                width_pm = None
-                hint = ("No width: the amplitude is too large for this dip." if mode == 'manual' else
-                        f"No width: an edge wasn't found within B2's distance from B1 "
-                        f"(±{search_range * d_x * 1000:g} pm).")
-
-        if width_pm is not None:
-            # Both width markers sit on the level, so they always form a
-            # horizontal line.
-            level = y + y_offset
-            patched['data'][3]['x'] = [float(left_nm)]
-            patched['data'][3]['y'] = [level]
-            patched['data'][3]['text'] = ['L']
-            patched['data'][4]['x'] = [float(right_nm)]
-            patched['data'][4]['y'] = [level]
-            patched['data'][4]['text'] = [f'(width: {width_pm:.3f} pm)']
-
-            width_info = f"width: {width_pm:.3f} pm\n"
-        else:
-            patched['data'][3]['x'] = []
-            patched['data'][3]['y'] = []
-            patched['data'][3]['text'] = []
-            patched['data'][4]['x'] = []
-            patched['data'][4]['y'] = []
-            patched['data'][4]['text'] = []
-            width_info = ""
-        # B1's position, its width and the amplitude it was measured at (None
-        # when there's no width), and B2 as the base (None until placed): what
-        # the Custom peak table and Save peak info read.
-        info = {'x': x, 'y': y, 'width_pm': width_pm,
-                'amplitude_db': y_offset if width_pm is not None else None, 'base': base}
-        return patched, f"Marker:{x:.7f} nm\n       {y:.5f} dBm\n", width_info, info, hint
-
-    def _resample_curves(max_display, x0=None, x1=None):
-        """Patch every spectrum/reference/overlay line to <=max_display points
-        over the wavelength window [x0, x1] (full range when x0/x1 are None).
-
-        Every line shares the same `wl` axis (and the same [x0, x1] slice), so
-        they are downsampled together in a single lttb_multi pass. The trace
-        index + wl-aligned y for each line were recorded during figure build
-        (main_traces / ref_traces / overlay_traces), so only the lines that were
-        actually drawn are touched."""
-        # The field value is in thousands of points; multiply to get the real
-        # cap. None/empty input -> default; 0 -> downsampling disabled (full data).
-        max_display = MAX_DISPLAY // 1000 if max_display in (None, '') else int(max_display)
-        max_display *= 1000
-        curves = main_traces + ref_traces + overlay_traces
-        # Include the filtered line once it has been applied.
-        if _smooth['y'] is not None:
-            curves = curves + [(smooth_idx, _smooth['y'])]
-
-        if x0 is None or x1 is None:
-            i0, i1 = 0, len(wl)
-        else:
-            i0 = max(0, int(np.searchsorted(wl, x0)) - 1)
-            i1 = min(len(wl), int(np.searchsorted(wl, x1)) + 1)
-        w_arr = wl[i0:i1]
-        if max_display <= 0:
-            results = [(w_arr, d[i0:i1]) for _, d in curves]
-        else:
-            results = lttb_multi(w_arr, [d[i0:i1] for _, d in curves], max_display)
-
-        patched = Patch()
-        for (idx, _), (w_d, d_d) in zip(curves, results):
-            patched['data'][idx]['x'] = w_d
-            patched['data'][idx]['y'] = d_d
-        return patched
-
-    @app.callback(
-        Output('spectrum', 'figure', allow_duplicate=True),
-        Input('spectrum', 'relayoutData'),
-        State('max-display-input', 'value'),
-        State('markers-store', 'data'),
-        prevent_initial_call=True,
-    )
-    def resample_on_zoom(relayout, max_display, markers):
-        if not relayout:
-            return dash.no_update
-
-        # Resample over the visible x-window. The Delta line is redrawn for it
-        # too: zoomed in, it gets a point at every step again.
-        if relayout.get('xaxis.autorange'):
-            _view['x'] = None
-        elif 'xaxis.range[0]' in relayout:
-            _view['x'] = (relayout['xaxis.range[0]'], relayout['xaxis.range[1]'])
-        elif not relayout.get('autosize'):
-            return dash.no_update
-        patched = _resample_curves(max_display, *(_view['x'] or ()))
-        _patch_delta_line(patched, markers or [])
-        return patched
-
-    @app.callback(
-        Output('spectrum', 'figure', allow_duplicate=True),
-        Input('max-display-input', 'value'),
-        State('spectrum', 'figure'),
-        prevent_initial_call=True,
-    )
-    def resample_on_max_display(max_display, figure):
-        # Re-render at the new resolution over the currently visible x-range
-        # (read from the live figure layout; None => full autorange).
-        xaxis = (figure or {}).get('layout', {}).get('xaxis', {})
-        rng = None if xaxis.get('autorange') else xaxis.get('range')
-        if rng:
-            return _resample_curves(max_display, rng[0], rng[1])
-        return _resample_curves(max_display)
-
     # ------------------------------------------------------------------
-    # Show / hide popup (built above as show_hide_modal).
+    # Show / hide popup (built above as show_hide_modal). Each tab applies
+    # the choices to its own plot and tables (_range_tab's apply_show_hide).
     # ------------------------------------------------------------------
     @app.callback(
         Output('show-hide-modal', 'style'),
@@ -2241,35 +2376,18 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         return box(all(full.values())), box(full['peak']), peak, box(full['width']), width, other
 
     @app.callback(
-        Output('spectrum', 'figure', allow_duplicate=True),
-        Output('exam-block', 'style'),
         Input('sh-peak', 'value'),
         Input('sh-width', 'value'),
         Input('sh-other', 'value'),
         prevent_initial_call=True,
     )
-    def apply_show_hide(peak, width, other):
+    def remember_show_hide(peak, width, other):
         shown = set(peak or []) | set(width or []) | set(other or [])
         # Remembered for the next plot window. An item this window doesn't
         # have keeps whatever was remembered for it.
         listed = {k for keys in SH_KEYS.values() for k in keys}
         _hidden_items.difference_update(listed)
         _hidden_items.update(listed - shown)
-        patched = Patch()
-        # A hidden plot item stays in the legend ('legendonly'), where a click
-        # still brings it back.
-        for key, i in SH_TRACES.items():
-            patched['data'][i]['visible'] = True if key in shown else 'legendonly'
-        return patched, ({} if 'passfail' in shown else {'display': 'none'})
-
-    if pk is not None:
-        @app.callback(
-            Output('peak-table-container', 'style'),
-            Input('sh-peak', 'value'),
-            prevent_initial_call=True,
-        )
-        def toggle_peak_table(value):
-            return {} if 'table' in (value or []) else {'display': 'none'}
 
     # ------------------------------------------------------------------
     # Launch — Dash in a background thread, webview in main thread
@@ -2327,4 +2445,4 @@ if __name__ == "__main__":
     csv_path = "Raw Data/02609299.csv"
     # Dummy instruments, so the Power Readout modal can be exercised here.
     plot_raw(csv_path, readout=dummy_readout("N7778C"))
-    
+

@@ -347,15 +347,16 @@ DIALOG_HIDDEN = {**DIALOG_OVERLAY, 'display': 'none'}
 DIALOG_SHOWN = {**DIALOG_OVERLAY, 'display': 'flex'}
 
 
-def caption(table, extra=()):
-    """A table's caption: its name, grey note if any, and "Customize..." link."""
+def caption(table, key, extra=()):
+    """A table's caption: its name, grey note if any, and "Customize..." link.
+    key: the range tab the table is in (plot.py's tab keys)."""
     note = TABLES[table].get('note')
     title = [TABLES[table]['title']]
     if note:
         title.append(html.Span(f' {note}', style={'fontWeight': 'normal', 'color': '#888'}))
     return html.Div([html.Span(title),
                      html.Button('Customize...', n_clicks=0, style=LINK_STYLE,
-                                 id={'type': 'tbl-open', 'table': table}),
+                                 id={'type': 'tbl-open', 'table': table, 'range': key}),
                      *extra], style=CAPTION_STYLE)
 
 
@@ -364,10 +365,27 @@ def peak_label(row):
     return f"P{row['Peak']} {row['Category']}".rstrip()
 
 
-def customize_modal(peak_rows, hidden_peaks):
-    """The one Customize dialog the three tables share. plot.py fills in the
-    title and column list for whichever table opened it. The Peaks section
-    (peak table only) lists peak_rows; hidden_peaks start unchecked."""
+def _peak_list(key, peak_rows, hidden_peaks, shown):
+    """One range tab's Peaks list for the Customize dialog: peak_rows, with
+    hidden_peaks unchecked. Only the list of the tab that opened the dialog
+    is shown."""
+    return html.Div(id=f'customize-peaks-{key}', style={} if shown else {'display': 'none'}, children=[
+        dcc.Checklist(id=f'peak-show-{key}',
+                      options=[{'label': peak_label(r), 'value': int(r['Peak'])}
+                               for r in peak_rows],
+                      value=[int(r['Peak']) for r in peak_rows
+                             if int(r['Peak']) not in hidden_peaks],
+                      labelStyle={'display': 'block', 'height': '24px'}),
+        html.Button('Show all peaks', id=f'show-all-peaks-{key}', n_clicks=0,
+                    style={**LINK_STYLE, 'marginTop': '8px'}),
+    ])
+
+
+def customize_modal(peak_lists):
+    """The one Customize dialog the tables share. plot.py fills in the title
+    and column list for whichever table opened it. The Peaks section (peak
+    table only) has one list per range tab: peak_lists holds (tab key, peak
+    rows, hidden peak numbers) for each."""
     section = {'fontWeight': 'bold', 'marginBottom': '6px'}
     return html.Div(id='customize-modal', style=DIALOG_HIDDEN, children=html.Div([
         html.Div(id='customize-title', style={'fontWeight': 'bold', 'fontSize': '16px',
@@ -383,14 +401,8 @@ def customize_modal(peak_rows, hidden_peaks):
                 html.Div('Peaks', style=section),
                 # Spacer so the first peak lines up with the first column row.
                 html.Div(style={'height': '17px'}),
-                dcc.Checklist(id='peak-show',
-                              options=[{'label': peak_label(r), 'value': int(r['Peak'])}
-                                       for r in peak_rows],
-                              value=[int(r['Peak']) for r in peak_rows
-                                     if int(r['Peak']) not in hidden_peaks],
-                              labelStyle={'display': 'block', 'height': '24px'}),
-                html.Button('Show all peaks', id='show-all-peaks', n_clicks=0,
-                            style={**LINK_STYLE, 'marginTop': '8px'}),
+                *[_peak_list(key, rows, hidden, shown=i == 0)
+                  for i, (key, rows, hidden) in enumerate(peak_lists)],
             ]),
         ], style={'display': 'flex', 'gap': '40px', 'alignItems': 'flex-start'}),
         html.Div([
