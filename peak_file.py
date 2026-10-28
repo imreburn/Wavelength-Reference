@@ -12,11 +12,16 @@ rename one, or old files lose that column. Adding items is fine.
 Values are saved as the dialog shows them: rounded to the column's decimals,
 with Excel's number format set to the same decimals.
 
+Rows are never overwritten. Saving the same peak again (see SAME_PEAK_KEYS)
+adds a row like any other and marks the earlier one replaced: its Status
+cell, and grey text. So a sample's history stays in the file.
+
 No Dash here. plot.py and peak_dialog.py pass in plain values.
 """
 import datetime as dt
 import os
 import unicodedata
+from copy import copy
 from typing import NamedTuple, Optional
 
 import openpyxl
@@ -24,13 +29,17 @@ from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
 SHEET = 'Peaks'
-# A new row replaces a saved one with the same values here and a λ this close
-# (nm): the same peak, measured on the same day with the same instruments. A
-# file without one of these columns isn't compared on it.
+# A new row replaces a current saved row with the same values here and a λ
+# this close (nm): the same peak, measured on the same day with the same
+# instruments. A file without one of these columns isn't compared on it.
 SAME_PEAK_KEYS = ['label', 'date', 'source', 'detector']
 SAME_PEAK_NM = 0.01
+# The Status column's values. Any text other than REPLACED counts as current.
+CURRENT, REPLACED = 'current', 'replaced'
+REPLACED_COLOR = 'FF808080'  # a replaced row's text
 MAX_DECIMALS = 10           # the same limit as the tables' Customize dialog
 DATE_FORMAT = 'mm/dd/yyyy'  # Excel's format for the Date column
+TIME_FORMAT = 'hh:mm:ss'    # Excel's format for the Time column
 TEXT = 'text'               # the column dropdown's value for "Text column…"
 
 
@@ -47,10 +56,12 @@ class Item(NamedTuple):
 
 ITEMS = [
     Item('date',         'Date',               'Fixed'),
+    Item('time',         'Time',               'Fixed'),
     Item('source',       'Source',             'Fixed'),
     Item('detector',     'Detector',           'Fixed'),
     Item('label',        'Label (SN)',         'Fixed'),
     Item('wl',           'λ (nm)',             'Fixed', 4),
+    Item('status',       'Status',             'Fixed'),
     Item('depth_max',    'Depth, max (dB)',    'Peak', 3),
     Item('depth_avg',    'Depth, avg (dB)',    'Peak', 3),
     Item('depth_min',    'Depth, min (dB)',    'Peak', 3),
@@ -75,9 +86,9 @@ ITEMS = [
 ITEM = {i.key: i for i in ITEMS}
 # A new file's columns always start with the fixed items. An existing file
 # only needs the ones the app relies on: Date, Label (SN) and λ, to find the
-# row a new one replaces (see SAME_PEAK_KEYS).
+# row a new one replaces (see SAME_PEAK_KEYS), and Status, to mark it.
 FIXED = [i.key for i in ITEMS if i.group == 'Fixed']
-REQUIRED = ['date', 'label', 'wl']
+REQUIRED = ['date', 'label', 'wl', 'status']
 RECENT_ROWS = 5    # the saved rows the dialog shows from an existing file
 RECENT_FILES = 10  # the files the recent list keeps (see remember)
 DEFAULT_DECIMALS = {i.key: i.decimals for i in ITEMS if i.decimals is not None}
@@ -133,11 +144,24 @@ def parse_date(text):
     return None
 
 
+def parse_time(text):
+    """A sweep's time of day from Params.time, which Run stamps as
+    YYYY-MM-DD_HH-MM-SS (config_helper.TIME_FORMAT), and stamped as
+    MM/DD/YYYY_HH-MM-SS from v1.1.6 until 2026-09. None if it's neither."""
+    for fmt in ('%Y-%m-%d_%H-%M-%S', '%m/%d/%Y_%H-%M-%S'):
+        try:
+            return dt.datetime.strptime(text, fmt).time()
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
 def sweep_values(params, il):
     """The values every row of one sweep shares, by item key. il: the sweep's
     insertion loss, or None without a reference."""
     return {
         'date': parse_date(params.date),
+        'time': parse_time(params.time),
         'il': il,
         'wl_start': params.wl_start,
         'wl_stop': params.wl_stop,
@@ -179,6 +203,8 @@ def display(key, value, decimals):
         return '—'
     if isinstance(value, dt.date):
         return value.strftime('%m/%d/%Y')
+    if isinstance(value, dt.time):
+        return value.strftime('%H:%M:%S')
     d = decimals_of(key, decimals)
     if d is not None and _is_number(value):
         return f'{value:.{d}f}'
@@ -332,29 +358,45 @@ def _match_value(key, value):
     return text or None
 
 
+def _is_replaced(status):
+    """Whether a Status cell marks its row replaced."""
+    return str(status or '').strip().casefold() == REPLACED
+
+
 def _saved(ws, cols):
-    """[Excel row, {key: value}, λ] for each saved row with a label and a λ.
-    The dict holds the row's SAME_PEAK_KEYS values that the file has columns
-    for, as _match_value gives them."""
+    """The current rows a new row can replace: {'row': Excel row, 'match':
+    {key: value}, 'wl': λ} for each row with a label and a λ that isn't
+    marked replaced. 'match' holds the row's SAME_PEAK_KEYS values that the
+    file has columns for, as _match_value gives them."""
     col = {key: idx for idx, key, _ in cols if key}
     keys = [k for k in SAME_PEAK_KEYS if k in col]
     out = []
     for r in range(2, _last_row(ws) + 1):
+        if _is_replaced(ws.cell(r, col['status']).value):
+            continue
         match = {k: _match_value(k, ws.cell(r, col[k]).value) for k in keys}
         wl = ws.cell(r, col['wl']).value
         if match['label'] and _is_number(wl):
-            out.append([r, match, float(wl)])
+            out.append({'row': r, 'match': match, 'wl': float(wl)})
     return out
+
+
+def _same_sweep(match, sweep):
+    """Whether a saved row's 'match' values, the label aside, are the
+    sweep's (item key -> value): only then can its peaks replace the row."""
+    return all(_match_value(k, sweep.get(k)) == v for k, v in match.items() if k != 'label')
 
 
 def _cell_text(cell):
     """A saved cell as the file shows it: a number with its cell's decimals,
-    a date as MM/DD/YYYY. "—" when it's empty."""
+    a date as MM/DD/YYYY, a time as HH:MM:SS. "—" when it's empty."""
     v = cell.value
     if v is None or v == '':
         return '—'
     if isinstance(v, (dt.datetime, dt.date)):
         return v.strftime('%m/%d/%Y')
+    if isinstance(v, dt.time):
+        return v.strftime('%H:%M:%S')
     if _is_number(v):
         d = format_decimals(cell.number_format)
         if d is not None:
@@ -376,18 +418,24 @@ def _recent(ws, cols):
     return out[::-1]
 
 
-def read(path):
+def read(path, sweep=None):
     """What the dialog needs from a peak file: its columns in order ({'item':
-    key} or {'text': header}), the decimals its numbers show, its saved rows
-    (see _saved), and the last few rows as text (see _recent).
+    key} or {'text': header}), the decimals its numbers show, the last few
+    rows as text (see _recent), and the current rows that this sweep's peaks
+    could replace (see _saved), each with its 'cells' as text too.
+    sweep: the sweep's values (item key -> value), whose date, source and
+    detector those rows share; None for every current row.
     Raises PeakFileError."""
     wb = _load(path)
     try:
         ws = _sheet(wb)
         cols, decimals = _layout(ws, os.path.basename(path))
+        saved = [s for s in _saved(ws, cols) if sweep is None or _same_sweep(s['match'], sweep)]
+        for s in saved:
+            s['cells'] = [_cell_text(ws.cell(s['row'], idx)) for idx, _, _ in cols]
         return {'columns': [{'item': key} if key else {'text': header} for _, key, header in cols],
                 'decimals': decimals,
-                'saved': _saved(ws, cols),
+                'saved': saved,
                 'recent': _recent(ws, cols)}
     finally:
         wb.close()
@@ -395,17 +443,17 @@ def read(path):
 
 def find_saved(saved, values):
     """The Excel row a new row with these values (item key -> value) replaces:
-    the saved row with the same SAME_PEAK_KEYS values and the closest λ within
-    SAME_PEAK_NM. None if none, or if the new row has no λ."""
+    the current saved row (see _saved) with the same SAME_PEAK_KEYS values and
+    the closest λ within SAME_PEAK_NM. None if none, or if the new row has no λ."""
     wl = values.get('wl')
     if not _is_number(wl):
         return None
     best = None
-    for row, match, saved_wl in saved:
-        gap = abs(saved_wl - wl)
+    for s in saved:
+        gap = abs(s['wl'] - wl)
         if (gap <= SAME_PEAK_NM and (best is None or gap < best[1])
-                and all(_match_value(k, values.get(k)) == v for k, v in match.items())):
-            best = (row, gap)
+                and all(_match_value(k, values.get(k)) == v for k, v in s['match'].items())):
+            best = (s['row'], gap)
     return best[0] if best else None
 
 
@@ -420,11 +468,25 @@ def _write(cell, key, value, decimals):
     elif key == 'date':
         cell.value = value
         cell.number_format = DATE_FORMAT
+    elif key == 'time':
+        cell.value = value
+        cell.number_format = TIME_FORMAT
     else:
         cell.value = shown(key, value, decimals)
         d = decimals_of(key, decimals)
         if d is not None and _is_number(value):
             cell.number_format = number_format(d)
+
+
+def _mark_replaced(ws, row, cols):
+    """Mark a saved row replaced: REPLACED in its Status cell, and grey text."""
+    for idx, key, _ in cols:
+        cell = ws.cell(row, idx)
+        if key == 'status':
+            cell.value = REPLACED
+        font = copy(cell.font)
+        font.color = REPLACED_COLOR
+        cell.font = font
 
 
 def _save_atomic(wb, path):
@@ -447,19 +509,21 @@ def _save_atomic(wb, path):
 
 
 def save(path, rows, *, columns=None, decimals=None):
-    """Write rows to the peak file at path, and return (added, replaced): the
-    Excel row numbers written.
+    """Add rows to the peak file at path, after its last row, and return
+    (added, replaced): the Excel rows written, and the saved rows they
+    replaced.
 
     rows: one per peak, item key -> value, plus 'texts': {header: text} for
-    the text columns. Values are rounded to the decimals here.
+    the text columns. Values are rounded to the decimals here. Their Status
+    is CURRENT.
     columns: for a new file, its columns as (item key or None, header) pairs
     in order. Without it, the file at path must exist, and its header sets
     the columns and its numbers set the decimals.
     decimals: item key -> decimals for a new file, and the fallback for an
     existing file's column that has no number yet.
-    A row that matches a saved row (find_saved: the same label, date, source
-    and detector, and a λ within SAME_PEAK_NM) overwrites that row in place,
-    including its empty cells; the other rows go after the last row. Raises
+    A row that matches a current saved row (find_saved: the same label, date,
+    source and detector, and a λ within SAME_PEAK_NM) marks that row
+    replaced (see _mark_replaced); nothing else in it changes. Raises
     PeakFileError.
     """
     name = os.path.basename(path)
@@ -484,18 +548,18 @@ def save(path, rows, *, columns=None, decimals=None):
         saved, next_row = _saved(ws, cols), _last_row(ws) + 1
 
     added, replaced = [], []
-    for values in rows:
+    for values in ({**v, 'status': CURRENT} for v in rows):
         texts = {norm(h): t for h, t in values.get('texts', {}).items()}
-        row = find_saved(saved, values)
-        if row is None:
-            row = next_row
-            next_row += 1
-            added.append(row)
-        else:
-            replaced.append(row)
+        old = find_saved(saved, values)
+        if old is not None:
+            _mark_replaced(ws, old, cols)
+            saved = [s for s in saved if s['row'] != old]
+            replaced.append(old)
+        added.append(next_row)
         for idx, key, header in cols:
             value = values.get(key) if key else texts.get(norm(header))
-            _write(ws.cell(row, idx), key, value, decimals)
+            _write(ws.cell(next_row, idx), key, value, decimals)
+        next_row += 1
     # Excel's filter buttons on the header row, stretched over every column
     # and row, new ones included. A filter set in Excel keeps its first cell,
     # so its settings stay on their columns.

@@ -1389,7 +1389,7 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         """The dialog's state for the chosen file (its path, or '' for a new
         file), with one row for the default peak."""
         if path:
-            state = pdlg.file_state(path, _peak_decimals)
+            state = pdlg.file_state(path, _peak_decimals, _sweep_values)
         else:
             state = pdlg.new_file_state(_peak_columns, _peak_decimals)
         peak = _default_peak(m2)
@@ -1563,12 +1563,10 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         _last_peak_file = os.path.abspath(path)
         _remember_peak_file(path)
         log.info(f"Saved peak info: {path} (rows added {added}, replaced {replaced})")
-        done = []
-        if added:
-            done.append(f"{len(added)} new row" + ('s' if len(added) > 1 else ''))
+        done = [f"{len(added)} new row" + ('s' if len(added) > 1 else '')]
         if replaced:
-            done.append(f"replaced row{'s' if len(replaced) > 1 else ''} "
-                        + ', '.join(str(r) for r in replaced))
+            done.append(f"{len(replaced)} earlier row{'s' if len(replaced) > 1 else ''} "
+                        "marked replaced")
         return MODAL_HIDDEN, _status(f"Peak info saved: {os.path.basename(path)} ({', '.join(done)})"), ''
 
     # ------------------------------------------------------------------

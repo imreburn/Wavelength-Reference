@@ -12,6 +12,7 @@
 - If only the label's counter is changed there, the config window's counter continues from it. Any other change stops "Close & Repeat" at the config window with a message.
 - "Save peak info" saves to Excel files (.xlsx) instead of CSV files. In its table, you pick the columns and their decimals, and you can save several peaks at once.
 - In "Save peak info", the File menu has "New file", "Open file…" to pick a file in any folder, and your recent files. It no longer lists every file in the Peaks folder.
+- In "Save peak info", saving the same peak again keeps the earlier row and marks it "replaced" in a new Status column. A new Time column shows when each sweep ran.
 - In the graph window's dialogs, Esc in a text box now only leaves the box. Press Esc again to close the dialog.
 - In the graph window, "Depth (dB)" in the Peak table (under Max base, Avg base and Min base) and in the Peak test result now shows 3 decimal places by default instead of 2. In "Save peak info", the Depth columns also start with 3 decimal places.
 - In the config window, "Peak Test Criteria" is laid out as a table: "min" and "max" are column headers instead of labels on every row.
@@ -19,6 +20,7 @@
 
 ### Fixed
 
+- In the power readout, a channel with no light now shows "< -100 dBm" instead of flickering between a number and "-". Above 10 mW it shows "> +10 dBm".
 - A preset file the program can't read is no longer overwritten. The config window shows the error, with the line and column, and "Manage Presets..." stays off until the file is fixed. Before, saving a preset could replace such a file and lose the other presets.
 
 ## [2.0.4] - 2026-10-19

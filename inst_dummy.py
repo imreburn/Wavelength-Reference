@@ -57,8 +57,10 @@ class DummyLaser:
 
 class DummyPM:
     # Power per channel (W) at DEFAULT_DBM: two live channels, one dark (shows
-    # "-") and one near the top of the -10 dBm range.
-    BASE_W = (57e-6, 4.1e-6, -2e-12, 180e-6)
+    # "< -100 dBm") and one near the top of the -10 dBm range.
+    BASE_W = (57e-6, 4.1e-6, 0.0, 180e-6)
+    # The N7748A's dark noise, added to every reading: under 0.1 pW, either sign.
+    DARK_NOISE_W = 5e-14
 
     def __init__(self, laser=None):
         self.laser = laser        # None: external source, always lit
@@ -67,15 +69,18 @@ class DummyPM:
 
     def _powers(self):
         if self.laser is not None and not self.laser.on:
-            return [-1e-12 * random.random() for _ in range(4)]   # dark: shows as "-"
+            return [self._dark() for _ in range(4)]
         gain = 10 ** ((self.laser.dbm - DEFAULT_DBM) / 10) if self.laser else 1.0
         t = time.time() - self._t0
         out = []
         for i, base in enumerate(self.BASE_W):
             drift = 1 + 0.03 * math.sin(t / 3 + i)      # slow wander so the numbers move
             noise = 1 + random.gauss(0, 0.004)
-            out.append(base * gain * drift * noise)
+            out.append(base * gain * drift * noise + self._dark())
         return out
+
+    def _dark(self):
+        return random.uniform(-self.DARK_NOISE_W, self.DARK_NOISE_W)
 
     @staticmethod
     def _auto_range(w):

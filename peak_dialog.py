@@ -10,13 +10,14 @@ The state lives in a dcc.Store ('pf-state') as a plain dict:
   path   for a file: its full path. '' for a new file, which gets its name
          when Save asks for it
   cols   the columns. For a new file, the ones after the fixed columns
-         (Date, Source, Detector, Label (SN), λ (nm)); for a file, all of
-         them in its order. Each is {'id': n, 'item': key}, or {'id': n,
-         'text': header} for a text column.
+         (Date, Time, Source, Detector, Label (SN), λ (nm), Status); for a
+         file, all of them in its order. Each is {'id': n, 'item': key}, or
+         {'id': n, 'text': header} for a text column.
   dec    item key -> decimals
   rows   one per peak: {'id': n, 'peak': 'peak:2' or 'custom', 'texts':
          {column id as str: text}}
-  saved  for a file: its saved rows, [Excel row, label, λ]
+  saved  for a file: the current rows this sweep's peaks could replace, with
+         their cells as text (see peak_file.read)
   recent for a file: its last few rows as the file shows them, which the
          table lists above the new rows (see peak_file._recent)
   msg    for a file: why it can't be used, or a warning; '' if neither
@@ -32,8 +33,8 @@ import peak_file as pf
 from plot_tables import DATA_CSS_FONT, WINDOW_CSS_FONT, SMALL_BTN_STYLE
 
 # A new file's fixed columns get ids of their own (the others are numbers).
-FIXED_IDS = {'date': 'f-date', 'source': 'f-source', 'detector': 'f-detector',
-             'label': 'f-label', 'wl': 'f-wl'}
+FIXED_IDS = {'date': 'f-date', 'time': 'f-time', 'source': 'f-source',
+             'detector': 'f-detector', 'label': 'f-label', 'wl': 'f-wl', 'status': 'f-status'}
 # The File menu's values for its two commands. Its files' values are their paths.
 NEW_FILE = '__new'
 OPEN_FILE = '__open'
@@ -213,12 +214,13 @@ def new_file_state(columns, decimals):
             'next': len(cols) + 1}
 
 
-def file_state(path, decimals):
+def file_state(path, decimals, sweep):
     """An existing file's state, read from disk. decimals: the fallback for a
-    column with no number in it yet. A file that can't be used gives a state
-    with bad=True and the reason in msg."""
+    column with no number in it yet. sweep: the sweep's values (item key ->
+    value), which pick the saved rows its peaks could replace. A file that
+    can't be used gives a state with bad=True and the reason in msg."""
     try:
-        info = pf.read(path)
+        info = pf.read(path, sweep)
     except pf.PeakFileError as e:
         return {'mode': 'file', 'path': path, 'cols': [], 'dec': dict(pf.DEFAULT_DECIMALS),
                 'rows': [], 'saved': [], 'recent': [], 'msg': str(e), 'bad': True, 'next': 1}
@@ -377,7 +379,7 @@ def problem(state, label, values_of, name_of):
                 continue
             if target in taken:
                 return (f'{taken[target]} and {name_of(r["peak"])} would both replace '
-                        f'row {target}. Remove one.')
+                        'the same saved peak. Remove one.')
             taken[target] = name_of(r['peak'])
     return None
 
@@ -428,40 +430,54 @@ def _head_cell(state, cid, key, header):
                                 className='pf-dd', style=DROPDOWN), style=HEAD)
 
 
-def _status(target):
-    """For a file: whether Save adds the row or replaces a saved one, shown
-    below the row's peak."""
+def _status(saved, cols):
+    """For a file: whether the row is new or replaces a saved one (saved,
+    from state['saved'], or None), named by its label, λ and date on two
+    lines, so the column stays narrow. Shown below the row's peak."""
     style = {'fontSize': '12px', 'marginTop': '2px'}
-    if target is None:
+    if saved is None:
         return html.Div('new row', style={**style, 'color': SAVED_COLOR})
-    return html.Div(f'replaces row {target}', style={**style, 'color': WARN_COLOR})
+    text = {key: t for (_, key, _), t in zip(cols, saved['cells']) if key}
+    return html.Div([f"replaces {text.get('label', '—')}", html.Br(),
+                     f"{text.get('wl', '—')} nm, {text.get('date', '—')}"],
+                    style={**style, 'color': WARN_COLOR})
+
+
+def _saved_row(saved, cols, replaced):
+    """One of a file's saved rows ({'row': Excel row, 'cells': texts}), as
+    the file shows it, in grey. When Save will mark it replaced, its row
+    number and Status say so in orange."""
+    style = {**VALUE, 'color': SAVED_COLOR}
+    cells = [html.Td(f"row {saved['row']}", style={**ROW_HEAD, 'fontSize': '12px',
+                                                  'color': WARN_COLOR if replaced else SAVED_COLOR})]
+    for (_, key, _), text in zip(cols, saved['cells']):
+        if key == 'status' and replaced:
+            cells.append(html.Td(pf.REPLACED, style={**style, 'color': WARN_COLOR}))
+            continue
+        if key is None:   # a text column: long notes don't widen the table
+            text = html.Div(text, title=text, style={'maxWidth': '140px', 'overflow': 'hidden',
+                                                     'textOverflow': 'ellipsis'})
+        cells.append(html.Td(text, style=style))
+    return html.Tr(cells)
 
 
 def _saved_rows(state, cols, replaced):
-    """A file's last few rows, as the file shows them, in grey above the new
-    rows. A row that Save would replace is crossed out."""
-    rows = []
-    for saved in state.get('recent', []):
-        gone = saved['row'] in replaced
-        style = {**VALUE, 'color': SAVED_COLOR}
-        if gone:
-            style['textDecoration'] = 'line-through'
-        cells = [html.Td(f"row {saved['row']}",
-                         style={**ROW_HEAD, 'fontSize': '12px',
-                                'color': WARN_COLOR if gone else SAVED_COLOR})]
-        for (_, key, _), text in zip(cols, saved['cells']):
-            if key is None:   # a text column: long notes don't widen the table
-                text = html.Div(text, title=text, style={'maxWidth': '140px', 'overflow': 'hidden',
-                                                         'textOverflow': 'ellipsis'})
-            cells.append(html.Td(text, style=style))
-        rows.append(html.Tr(cells))
-    return rows
+    """A file's last few rows above the new rows, as the file has them, then,
+    below a dashed line, the rows Save will mark replaced, even ones that
+    are among the last few too."""
+    rows = [_saved_row(r, cols, False) for r in state.get('recent', [])]
+    more = [_saved_row(s, cols, True) for s in state.get('saved', []) if s['row'] in replaced]
+    if rows and more:
+        # 2px, so it wins over the value cells' own 1px borders.
+        more[0].style = {'borderTop': '2px dashed #bbb'}
+    return rows + more
 
 
 def table(state, peak_options, values_of, label, temperature):
     """The dialog's table: decimals controls, column headers, a file's last
-    few rows, then one row per peak with the values as they'll be saved, and
-    an "Add peak…" row. values_of(peak) -> item key -> value for that peak's row."""
+    few rows and the rows Save will mark replaced, then one row per peak with
+    the values as they'll be saved, and an "Add peak…" row.
+    values_of(peak) -> item key -> value for that peak's row."""
     cols = _columns(state)
     is_new = state['mode'] == 'new'
     label = (label or '').strip()
@@ -475,7 +491,8 @@ def table(state, peak_options, values_of, label, temperature):
             style=DROPDOWN), style=HEAD))
     new_rows, replaced = [], set()
     for r in state['rows']:
-        values = {**values_of(r['peak']), 'label': label or None, 'temperature': temperature}
+        values = {**values_of(r['peak']), 'label': label or None, 'temperature': temperature,
+                  'status': pf.CURRENT}
         peak = dcc.Dropdown(id={'type': 'pf-row', 'row': r['id']}, options=peak_options,
                             value=r['peak'], clearable=True, className='pf-dd', style=DROPDOWN)
         first = [peak]
@@ -483,7 +500,8 @@ def table(state, peak_options, values_of, label, temperature):
             target = pf.find_saved(state['saved'], values)
             if target is not None:
                 replaced.add(target)
-            first.append(_status(target))
+            first.append(_status(next((s for s in state['saved'] if s['row'] == target), None),
+                                 cols))
         cells = [html.Td(first, style=ROW_HEAD)]
         for cid, key, _ in cols:
             if key is None:

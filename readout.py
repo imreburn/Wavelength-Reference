@@ -36,8 +36,14 @@ DASH_REFRESH_MS = 100
 RANGE_EVERY = 10
 
 ATIME_MS    = 25
-# Above this (or at/below zero) the meter is overloaded or dark: shown as "-".
-MAX_VALID_W = 0.01
+# Readings outside [DARK_FLOOR_W, MAX_VALID_W] show as a fixed label instead
+# of a number. The N7748A's dark noise stays under 0.1 pW (either sign), so a
+# dark channel stays below the floor instead of flickering between a number
+# and a label each time the noise crosses zero.
+DARK_FLOOR_W = 1e-13    # -100 dBm
+MAX_VALID_W  = 0.01     # +10 dBm, full scale of the top range
+DARK_LABELS  = ("< -100 dBm", "< 0.1 pW")    # (dBm, W) columns
+OVER_LABELS  = ("> +10 dBm", "> 10 mW")
 
 READOUT_COLUMNS = ("Ch.", "Range (Auto)", "Power (dBm)", "Power (W)", "Max power (W)")
 
@@ -104,7 +110,7 @@ class PowerReadout:
     # ---- one sample; the caller owns the timer --------------------------
 
     def read(self, wait=True):
-        """One sample: [(range_dbm, watt), ...] for channels 1-4, updating max_w. watt is None when the reading is missing, dark or overloaded.
+        """One sample: [(range_dbm, watt), ...] for channels 1-4, updating max_w. watt is None when the reading is missing or not a finite number. Dark or overloaded readings come back as they are, for format_row to label, and don't count toward max_w.
 
         wait=False returns None instead of blocking when another thread is mid-query (Dash ticks). Returns None when not active.
         """
@@ -124,9 +130,10 @@ class PowerReadout:
                     w = float(powers[i])
                 except (ValueError, IndexError):
                     w = None
-                if w is not None and not (0 < w <= MAX_VALID_W):
+                if w is not None and not math.isfinite(w):
                     w = None
-                if w is not None and (self.max_w[i] is None or w > self.max_w[i]):
+                if (w is not None and DARK_FLOOR_W <= w <= MAX_VALID_W
+                        and (self.max_w[i] is None or w > self.max_w[i])):
                     self.max_w[i] = w
                 rows.append((self._ranges[i], w))
             return rows
@@ -234,11 +241,16 @@ def format_actual(actual, has_laser):
 
 def format_row(range_dbm, watt, max_w):
     """Display strings (range, dBm, W, max W) for one channel, shared by both
-    panels so they read the same. watt None = no valid reading this tick;
+    panels so they read the same. watt None = no reading this tick; below
+    DARK_FLOOR_W or above MAX_VALID_W it shows as dark or overloaded.
     max_w None = nothing valid seen since the last reset."""
     range_s = f"{int(range_dbm)} dBm"
     if watt is None:
         dbm_s = watt_s = "-"
+    elif watt < DARK_FLOOR_W:
+        dbm_s, watt_s = DARK_LABELS
+    elif watt > MAX_VALID_W:
+        dbm_s, watt_s = OVER_LABELS
     else:
         dbm_s  = f"{10 * math.log10(watt * 1e3):.3f} dBm"
         watt_s = eng_format(watt, "W")
