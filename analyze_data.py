@@ -149,13 +149,13 @@ def find_bandwidth(wl, tmp_dbm, idx, y_offset, search_range):
     return left_nm, right_nm, width_pm, left_found and right_found
 
 
-def exam_peak(pk: Peak, params: Params):
-    """Check one peak against the Pass/Fail criteria.
+def exam_peak(pk: Peak, params: Params, r):
+    """Check one peak of range r against that range's Pass/Fail criteria.
 
     The wavelength range picks the peak: of the peaks inside it (both ends
     included), the one with the largest Depth_max, whatever the base. That
-    peak's depth and width, measured from params.peak_base ('max', 'avg', or
-    'min': Depth_avg and FWHM_avg in the peak table for 'avg', and so on),
+    peak's depth and width, measured from params.crit_base[r] ('max', 'avg',
+    or 'min': Depth_avg and FWHM_avg in the peak table for 'avg', and so on),
     are then checked against the depth and width ranges. A depth or width
     range left at 0 to 0 isn't checked.
 
@@ -171,12 +171,8 @@ def exam_peak(pk: Peak, params: Params):
     def in_between(x, crit):
         return crit[0] <= x <= crit[1]
 
-    # Raw files saved before the Base field existed have no peak_base; their
-    # sweeps were tested with max.
-    base = params.peak_base or 'max'
-    crit_loc = (params.wl_min, params.wl_max)
-    crit_dep = (params.depth_min, params.depth_max)
-    crit_wid = (params.width_min, params.width_max)
+    base = params.crit_base[r]
+    crit_loc, crit_dep, crit_wid = params.crit_wl[r], params.crit_depth[r], params.crit_width[r]
 
     # No criteria is given
     if sum(map(sum, [crit_loc, crit_dep, crit_wid])) == 0:

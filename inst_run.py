@@ -46,8 +46,15 @@ def disarm_pm(pm):
     wait_opc(pm)
 
 
-def arm_pm(pm, params : Params):
+def padded_range(params : Params, r):
+    """Range r as the laser sweeps it: λ start - padding to λ stop + padding (nm)."""
+    return (round(params.wl_start[r] - params.padding, 5),
+            round(params.wl_stop[r]  + params.padding, 5))
+
+
+def arm_pm(pm, params : Params, r):
     disarm_pm(pm)
+    start, stop = padded_range(params, r)
     
     ilog = inst_log(pm, log)
     pm.write(":TRIG:CONF DEF")
@@ -65,7 +72,7 @@ def arm_pm(pm, params : Params):
         
         # pm.write(f":INIT{i}:CONT 0")
                 
-        pm.write(f":SENSE{i}:POW:WAV {(params.wl_st_pad + params.wl_sp_pad)/2:.3f} NM")
+        pm.write(f":SENSE{i}:POW:WAV {(start + stop)/2:.3f} NM")
         pm.write(f":SENSE{i}:POW:ATIME {params.at_us} US")
         pm.write(f":SENSE{i}:CORR 0")
         pm.write(f":SENSE{i}:POW:REF:STATE OFF")
@@ -78,9 +85,9 @@ def arm_pm(pm, params : Params):
         ilog.debug("Now arming the power meter")
         query_fields(pm, f":SENSE{i}:FUNC:STAT")
         
-        write_and_query(pm, f":SENSE{i}:FUNC:PAR:LOGG", params.num_data, f"{params.at_us} US")
+        write_and_query(pm, f":SENSE{i}:FUNC:PAR:LOGG", params.num_data[r], f"{params.at_us} US")
         
-        # pm.write(f":SENSE{i}:FUNC:PAR:LOGG {params.num_data}, {params.at_us} US")
+        # pm.write(f":SENSE{i}:FUNC:PAR:LOGG {params.num_data[r]}, {params.at_us} US")
         # PM: arm logging function before sweep starts
         pm.write(f":SENSE{i}:FUNC:STAT LOGG, START")
     
@@ -135,10 +142,11 @@ def read_pm(pm, params : Params):
     
     return power_w_all
 
-def sweep_laser(laser, params: Params):
+def sweep_laser(laser, params: Params, r):
     ilog = inst_log(laser, log)
+    start, stop = padded_range(params, r)
     
-    laser.write(f":SOURCE0:WAVE  {params.wl_st_pad:.3f} NM")
+    laser.write(f":SOURCE0:WAVE  {start:.3f} NM")
     wait_opc(laser)
     
     laser.write(":SOURCE0:POWER:UNIT  0")   # dBM
@@ -156,8 +164,8 @@ def sweep_laser(laser, params: Params):
     wait_opc(laser)
     
     laser.write(f":SOURCE0:WAV:SWE:SPE      {params.speed} NM/S")
-    laser.write(f":SOURCE0:WAV:SWE:STAR     {params.wl_st_pad:.3f} NM")
-    laser.write(f":SOURCE0:WAV:SWE:STOP     {params.wl_sp_pad:.3f} NM")
+    laser.write(f":SOURCE0:WAV:SWE:STAR     {start:.3f} NM")
+    laser.write(f":SOURCE0:WAV:SWE:STOP     {stop:.3f} NM")
     wait_opc(laser)
     
     # Trigger
@@ -182,11 +190,11 @@ def sweep_laser(laser, params: Params):
     # console line (print, not the log), like the external laser's wait. The
     # config window's "Duration / Sweep" (the log time) is shown for reference;
     # the laser reports sweeping a few seconds longer (3-4 s at 0.5 nm/s).
-    duration = params.num_data * params.at_us / 1e6   # s
-    start = time.time()
+    duration = params.num_data[r] * params.at_us / 1e6   # s
+    t0 = time.time()
     try:
         while int(laser.query(":SOURCE0:WAV:SWE:STATE?")) == 1:
-            elapsed = time.time() - start
+            elapsed = time.time() - t0
             print(f"\r Laser busy... {int(elapsed)} s (Duration / Sweep: {duration:,.2f} s)", end="", flush=True)
             time.sleep(1)
     finally:
@@ -200,8 +208,8 @@ def sweep_laser(laser, params: Params):
     # laser.write(":SOURCE0:POW:STATE 0")
     
 
-def run_sweep(pm, laser, params: Params):
-    """
+def run_sweep(pm, laser, params: Params, r):
+    """Sweep range r.
     Returns a list of np 1-d arrays with the order matching with param.channel. (e.g. [Ch.1, Ch.2, Ch.3, Ch.4])
     """
     global _sweep_count
@@ -210,9 +218,9 @@ def run_sweep(pm, laser, params: Params):
     
     check_inst(pm, laser)
 
-    arm_pm(pm, params)
+    arm_pm(pm, params, r)
     
-    sweep_laser(laser, params)
+    sweep_laser(laser, params, r)
     
     check_inst(pm, laser)
     

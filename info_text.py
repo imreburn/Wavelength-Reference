@@ -10,6 +10,19 @@ of the "-", and the bullet's wrapped lines line up under its text.
 """
 
 PARAMETERS_INFO="""
+**Wavelength ranges**
+
+- A sweep can measure up to four wavelength ranges, Range 1 to Range 4. Each range has its own λ Start and λ Stop. All the other parameters are shared.
+
+- Fill in the ranges in order, starting with Range 1. Leave both fields of an unused range blank.
+
+- Each range must start more than two steps above the previous range's λ Stop, so the ranges go from shorter to longer wavelengths and can't overlap. Padding isn't counted.
+
+- The ranges are swept one after another, each with all of its dynamic range scans. Log Count and Duration are shown for each range.
+
+- In the graph window, each range has its own tab.
+
+
 **Step Size and Averaging Time**
 
 - Averaging Time = (Step Size / Sweep Speed)
@@ -81,6 +94,8 @@ Each peak has two base points, one on each side (left and right). Depth and widt
 - When every min and max is 0, the test is off.
 
 - Like the other parameters, the criteria lock when you click Save and are stored in presets.
+
+- Each range has its own column of criteria and its own Base, and its peaks are tested against them. The criteria of an unused range are ignored.
 
 
 **How a peak is tested**

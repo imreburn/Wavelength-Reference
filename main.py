@@ -77,19 +77,25 @@ try:
         if not params:
             break
 
-        raw_w = Dataset(unit="W")
+        # One Dataset per wavelength range. The ranges run in order, each with
+        # all its dynamic-range scans, from the initial meter range, before
+        # the next.
+        datasets = [Dataset(unit="W") for _ in range(params.n_ranges)]
         saved_pm_range = params.pm_range
 
         try:
-            for i in range(1, params.dyn_scans+1):
-                log.info(f"Start a scan: {i}")
-                if external:
-                    label = f"Scan {i} of {params.dyn_scans}" if params.dyn_scans > 1 else ""
-                    scan = run_sweep_ext(pm, params, label)
-                else:
-                    scan = run_sweep(pm, laser, params)
-                raw_w.scans.append(scan)
-                params.pm_range -= params.decrement
+            for r, raw_w in enumerate(datasets):
+                params.pm_range = saved_pm_range
+                for i in range(1, params.dyn_scans+1):
+                    log.info(f"Start a scan: range {r + 1}, scan {i}")
+                    if external:
+                        parts = ([f"Range {r + 1} of {params.n_ranges}"] if params.n_ranges > 1 else []) \
+                                + ([f"Scan {i} of {params.dyn_scans}"] if params.dyn_scans > 1 else [])
+                        scan = run_sweep_ext(pm, params, r, ", ".join(parts))
+                    else:
+                        scan = run_sweep(pm, laser, params, r)
+                    raw_w.scans.append(scan)
+                    params.pm_range -= params.decrement
         except SweepCancelled:
             # Nothing from this Run is kept, earlier scans included: a partial
             # dynamic-range set would plot like a complete one. auto_run must be
@@ -109,14 +115,18 @@ try:
             continue
 
         params.pm_range = saved_pm_range
-        raw_w.data = combine_scans(raw_w.scans)
+        for raw_w in datasets:
+            raw_w.data = combine_scans(raw_w.scans)
         # The sweep finished, so its label is used: move the counter on.
         advance_label()
 
+        # The reference is kept per range. "Use reference" needs the same
+        # parameters (Change deletes it), so it has the same ranges.
         if params.reference:
-            raw_w.ref = ref_data
+            for raw_w, ref in zip(datasets, ref_data):
+                raw_w.ref = ref
         else:
-            ref_data = raw_w.data.copy()
+            ref_data = [raw_w.data.copy() for raw_w in datasets]
             mark_ref_available()
 
         # Auto-save after the reference is attached, so the file matches what
@@ -126,14 +136,14 @@ try:
         if params.save_raw:
             try:
                 autosaved_to = auto_raw_path(params)
-                save_csv_raw(raw_w, params=params, file_path=autosaved_to)
+                save_csv_raw(datasets, params=params, file_path=autosaved_to)
             except Exception as e:
                 log.exception("Auto-save of raw data failed")
                 autosaved_to, autosave_error = None, str(e)
 
         # The graph window can change params.label (its Label field).
         run_label = params.label
-        auto_run = display_plot(raw_w, params=params, readout=readout,
+        auto_run = display_plot(datasets, params=params, readout=readout,
                                 autosaved_to=autosaved_to, autosave_error=autosave_error)
         # The plot window sets this on idle timeout; its normal close would
         # otherwise loop back to the config window instead of exiting.

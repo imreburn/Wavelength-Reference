@@ -13,7 +13,7 @@ import time
 import logging
 
 from inst_helper import prep_inst, check_inst, InstrumentError
-from inst_run import arm_pm, disarm_pm, logging_complete, read_pm, SweepCancelled
+from inst_run import arm_pm, disarm_pm, logging_complete, read_pm, padded_range, SweepCancelled
 from structs import Params
 import shutdown
 
@@ -33,10 +33,12 @@ _sweep_count = 0
 ESC = "\x1b"
 
 
-def _print_instructions(params : Params, scan_label=""):
-    """Console prompt shown while the PM is armed, waiting for the external laser.
+def _print_instructions(params : Params, r, scan_label=""):
+    """Console prompt shown while the PM is armed for range r, waiting for the
+    external laser.
     """
-    duration = params.num_data * params.at_us / 1e6   # s
+    duration = params.num_data[r] * params.at_us / 1e6   # s
+    start, stop = padded_range(params, r)
 
     title = " EXTERNAL LASER"
     if scan_label:
@@ -48,8 +50,8 @@ def _print_instructions(params : Params, scan_label=""):
     print(title)
     print(f" Power meter is armed (range {params.pm_range} dBm).")
     print()
-    print(f"   Start wavelength  : {params.wl_st_pad:.3f} nm")
-    print(f"   Stop wavelength   : {params.wl_sp_pad:.3f} nm")
+    print(f"   Start wavelength  : {start:.3f} nm")
+    print(f"   Stop wavelength   : {stop:.3f} nm")
     print(f"   Sweep speed       : {params.speed:g} nm/s")
     print(f"   Expected duration : {duration:.1f} s")
     print()
@@ -111,8 +113,9 @@ def wait_for_sweep(pm, params : Params):
     return True
 
 
-def run_sweep_ext(pm, params : Params, scan_label=""):
-    """External-laser sweep: arm the PM, wait for the laser's trigger, read.
+def run_sweep_ext(pm, params : Params, r, scan_label=""):
+    """External-laser sweep of range r: arm the PM, wait for the laser's
+    trigger, read. scan_label names the range and scan in the prompt.
 
     Raises SweepCancelled if the user cancels or the wait times out; the PM is
     disarmed first so a late trigger starts nothing.
@@ -122,10 +125,10 @@ def run_sweep_ext(pm, params : Params, scan_label=""):
     log.info(f"--- Running instruments (sweep #{_sweep_count}, external laser) ---")
 
     check_inst(pm)
-    arm_pm(pm, params)
+    arm_pm(pm, params, r)
     log.info("Waiting for the external laser sweep")
 
-    _print_instructions(params, scan_label)
+    _print_instructions(params, r, scan_label)
 
     if not wait_for_sweep(pm, params):
         disarm_pm(pm)

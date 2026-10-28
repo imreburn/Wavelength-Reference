@@ -106,16 +106,20 @@ def delta_line(xs, ys, step, view=None, max_points=DELTA_LINE_MAX_POINTS):
         return np.array([]), np.array([])
     return np.concatenate(lx), np.concatenate(ly)
 
-def gen_xaxis(params: Params):
-    wav_stop_tmp = params.wl_start - params.padding + (params.step_pm * 1e-3) * (params.num_data - 1)
-    wav_range    = np.linspace(params.wl_start - params.padding, wav_stop_tmp, params.num_data).round(7)
+def gen_xaxis(params: Params, r):
+    """Range r's wavelengths: one per logged point of the padded sweep, and
+    the indices i_lo:i_hi that trim them to one step beyond λ start and λ stop."""
+    start, stop, num_data = params.wl_start[r], params.wl_stop[r], params.num_data[r]
+    wav_stop_tmp = start - params.padding + (params.step_pm * 1e-3) * (num_data - 1)
+    wav_range    = np.linspace(start - params.padding, wav_stop_tmp, num_data).round(7)
 
-    i_lo = np.searchsorted(wav_range, params.wl_start - params.step_pm * 1e-3, side='left')
-    i_hi = np.searchsorted(wav_range, params.wl_stop  + params.step_pm * 1e-3, side='right')
-    
+    i_lo = np.searchsorted(wav_range, start - params.step_pm * 1e-3, side='left')
+    i_hi = np.searchsorted(wav_range, stop  + params.step_pm * 1e-3, side='right')
+
     return wav_range, i_lo, i_hi
 
-def pre_process(raw_w: Dataset, params: Params):
+def pre_process(raw_w: Dataset, params: Params, r):
+    """Range r's Dataset (in W) trimmed to its range, as (wavelengths, W, dBm)."""
     def wtodbm(x):
         """convert Watt to dBm
 
@@ -127,8 +131,8 @@ def pre_process(raw_w: Dataset, params: Params):
         """
         return 10 * np.log10(x * 1000)
     
-    wav_range, i_lo, i_hi = gen_xaxis(params)
-    
+    wav_range, i_lo, i_hi = gen_xaxis(params, r)
+
     watt_s, dbm_s = Dataset(unit="W"), Dataset(unit="dBm")
     watt_s.scans = [[d[i_lo:i_hi] for d in scan] for scan in raw_w.scans]
     dbm_s.scans = [[wtodbm(d) for d in scan] for scan in watt_s.scans]

@@ -16,6 +16,7 @@ from structs import Params
 from readout_tk import ReadoutSection
 from config_helper import (
     FIELD_LABELS, DEFAULTS, SWEEP_SPEED_OPTIONS,
+    MAX_RANGES, RANGE_LABELS, NO_VALUE, range_texts,
     EXTRA_LABELS, EXTRA_DEFAULTS, PADDING_LABEL, PM_RANGE_LABEL, DYN_SCAN_LABEL, DECREMENT_LABEL,
     CHANNEL_LABEL, CHANNEL_OPTIONS, CHANNEL_DEFAULT, channels_to_str, parse_channels, padding_nm,
     PASSFAIL_LABELS, PASSFAIL_KEYS, PASSFAIL_BOUNDS, PASSFAIL_DEFAULT, PASSFAIL_COLUMNS, passfail_col, label_text,
@@ -35,6 +36,13 @@ _last = {}  # persists raw field values within one execution
 
 # Fixed on-screen position for the window at first launch (top-left x, y).
 WINDOW_POS = (50, 10)
+
+# The parameter fields' width, in characters: enough for "XXXX.XX" (Tk counts
+# "0" widths, and a dot is narrower). A longer value scrolls in its field.
+ENTRY_WIDTH = 7
+# The gap after each range column's fields.
+RANGE_PADX = (0, 6)
+SPEED_LABEL, STEP_LABEL = FIELD_LABELS[2], FIELD_LABELS[3]
 
 # A checkbox's letter key (R, L) counts only after this many seconds with no
 # press of that key. A held key repeats, and each repeat would toggle the box
@@ -148,6 +156,10 @@ def get_inputs(readout=None, auto_run=False, source=None):
     source_spec = TLS_SOURCES[source]
     # The app never sets an external laser's power, so its TLS Power starts blank.
     field_defaults = DEFAULTS[:4] + [""] if source_spec["external"] else DEFAULTS
+    # A fresh window's fields: Range 1's λ Start and λ Stop from the defaults,
+    # the other ranges blank (unused), and the shared fields' defaults.
+    default_fields = {label: range_texts(text) for label, text in zip(RANGE_LABELS, field_defaults)}
+    default_fields.update(zip(FIELD_LABELS[2:], field_defaults[2:]))
 
     preset_file = preset_path(source)
     # The first window for a source moves its old CSV presets into the TOML
@@ -223,10 +235,14 @@ def get_inputs(readout=None, auto_run=False, source=None):
 
         padding = padding_nm(extra_strs[PADDING_LABEL])
 
-        values, error = validate_inputs([e.get() for e in entries], num_data, avg_time, duration, padding, source_spec)
+        texts = field_texts()
+        values, error = validate_inputs(*(texts[label] for label in RANGE_LABELS),
+                                        [texts[label] for label in FIELD_LABELS[2:]],
+                                        num_data, avg_time, duration, padding, source_spec)
         if error:
             validation_error(error, result_label, num_data, avg_time, saved, run_btn)
             return
+        n_ranges = len(values['wl_start'])
 
         pm_range  = int(extra_strs[PM_RANGE_LABEL])
         dyn_scans = int(extra_strs[DYN_SCAN_LABEL])
@@ -238,61 +254,65 @@ def get_inputs(readout=None, auto_run=False, source=None):
             validation_error("at least one channel must be selected.", result_label, num_data, avg_time, saved, run_btn)
             return
 
-        pf_raw = {label: (mn.get(), mx.get()) for label, (mn, mx) in passfail_entries.items()}
-        pf_values, error = validate_passfail(pf_raw)
-        if error:
-            validation_error(error, result_label, num_data, avg_time, saved, run_btn)
-            return
-        # The dropdown offers only valid options, but a preset file can hold any text.
-        if peak_base_var.get() not in PEAK_BASE_OPTIONS:
-            validation_error(f"Peak Test Criteria: {PEAK_BASE_LABEL} must be selected from the dropdown list.",
-                             result_label, num_data, avg_time, saved, run_btn)
-            return
+        # The used ranges' criteria columns. An unused range's are ignored.
+        pf_values = []   # one {label: (min, max)} per used range
+        for r in range(n_ranges):
+            where = f"Peak Test Criteria, Range {r + 1}"
+            pf_raw = {label: (cols[r][0].get(), cols[r][1].get())
+                      for label, cols in passfail_entries.items()}
+            pf_range, error = validate_passfail(pf_raw, where)
+            if error:
+                validation_error(error, result_label, num_data, avg_time, saved, run_btn)
+                return
+            # The dropdown offers only valid options, but a preset file can hold any text.
+            if base_vars[r].get() not in PEAK_BASE_OPTIONS:
+                validation_error(f"{where}: {PEAK_BASE_LABEL} must be selected from the dropdown list.",
+                                 result_label, num_data, avg_time, saved, run_btn)
+                return
+            pf_values.append(pf_range)
 
-        params.wl_start   = values[0]
-        params.wl_stop    = values[1]
-        params.speed      = values[2]
-        params.step_pm    = values[3]
-        params.tls_dbm    = values[4]
-        params.at_us      = values[5]
-        params.num_data   = values[6]
+        params.wl_start   = values['wl_start']
+        params.wl_stop    = values['wl_stop']
+        params.speed      = values['speed']
+        params.step_pm    = values['step_pm']
+        params.tls_dbm    = values['tls_dbm']
+        params.at_us      = values['at_us']
+        params.num_data   = values['num_data']
 
         params.pm_range   = pm_range
         params.dyn_scans  = dyn_scans
         params.decrement  = decrement
         params.channel    = channels
 
-        for label, (lo_key, hi_key) in PASSFAIL_KEYS.items():
-            lo, hi = pf_values[label]
-            setattr(params, lo_key, lo)
-            setattr(params, hi_key, hi)
-        params.peak_base = peak_base_var.get()
+        # One (min, max) pair per range for each criterion.
+        for label, name in PASSFAIL_KEYS.items():
+            setattr(params, name, [pf_range[label] for pf_range in pf_values])
+        params.crit_base  = [base_vars[r].get() for r in range(n_ranges)]
 
         params.padding    = padding
-        params.wl_st_pad  = round(params.wl_start - padding, 5)
-        params.wl_sp_pad  = round(params.wl_stop  + padding, 5)
         # TODO #95
         params.name       = "unknown" if preset_var.get() == "none" else preset_var.get()
 
         # If step size is adjusted, change the field color
         step_adjusted = ""
-        entered_step = float(entries[3].get() or 0)
+        entered_step = float(step_entry.get() or 0)
         if params.step_pm != entered_step:
-            entries[3].delete(0, tk.END)
-            entries[3].insert(0, f"{params.step_pm:.4f}")
-            entries[3].config(disabledforeground="#cc7a00")
+            step_entry.delete(0, tk.END)
+            step_entry.insert(0, f"{params.step_pm:.4f}")
+            step_entry.config(disabledforeground="#cc7a00")
             step_adjusted = "Step size is adjusted."
         else:
             # Clear any red left over from a previous adjustment.
-            entries[3].config(fg="black", disabledforeground=default_disabledfg)
+            step_entry.config(fg="black", disabledforeground=default_disabledfg)
 
         # Blank fields become 0 and a 0 max becomes inf, so show what was actually saved.
-        for label, (mn, mx) in passfail_entries.items():
-            for entry, val in zip((mn, mx), pf_values[label]):
-                text = f"{val:g}"
-                if entry.get() != text:
-                    entry.delete(0, tk.END)
-                    entry.insert(0, text)
+        for r, pf_range in enumerate(pf_values):
+            for label, cols in passfail_entries.items():
+                for entry, val in zip(cols[r], pf_range[label]):
+                    text = f"{val:g}"
+                    if entry.get() != text:
+                        entry.delete(0, tk.END)
+                        entry.insert(0, text)
 
         result_label.config(text="Parameters saved. Review values, then click Run or press Enter. " + step_adjusted, fg="blue")
 
@@ -349,7 +369,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
         # otherwise look like an edit and unlock the saved state.
         if _is_disabled(getattr(event, "widget", None)):
             return
-        entries[3].config(fg="black")
+        step_entry.config(fg="black")
         # Invalidate save whenever any field is edited
         if saved["ok"]:
             saved["ok"] = False
@@ -362,36 +382,42 @@ def get_inputs(readout=None, auto_run=False, source=None):
         name = preset_var.get()
         if name == "none":
             # Selecting "none" resets every field back to its default.
-            vals = dict(zip(FIELD_LABELS, field_defaults))
+            vals = dict(default_fields)
             vals.update(EXTRA_DEFAULTS)
             vals[CHANNEL_LABEL] = CHANNEL_DEFAULT
             for col in PASSFAIL_COLUMNS:
-                vals[col] = PASSFAIL_DEFAULT
-            vals[PEAK_BASE_LABEL] = PEAK_BASE_DEFAULT
-            num_data.set("0")
+                vals[col] = range_texts(PASSFAIL_DEFAULT, PASSFAIL_DEFAULT)
+            vals[PEAK_BASE_LABEL] = range_texts(PEAK_BASE_DEFAULT, PEAK_BASE_DEFAULT)
+            for var in num_data + duration:
+                var.set(NO_VALUE)
             avg_time.set("0")
-            duration.set("0")
         elif name in presets:
             vals = presets[name]
         else:
             return
-        for entry, label in zip(entries, FIELD_LABELS):
-            if isinstance(entry, tk.StringVar):
-                entry.set(vals[label])
-            else:
+        for label in RANGE_LABELS:
+            for entry, text in zip(range_entries[label], vals[label]):
                 entry.delete(0, tk.END)
-                entry.insert(0, vals[label])
+                entry.insert(0, text)
+        for label, field in shared_fields.items():
+            if isinstance(field, tk.StringVar):
+                field.set(vals[label])
+            else:
+                field.delete(0, tk.END)
+                field.insert(0, vals[label])
         for label in EXTRA_LABELS:
             extra_vars[label].set(vals[label])
         _pin_padding()
         preset_channels = parse_channels(vals[CHANNEL_LABEL])
         for ch in CHANNEL_OPTIONS:
             channel_vars[ch].set(1 if ch in preset_channels else 0)
-        for label, (mn, mx) in passfail_entries.items():
-            for entry, bound in ((mn, "min"), (mx, "max")):
-                entry.delete(0, tk.END)
-                entry.insert(0, vals[passfail_col(label, bound)])
-        peak_base_var.set(vals[PEAK_BASE_LABEL])
+        for label, cols in passfail_entries.items():
+            for r, (mn, mx) in enumerate(cols):
+                for entry, bound in ((mn, "min"), (mx, "max")):
+                    entry.delete(0, tk.END)
+                    entry.insert(0, vals[passfail_col(label, bound)][r])
+        for var, base in zip(base_vars, vals[PEAK_BASE_LABEL]):
+            var.set(base)
         on_entry_change()
         if name == "none":
             return
@@ -439,12 +465,13 @@ def get_inputs(readout=None, auto_run=False, source=None):
                          "digits": digits_var.get(), "start": start_var.get(),
                          "save_raw": save_raw_var.get()}
 
-        _last["fields"] = [e.get() for e in entries]
+        _last["fields"] = field_texts()
         _last["preset"] = preset_var.get()
         _last["extras"] = {label: extra_vars[label].get() for label in EXTRA_LABELS}
         _last["channels"] = channels_to_str(ch for ch in CHANNEL_OPTIONS if channel_vars[ch].get())
-        _last["passfail"] = {label: (mn.get(), mx.get()) for label, (mn, mx) in passfail_entries.items()}
-        _last["peak_base"] = peak_base_var.get()
+        _last["passfail"] = {label: [(mn.get(), mx.get()) for mn, mx in cols]
+                             for label, cols in passfail_entries.items()}
+        _last["peak_base"] = [var.get() for var in base_vars]
 
         ran["ok"] = True
         _state["pos"] = (root.winfo_x(), root.winfo_y())
@@ -462,14 +489,14 @@ def get_inputs(readout=None, auto_run=False, source=None):
         if not saved["ok"]:
             return
         # Snapshot the current (validated) field values, keyed by field label.
-        preset_vals = {label: entry.get() for entry, label in zip(entries, FIELD_LABELS)}
+        preset_vals = field_texts()
         for label in EXTRA_LABELS:
             preset_vals[label] = extra_vars[label].get()
         preset_vals[CHANNEL_LABEL] = channels_to_str(ch for ch in CHANNEL_OPTIONS if channel_vars[ch].get())
-        for label, (mn, mx) in passfail_entries.items():
-            preset_vals[passfail_col(label, "min")] = mn.get()
-            preset_vals[passfail_col(label, "max")] = mx.get()
-        preset_vals[PEAK_BASE_LABEL] = peak_base_var.get()
+        for label, cols in passfail_entries.items():
+            preset_vals[passfail_col(label, "min")] = [mn.get() for mn, _ in cols]
+            preset_vals[passfail_col(label, "max")] = [mx.get() for _, mx in cols]
+        preset_vals[PEAK_BASE_LABEL] = [var.get() for var in base_vars]
 
         existing, error = load_presets(preset_file)
         if error:
@@ -633,12 +660,13 @@ def get_inputs(readout=None, auto_run=False, source=None):
     DETECTOR_ROW = SOURCE_ROW + 1        # read-only: the power meter
     FIELDS_START = DETECTOR_ROW + 1      # preset at FIELDS_START, channel next, fields after
     CHANNEL_ROW  = FIELDS_START + 1      # channel checkboxes sit below Load Preset
+    RANGES_ROW   = CHANNEL_ROW + 1       # "Range 1" .. "Range 4" over the range columns
     # The fields and the extra dropdowns, one row each in this order: λ Padding
     # right after λ Stop, and the other extras after TLS Power.
     PARAM_ORDER  = (FIELD_LABELS[:2] + [PADDING_LABEL] + FIELD_LABELS[2:]
                     + [label for label in EXTRA_LABELS if label != PADDING_LABEL])
-    PARAM_ROWS   = {label: CHANNEL_ROW + 1 + j for j, label in enumerate(PARAM_ORDER)}
-    LOGCOUNT_ROW = CHANNEL_ROW + 1 + len(PARAM_ORDER)
+    PARAM_ROWS   = {label: RANGES_ROW + 1 + j for j, label in enumerate(PARAM_ORDER)}
+    LOGCOUNT_ROW = RANGES_ROW + 1 + len(PARAM_ORDER)
     AVGTIME_ROW  = LOGCOUNT_ROW + 1
     DURATION_ROW = AVGTIME_ROW + 1
     SAVEBTN_ROW  = DURATION_ROW + 1
@@ -647,11 +675,15 @@ def get_inputs(readout=None, auto_run=False, source=None):
     HEADER3_ROW  = REFBTN_ROW + 1    # Instruments
     RUNBTN_ROW   = HEADER3_ROW + 2
     RESULT_ROW   = RUNBTN_ROW + 1    # status messages sit right below Run
-    # Peak Test Criteria and the Power Readout sit in their own sub-frame in
-    # column 2 (right of the Parameters section), so they consume no rows here.
+    # Columns: the labels, then one per range (column 1 + r for range r). λ
+    # Start, λ Stop, Log Count and Duration have a value per range; every other
+    # field sits in Range 1's column and spans the rest. Peak Test Criteria and
+    # the Power Readout sit in their own sub-frame in the column after them
+    # (right of the Parameters section), so they consume no rows here.
+    COLS = 1 + MAX_RANGES
 
     # ---- Set Parameters --------------------------------------------------
-    section_header(frame, "Parameters", 0, info=PARAMETERS_INFO)
+    section_header(frame, "Parameters", 0, info=PARAMETERS_INFO, span=COLS)
 
     # Laser source: chosen in the console at startup and fixed for the session,
     # so this is display only. The range is shown because it is what Save
@@ -660,10 +692,10 @@ def get_inputs(readout=None, auto_run=False, source=None):
     if source_spec["external"]:
         source_text += ", external"
     tk.Label(frame, text="Source", anchor="e").grid(row=SOURCE_ROW, column=0, pady=4, padx=(0, 8), sticky="e")
-    tk.Label(frame, text=source_text, anchor="w").grid(row=SOURCE_ROW, column=1, pady=4, sticky="w")
+    tk.Label(frame, text=source_text, anchor="w").grid(row=SOURCE_ROW, column=1, columnspan=MAX_RANGES, pady=4, sticky="w")
     # The power meter: the same with every source, so display only too.
     tk.Label(frame, text="Detector", anchor="e").grid(row=DETECTOR_ROW, column=0, pady=4, padx=(0, 8), sticky="e")
-    tk.Label(frame, text=DETECTOR, anchor="w").grid(row=DETECTOR_ROW, column=1, pady=4, sticky="w")
+    tk.Label(frame, text=DETECTOR, anchor="w").grid(row=DETECTOR_ROW, column=1, columnspan=MAX_RANGES, pady=4, sticky="w")
 
     presets, load_error = load_presets(preset_file)
     preset_error = preset_error or load_error
@@ -672,7 +704,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     preset_var = tk.StringVar(value=_last.get("preset", "none"))
     tk.Label(frame, text="Load Preset", anchor="e").grid(row=FIELDS_START, column=0, pady=4, padx=(0, 8), sticky="e")
     preset_menu = tk.OptionMenu(frame, preset_var, *preset_options)
-    preset_menu.grid(row=FIELDS_START, column=1, pady=4, sticky="w")
+    preset_menu.grid(row=FIELDS_START, column=1, columnspan=MAX_RANGES, pady=4, sticky="w")
     preset_var.trace_add("write", on_preset_change)
 
     # Channel checkboxes (1–4). Default to channel 1; at least one is required.
@@ -680,57 +712,85 @@ def get_inputs(readout=None, auto_run=False, source=None):
     channel_vars = {ch: tk.IntVar(value=1 if ch in init_channels else 0) for ch in CHANNEL_OPTIONS}
     tk.Label(frame, text=CHANNEL_LABEL, anchor="e").grid(row=CHANNEL_ROW, column=0, pady=4, padx=(0, 8), sticky="e")
     channel_frame = tk.Frame(frame)
-    channel_frame.grid(row=CHANNEL_ROW, column=1, pady=4, sticky="w")
+    channel_frame.grid(row=CHANNEL_ROW, column=1, columnspan=MAX_RANGES, pady=4, sticky="w")
     channel_checks = []
     for ch in CHANNEL_OPTIONS:
         cb = tk.Checkbutton(channel_frame, text=str(ch), variable=channel_vars[ch], command=on_entry_change)
         cb.pack(side="left")
         channel_checks.append(cb)
 
-    init_fields = _last.get("fields", field_defaults)
-    entries = []
-    entry_widgets = []
-    for i, (label, default) in enumerate(zip(FIELD_LABELS, init_fields)):
+    # The range columns' headers. An unused range leaves its λ Start and λ
+    # Stop blank; the used ranges come first.
+    for r in range(MAX_RANGES):
+        tk.Label(frame, text=f"Range {r + 1}").grid(row=RANGES_ROW, column=1 + r, padx=RANGE_PADX)
+
+    init_fields = _last.get("fields", default_fields)
+    range_entries = {label: [] for label in RANGE_LABELS}   # label -> an Entry per range
+    shared_fields = {}      # Sweep Speed's StringVar, Step Size's and TLS Power's Entry
+    entry_widgets = []      # flat list for lock/unlock
+    for label in FIELD_LABELS:
         row = PARAM_ROWS[label]
         tk.Label(frame, text=label_text(label), anchor="e").grid(row=row, column=0, pady=4, padx=(0, 8), sticky="e")
-        if i == 2:  # Sweep Speed — dropdown
+        if label in RANGE_LABELS:
+            for r, text in enumerate(init_fields[label]):
+                e = tk.Entry(frame, width=ENTRY_WIDTH)
+                e.insert(0, text)
+                e.grid(row=row, column=1 + r, pady=4, padx=RANGE_PADX, sticky="w")
+                e.bind("<Key>", on_entry_change)
+                range_entries[label].append(e)
+                entry_widgets.append(e)
+        elif label == SPEED_LABEL:  # dropdown
+            default = init_fields[label]
             sv = tk.StringVar(value=default if default in SWEEP_SPEED_OPTIONS else SWEEP_SPEED_OPTIONS[0])
             menu = tk.OptionMenu(frame, sv, *SWEEP_SPEED_OPTIONS)
-            menu.grid(row=row, column=1, pady=4, sticky="w")
+            menu.grid(row=row, column=1, columnspan=MAX_RANGES, pady=4, sticky="w")
             sv.trace_add("write", on_entry_change)
-            entries.append(sv)
+            shared_fields[label] = sv
             entry_widgets.append(menu)
         else:
-            e = tk.Entry(frame, width=20)
-            e.insert(0, default)
-            e.grid(row=row, column=1, pady=4, sticky="w")
+            e = tk.Entry(frame, width=ENTRY_WIDTH)
+            e.insert(0, init_fields[label])
+            e.grid(row=row, column=1, columnspan=MAX_RANGES, pady=4, padx=RANGE_PADX, sticky="w")
             e.bind("<Key>", on_entry_change)
-            entries.append(e)
+            shared_fields[label] = e
             entry_widgets.append(e)
+    step_entry = shared_fields[STEP_LABEL]
+
+    def field_texts():
+        """Every field's text, the way a preset holds it: for λ Start and λ
+        Stop, a list of the range columns' texts."""
+        texts = {label: [e.get() for e in range_entries[label]] for label in RANGE_LABELS}
+        texts.update({label: field.get() for label, field in shared_fields.items()})
+        return texts
 
     # Platform's native disabled text color, restored when the step field isn't adjusted.
-    default_disabledfg = entries[3].cget("disabledforeground")
+    default_disabledfg = step_entry.cget("disabledforeground")
 
     init_extras = _last.get("extras", EXTRA_DEFAULTS)
     if source_spec["external"]:
         # Seed 0 here so _pin_padding() below finds nothing to change: a write
         # during build would fire on_entry_change before result_label exists.
         init_extras = {**init_extras, PADDING_LABEL: "0"}
-    extra_vars, extra_menus = make_extra_widgets(frame, PARAM_ROWS, init_extras, on_entry_change)
+    extra_vars, extra_menus = make_extra_widgets(frame, PARAM_ROWS, init_extras, on_entry_change,
+                                                 span=MAX_RANGES)
     _pin_padding()
 
-    num_data = tk.StringVar(value="0")
+    # Save fills these in: Log Count and Duration per range (NO_VALUE for an
+    # unused one), Averaging Time for all.
+    num_data = [tk.StringVar(value=NO_VALUE) for _ in range(MAX_RANGES)]
     avg_time = tk.StringVar(value="0")
-    duration = tk.StringVar(value="0")
+    duration = [tk.StringVar(value=NO_VALUE) for _ in range(MAX_RANGES)]
 
     tk.Label(frame, text="Log Count / Sweep", anchor="e").grid(row=LOGCOUNT_ROW, column=0, sticky="e", pady=4, padx=(0, 8))
-    tk.Label(frame, textvariable=num_data, anchor="w").grid(row=LOGCOUNT_ROW, column=1, sticky="w", pady=4)
+    for r, var in enumerate(num_data):
+        tk.Label(frame, textvariable=var, anchor="w").grid(row=LOGCOUNT_ROW, column=1 + r, sticky="w", pady=4, padx=RANGE_PADX)
 
     tk.Label(frame, text="Averaging Time (μs)", anchor="e").grid(row=AVGTIME_ROW, column=0, sticky="e", pady=4, padx=(0, 8))
-    tk.Label(frame, textvariable=avg_time, anchor="w").grid(row=AVGTIME_ROW, column=1, sticky="w", pady=4)
+    tk.Label(frame, textvariable=avg_time, anchor="w").grid(row=AVGTIME_ROW, column=1, columnspan=MAX_RANGES, sticky="w", pady=4)
 
     tk.Label(frame, text="Duration / Sweep (s)", anchor="e").grid(row=DURATION_ROW, column=0, sticky="e", pady=4, padx=(0, 8))
-    tk.Label(frame, textvariable=duration, anchor="w").grid(row=DURATION_ROW, column=1, sticky="w", pady=4)
+    for r, var in enumerate(duration):
+        tk.Label(frame, textvariable=var, anchor="w").grid(row=DURATION_ROW, column=1 + r, sticky="w", pady=4, padx=RANGE_PADX)
 
     # ---- Right column: Peak Test Criteria, then the live Power Readout ----
     # One sub-frame spanning every row of the main grid, so however tall the
@@ -739,52 +799,67 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # grid column whose widgets stay put, so every header line runs the full
     # width of the column, however wide its widest section makes it.
     right_col = tk.Frame(frame)
-    right_col.grid(row=0, column=2, rowspan=RESULT_ROW + 1, sticky="n", padx=(40, 0))
+    right_col.grid(row=0, column=COLS, rowspan=RESULT_ROW + 1, sticky="n", padx=(40, 0))
 
-    # Peak Test Criteria: a table with a min and a max column under one header
-    # row, a row of float entries per criterion, then the Base dropdown. The
-    # values are validated and saved (and stored in presets) alongside the
-    # parameters.
+    # Peak Test Criteria: a table with a min and a max column per range under
+    # two header rows (the range, then min and max), a row of float entries per
+    # criterion, then a Base dropdown per range. The values are validated and
+    # saved (and stored in presets) alongside the parameters; an unused range's
+    # are ignored.
     pf_container = tk.Frame(right_col)
     pf_container.pack(anchor="w", fill="x")
-    # Columns: criterion, min, max, and an empty one that takes the spare
-    # width, so the min and max columns stay as wide as their entries.
-    pf_container.columnconfigure(3, weight=1)
-    section_header(pf_container, "Peak Test Criteria (Optional)", 0, info=PASSFAIL_INFO, span=4)
-    bound_padx = {"min": (0, 12), "max": 0}   # a gap between the two columns
-    for col, bound in enumerate(PASSFAIL_BOUNDS, start=1):
-        tk.Label(pf_container, text=bound).grid(row=2, column=col, padx=bound_padx[bound])
+    # Columns: criterion, then min and max per range (range r's min in column
+    # 1 + 2r), and an empty one that takes the spare width, so the min and max
+    # columns stay as wide as their entries.
+    PF_SPARE_COL = 1 + 2 * MAX_RANGES
+    pf_container.columnconfigure(PF_SPARE_COL, weight=1)
+    section_header(pf_container, "Peak Test Criteria (Optional)", 0, info=PASSFAIL_INFO, span=PF_SPARE_COL + 1)
+    # A small gap between a range's min and max, and a wider one between ranges.
+    bound_padx = {"min": (0, 4), "max": (0, 12)}
+    for r in range(MAX_RANGES):
+        tk.Label(pf_container, text=f"Range {r + 1}").grid(row=2, column=1 + 2 * r, columnspan=2,
+                                                          padx=(0, 12))
+        for b, bound in enumerate(PASSFAIL_BOUNDS):
+            tk.Label(pf_container, text=bound).grid(row=3, column=1 + 2 * r + b, padx=bound_padx[bound])
     init_passfail = _last.get("passfail", {})
-    passfail_entries = {}   # label -> (min_entry, max_entry)
+    passfail_entries = {}   # label -> [(min_entry, max_entry) per range]
     passfail_widgets = []   # flat list for lock/unlock
     pf_labels = []          # their widths line up the Label & Auto-Save fields below
     for j, label in enumerate(PASSFAIL_LABELS):
-        row = j + 3
+        row = j + 4
         pf_label = tk.Label(pf_container, text=label_text(label), anchor="e")
         pf_label.grid(row=row, column=0, pady=4, padx=(0, 8), sticky="e")
         pf_labels.append(pf_label)
-        inits = init_passfail.get(label, (PASSFAIL_DEFAULT, PASSFAIL_DEFAULT))
-        row_entries = []
-        for col, (bound, init) in enumerate(zip(PASSFAIL_BOUNDS, inits), start=1):
-            e = tk.Entry(pf_container, width=8)
-            e.insert(0, init)
-            e.grid(row=row, column=col, pady=4, padx=bound_padx[bound], sticky="w")
-            e.bind("<Key>", on_entry_change)
-            row_entries.append(e)
-            passfail_widgets.append(e)
-        passfail_entries[label] = tuple(row_entries)
+        inits = init_passfail.get(label, [(PASSFAIL_DEFAULT, PASSFAIL_DEFAULT)] * MAX_RANGES)
+        cols = []
+        for r in range(MAX_RANGES):
+            pair = []
+            for b, (bound, init) in enumerate(zip(PASSFAIL_BOUNDS, inits[r])):
+                e = tk.Entry(pf_container, width=ENTRY_WIDTH)
+                e.insert(0, init)
+                e.grid(row=row, column=1 + 2 * r + b, pady=4, padx=bound_padx[bound], sticky="w")
+                e.bind("<Key>", on_entry_change)
+                pair.append(e)
+                passfail_widgets.append(e)
+            cols.append(tuple(pair))
+        passfail_entries[label] = cols
 
-    # Base: which base the depth and width are measured from (PASSFAIL_INFO).
-    # It spans the min and max columns, so it can't widen the min column.
-    base_row = len(PASSFAIL_LABELS) + 3
+    # Base, per range: which base the depth and width are measured from
+    # (PASSFAIL_INFO). Each spans its range's min and max columns, so it can't
+    # widen the min column.
+    base_row = len(PASSFAIL_LABELS) + 4
     base_label = tk.Label(pf_container, text=PEAK_BASE_LABEL, anchor="e")
     base_label.grid(row=base_row, column=0, pady=4, padx=(0, 8), sticky="e")
     pf_labels.append(base_label)
-    peak_base_var = tk.StringVar(value=_last.get("peak_base", PEAK_BASE_DEFAULT))
-    base_menu = tk.OptionMenu(pf_container, peak_base_var, *PEAK_BASE_OPTIONS)
-    base_menu.grid(row=base_row, column=1, columnspan=2, pady=4, sticky="w")
-    peak_base_var.trace_add("write", on_entry_change)
-    passfail_widgets.append(base_menu)
+    init_bases = _last.get("peak_base", range_texts(PEAK_BASE_DEFAULT, PEAK_BASE_DEFAULT))
+    base_vars = []
+    for r in range(MAX_RANGES):
+        var = tk.StringVar(value=init_bases[r])
+        base_menu = tk.OptionMenu(pf_container, var, *PEAK_BASE_OPTIONS)
+        base_menu.grid(row=base_row, column=1 + 2 * r, columnspan=2, pady=4, sticky="w")
+        var.trace_add("write", on_entry_change)
+        base_vars.append(var)
+        passfail_widgets.append(base_menu)
 
     # More Info: an optional label (prefix + zero-padded counter) and auto-save.
     # Session-only (kept in _last, not presets) and never locked by Save; Run
@@ -890,7 +965,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
         _bind_checkbox_key(root, "l", readout_section.laser_cb)
 
     save_frame = tk.Frame(frame)
-    save_frame.grid(row=SAVEBTN_ROW, column=0, columnspan=2, pady=10)
+    save_frame.grid(row=SAVEBTN_ROW, column=0, columnspan=COLS, pady=10)
     save_btn = tk.Button(save_frame, text="Save", command=on_save, width=10)
     save_btn.pack(side="left", padx=5)
     change_btn = tk.Button(save_frame, text="Change", command=on_change_params, width=10, state="disabled")
@@ -899,9 +974,9 @@ def get_inputs(readout=None, auto_run=False, source=None):
     preset_save_btn.pack(side="left", padx=5)
 
     # ---- Reference -------------------------------------------------------
-    section_header(frame, "Reference", HEADER2_ROW, info=REFERENCE_INFO)
+    section_header(frame, "Reference", HEADER2_ROW, info=REFERENCE_INFO, span=COLS)
     ref_frame = tk.Frame(frame)
-    ref_frame.grid(row=REFBTN_ROW, column=0, columnspan=2, pady=4)
+    ref_frame.grid(row=REFBTN_ROW, column=0, columnspan=COLS, pady=4)
     ref_var = tk.IntVar(value=0)
     ref_check = tk.Checkbutton(ref_frame, text="Use reference (R)", variable=ref_var,
                                command=on_toggle_ref, state="disabled")
@@ -915,9 +990,9 @@ def get_inputs(readout=None, auto_run=False, source=None):
     _bind_checkbox_key(root, "r", ref_check)
 
     # ---- Instruments -----------------------------------------------------
-    section_header(frame, "Instruments", HEADER3_ROW)
+    section_header(frame, "Instruments", HEADER3_ROW, span=COLS)
     inst_frame = tk.Frame(frame)
-    inst_frame.grid(row=RUNBTN_ROW, column=0, columnspan=2, pady=10)
+    inst_frame.grid(row=RUNBTN_ROW, column=0, columnspan=COLS, pady=10)
     run_btn = tk.Button(inst_frame, text="Run (Enter)", command=on_run, width=10, state="disabled")
     run_btn.pack(side="left", padx=5)
 
@@ -925,8 +1000,8 @@ def get_inputs(readout=None, auto_run=False, source=None):
     root.bind("<Return>", lambda _e: on_run())
     root.bind("<KP_Enter>", lambda _e: on_run())
 
-    result_label = tk.Label(frame, text="", wraplength=320, justify="left")
-    result_label.grid(row=RESULT_ROW, column=0, columnspan=2)
+    result_label = tk.Label(frame, text="", wraplength=400, justify="left")
+    result_label.grid(row=RESULT_ROW, column=0, columnspan=COLS)
 
     update_ref_ui()
 

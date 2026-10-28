@@ -156,15 +156,15 @@ def parse_time(text):
     return None
 
 
-def sweep_values(params, il):
-    """The values every row of one sweep shares, by item key. il: the sweep's
-    insertion loss, or None without a reference."""
+def sweep_values(params, il, r):
+    """The values every row of one sweep's range r shares, by item key. il:
+    the range's insertion loss, or None without a reference."""
     return {
         'date': parse_date(params.date),
         'time': parse_time(params.time),
         'il': il,
-        'wl_start': params.wl_start,
-        'wl_stop': params.wl_stop,
+        'wl_start': params.wl_start[r],
+        'wl_stop': params.wl_stop[r],
         'speed': params.speed,
         'step': params.step_pm,
         'tls_power': params.tls_dbm,

@@ -168,8 +168,18 @@ INPUT_STYLE_FULL = {**INPUT_STYLE, 'width': '100%'}
 BW_SETTINGS_STYLE = {'marginTop': '10px', 'width': '140px'}
 BW_SETTINGS_HIDDEN = {**BW_SETTINGS_STYLE, 'display': 'none'}
 # A tab's part of the right sidebar (Plot sampling and Click mode): spaced
-# like the sidebar's own sections, so it reads as two more of them.
+# like the sidebar's own sections, so it reads as two more of them. Only the
+# open tab's part shows.
 PANEL_STYLE = {'display': 'flex', 'flexDirection': 'column', 'gap': '20px'}
+PANEL_HIDDEN = {**PANEL_STYLE, 'display': 'none'}
+# The tab bar over the plot, with two or more ranges: tabs as wide as their
+# names (Dash stretches them to fill the bar), in the window's font, and the
+# menu bar's color on the open one.
+TABS_STYLE = {'height': '30px'}
+TABS_COLORS = {'border': '#ccc', 'primary': '#2c3e50', 'background': '#ecf0f1'}
+TAB_STYLE = {'flex': '0 0 auto', 'padding': '4px 18px', 'lineHeight': '20px', 'fontSize': '13px',
+             'fontFamily': WINDOW_CSS_FONT}
+TAB_SELECTED_STYLE = {**TAB_STYLE, 'fontWeight': 'bold'}
 
 # The Bandwidth markers' clicked x positions, [B1 (peak), B2 (base)], and
 # which of them the next click places or moves (0 = B1, 1 = B2).
@@ -200,9 +210,10 @@ def _table_absent(params):
             'peak': () if params.reference else ('IL',)}
 
 
-def _range_tab(app, key, raw_w: Dataset, params: Params):
-    """One range's tab: its plot, the tables under it, its part of the right
+def _range_tab(app, key, raw_w: Dataset, params: Params, r):
+    """Range r's tab: its plot, the tables under it, its part of the right
     sidebar (Plot sampling and Click mode), and the callbacks behind them.
+    raw_w is the range's data.
 
     Every component id ends in "-<key>" (spectrum-1, markers-store-1, ...),
     so each tab's copy has its own. The menu bar, the dialogs and the Label
@@ -213,7 +224,7 @@ def _range_tab(app, key, raw_w: Dataset, params: Params):
         """This tab's id for the component called `name`."""
         return f'{name}-{key}'
 
-    wl, watt_s, dbm_s = pre_process(raw_w, params)
+    wl, watt_s, dbm_s = pre_process(raw_w, params, r)
     d_x = round(wl[1] - wl[0], 7)
     channels = tuple(params.channel)
 
@@ -282,7 +293,7 @@ def _range_tab(app, key, raw_w: Dataset, params: Params):
     )
 
     pk = peak_detection(wl, dbm)
-    exam = exam_peak(pk, params)
+    exam = exam_peak(pk, params, r)
     exam_out, exam_idx = exam['verdict'], exam['peak']
     if pk is not None:
         # data[5..10] — peak annotation traces (Peaks, L/R bases, FWHM max/avg/min)
@@ -468,7 +479,7 @@ def _range_tab(app, key, raw_w: Dataset, params: Params):
 
     # What every row of this sweep shares: its date, insertion loss (the IL
     # marker's value) and settings.
-    _sweep_values = pf.sweep_values(params, -gmax_y if params.reference else None)
+    _sweep_values = pf.sweep_values(params, -gmax_y if params.reference else None, r)
 
     def _has_custom(m2):
         """Whether both Bandwidth markers are set, so "custom" is a peak to save."""
@@ -1108,11 +1119,14 @@ def _range_tab(app, key, raw_w: Dataset, params: Params):
     )
 
 
-def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorption Spectrum",
+def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title="Absorption Spectrum",
                  autosaved_to=None, autosave_error=None):
     """
     Parameters
     ----------
+    datasets : list of Dataset
+        The sweep's data, one Dataset per wavelength range. Each range gets
+        a tab; with one range there is no tab bar.
     readout : readout.PowerReadout, optional
         The session's live power readout, shown in the "Power Readout" modal.
         None (e.g. plotting a saved CSV) leaves the button disabled.
@@ -1145,10 +1159,14 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
     app.index_string = INDEX_STRING
 
     # The range tabs: each builds its plot, tables and sidebar part, and
-    # registers its own callbacks (_range_tab).
-    tabs = [_range_tab(app, '1', raw_w, params)]
-    # The tab the menu bar's Save peak info, Apply filter and Plot in Watt
-    # act on.
+    # registers its own callbacks (_range_tab). A tab's key is its range
+    # number, which ends its components' ids.
+    tabs = [_range_tab(app, str(r + 1), raw_w, params, r) for r, raw_w in enumerate(datasets)]
+    tab_of = {t.key: t for t in tabs}
+    # Only the open tab's part of the sidebar shows (switch_tab).
+    for t in tabs:
+        t.panel.style = PANEL_STYLE if t is tabs[0] else PANEL_HIDDEN
+    # Save peak info's peaks (until it lists every range's).
     open_tab = tabs[0]
 
     # Three sections, top to bottom: Label (SN), then the tab's Plot sampling
@@ -1528,11 +1546,21 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         nav_status,
         html.Div([
             # Takes all the width the sidebar leaves. Below 900px the page
-            # scrolls sideways instead of squeezing the plot.
-            html.Div(open_tab.content, style={'flex': '1', 'minWidth': '900px'}),
+            # scrolls sideways instead of squeezing the plot. With two or more
+            # ranges, a tab bar over the plot picks the range; dcc.Tabs puts
+            # only the open tab's plot and tables on the page.
+            html.Div(tabs[0].content if len(tabs) == 1 else dcc.Tabs(
+                id='range-tabs', value=tabs[0].key,
+                children=[dcc.Tab(label=f'Range {t.key}', value=t.key, children=t.content,
+                                  style=TAB_STYLE, selected_style=TAB_SELECTED_STYLE)
+                          for t in tabs],
+                style=TABS_STYLE, colors=TABS_COLORS),
+                style={'flex': '1', 'minWidth': '900px'}),
             right_sidebar,
         ], style={'display': 'flex', 'alignItems': 'flex-start'}),
         *[store for t in tabs for store in t.stores],
+        # The open tab's key, for the menu bar's Apply filter and Plot in Watt.
+        dcc.Store(id='open-tab', data=tabs[0].key),
         dcc.Store(id='idle-store', data=None),
         # Each table's columns/decimals (starts from the remembered ones) and
         # which table (and tab) the Customize dialog is editing.
@@ -1575,19 +1603,20 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         file_path = result[0] if isinstance(result, (list, tuple)) else result
         # data/ref are the full-resolution per-channel lists; save_csv_raw pairs
         # them with params.channel to label columns Ch.<n> / Ch.<n>(Ref).
-        save_csv_raw(raw_w, params=params, file_path=file_path)
+        save_csv_raw(datasets, params=params, file_path=file_path)
         return _status(f"Raw data saved: {os.path.basename(file_path)}")
 
     @app.callback(
         Output('plot-watt-dummy', 'children'),
         Input('plot-watt-btn', 'n_clicks'),
+        State('open-tab', 'data'),
         prevent_initial_call=True,
     )
-    def plot_watt(n_clicks):
+    def plot_watt(n_clicks, key):
         # Option A: build a standalone Plotly figure in linear (Watt) units and
         # open it in a SECOND pywebview window as a self-contained HTML file.
-        # It's the open tab's sweep (_range_tab's _watt_figure).
-        fig = open_tab.watt_figure()
+        # It's the open tab's range (_range_tab's _watt_figure).
+        fig = tab_of[key].watt_figure()
 
         # Self-contained HTML (plotly.js inlined) so it opens offline / in the
         # packaged build, served by this window's own Dash server (see
@@ -1595,7 +1624,8 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         # host_url is that server's address.
         _watt_page['html'] = fig.to_html(include_plotlyjs=True, config={'scrollZoom': True})
         watt_window = webview.create_window(
-            f'{title} — Watt', flask.request.host_url + 'watt-plot',
+            f'{title} — Watt' + (f' (Range {key})' if len(tabs) > 1 else ''),
+            flask.request.host_url + 'watt-plot',
             width=1250, height=700, maximized=True,
         )
         watt_window.events.loaded += _apply_zoom
@@ -1642,6 +1672,26 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         if window is not None:
             window.destroy()
         return dash.no_update
+
+    # Opening a tab: note which tab is open, for the menu bar, and show its
+    # part of the sidebar. In the browser, so the sidebar switches with the
+    # tab bar.
+    if len(tabs) > 1:
+        app.clientside_callback(
+            """
+            function(key) {
+                var keys = __KEYS__;
+                return [key].concat(keys.map(function (k) {
+                    return k === key ? __SHOWN__ : __HIDDEN__;
+                }));
+            }
+            """.replace('__KEYS__', json.dumps([t.key for t in tabs]))
+               .replace('__SHOWN__', json.dumps(PANEL_STYLE))
+               .replace('__HIDDEN__', json.dumps(PANEL_HIDDEN)),
+            Output('open-tab', 'data'),
+            *[Output(t.id('panel'), 'style') for t in tabs],
+            Input('range-tabs', 'value'),
+        )
 
     # Each modal overlay -> the button that dismisses it (Esc clicks it). The
     # keybinds below look up which modal, if any, is open.
@@ -2104,17 +2154,19 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
         State('filter-select', 'value'),
         State('param1-input', 'value'),
         State('param2-input', 'value'),
+        State('open-tab', 'data'),
         prevent_initial_call=True,
     )
-    def close_or_apply_filter(cancel, confirm, filt, parameter1, parameter2):
+    def close_or_apply_filter(cancel, confirm, filt, parameter1, parameter2, key):
         triggered = callback_context.triggered[0]['prop_id']
         if 'filter-cancel' in triggered:
             return MODAL_HIDDEN, ""
+        tab = tab_of[key]
         try:
-            patched = open_tab.apply_filter(filt, parameter1, parameter2)
+            patched = tab.apply_filter(filt, parameter1, parameter2)
         except FilterError as e:
             return dash.no_update, str(e)
-        set_props(open_tab.id('spectrum'), {'figure': patched})
+        set_props(tab.id('spectrum'), {'figure': patched})
         return MODAL_HIDDEN, ""
 
     # Sweep-info modal: open / close. Read-only, so there is nothing to apply.

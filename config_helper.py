@@ -16,6 +16,13 @@ log = logging.getLogger(__name__)
 
 FIELD_LABELS = ["Start Wavelength (nm)", "Stop Wavelength (nm)", "Sweep Speed (nm/s)", "Step Size (pm)", "TLS Power (dBm)"]
 DEFAULTS = ["0", "0", "0.5", "0.0125", "0.1"]
+
+# Wavelength ranges: a sweep has up to MAX_RANGES, each a column in the config
+# window. λ Start and λ Stop are per range (RANGE_LABELS); the other fields
+# are shared. An unused range's λ Start and λ Stop are blank, and the used
+# ranges come first.
+MAX_RANGES   = 4
+RANGE_LABELS = FIELD_LABELS[:2]
 SWEEP_SPEED_OPTIONS = ["0.5", "1.0", "2.0", "5.0", "10.0", "20.0", "40.0", "50.0", "80.0", "100.0", "150.0", "160.0", "200.0"]
 
 # Extra dropdown-only fields (sweep padding, powermeter range + dynamic-range scanning).
@@ -43,13 +50,14 @@ CHANNEL_LABEL   = "Input Channel"
 CHANNEL_OPTIONS = (1, 2, 3, 4)
 CHANNEL_DEFAULT = "1"  # space-separated channel list, as the config window holds it
 
-# Pass/Fail criteria: each label has a min and a max float field, defaulting to 0;
-# negative values are rejected. Each label maps to its (min, max) Params attributes.
+# Pass/Fail criteria: each label has a min and a max float field per range,
+# defaulting to 0; negative values are rejected. Each label maps to its Params
+# attribute, which holds one (min, max) pair per range.
 PASSFAIL_LABELS  = ["Peak Wavelength (nm)", "Peak Depth (dB)", "Peak Width (pm)"]
 PASSFAIL_KEYS    = {
-    "Peak Wavelength (nm)": ("wl_min", "wl_max"),
-    "Peak Depth (dB)"     : ("depth_min", "depth_max"),
-    "Peak Width (pm)"     : ("width_min", "width_max"),
+    "Peak Wavelength (nm)": "crit_wl",
+    "Peak Depth (dB)"     : "crit_depth",
+    "Peak Width (pm)"     : "crit_width",
 }
 PASSFAIL_BOUNDS  = ("min", "max")
 PASSFAIL_DEFAULT = "0"
@@ -95,6 +103,10 @@ LABEL_START_DEFAULT = "1"
 # params.time, and how the config window spells it out before a time exists.
 TIME_FORMAT      = "%Y-%m-%d_%H-%M-%S"
 TIME_PLACEHOLDER = "YYYY-MM-DD_hh-mm-ss"
+
+# What a per-range read-out (Log Count, Duration) shows for an unused range,
+# or before Save works it out.
+NO_VALUE = "—"
 
 
 def build_label(prefix, digits, n):
@@ -185,8 +197,10 @@ def parse_channels(s):
 # Preset files: one TOML file per laser source, preset_<source>.toml in the
 # data folder, with one [section] per preset, named after it. The config window
 # handles a preset as a dict of field label -> text, the way its fields hold
-# it. These map each label to its key in the file, in the order the window
-# shows the fields. Keys carry their units, and "lambda" stands for λ.
+# it: a per-range field (λ Start, λ Stop, each criterion bound and Base) has a
+# list of MAX_RANGES texts, Range 1 first. These map each label to its key in
+# the file, in the order the window shows the fields. Keys carry their units,
+# and "lambda" stands for λ. A per-range key lists the used ranges' values.
 PRESET_KEYS = {
     CHANNEL_LABEL          : "channels",
     "Start Wavelength (nm)": "lambda_start_nm",
@@ -199,15 +213,16 @@ PRESET_KEYS = {
     DYN_SCAN_LABEL         : "dynamic_scans",
     DECREMENT_LABEL        : "decrement_db",
 }
-# Pass/Fail criteria: each label's min and max are one [min, max] pair.
+# Pass/Fail criteria: each label's min and max are one [min, max] pair per range.
 PASSFAIL_PRESET_KEYS = {
     "Peak Wavelength (nm)": "peak_lambda_nm",
     "Peak Depth (dB)"     : "peak_depth_db",
     "Peak Width (pm)"     : "peak_width_pm",
 }
-# The peak test's base. It goes after the pairs, as in the window.
+# The peak test's base, per range. It goes after the pairs, as in the window.
 PEAK_BASE_PRESET_KEY = "peak_base"
-# A key missing from a preset gets its field's default.
+# A key missing from a preset gets its field's default (per-range fields:
+# see range_texts).
 PRESET_DEFAULTS = {**dict(zip(FIELD_LABELS, DEFAULTS)), **EXTRA_DEFAULTS, CHANNEL_LABEL: CHANNEL_DEFAULT}
 # Dropdowns: a number read from a file shows as the option it equals, so a
 # padding of 10.0 still picks "10" and a speed of 1 picks "1.0".
@@ -218,8 +233,9 @@ PRESET_FILE_HEADER = """\
 Sweep presets for the source in this file's name, one [section] per preset.
 The config window writes this file (Manage Presets). Change values only,
 never the keys. Units are part of the keys; "lambda" is the wavelength.
-Peak test bounds are [min, max]. 0 means "not set".
-peak_base is "max", "avg", or "min"."""
+lambda_start_nm and lambda_stop_nm list one value per wavelength range.
+The peak test keys list one [min, max] pair per range. 0 means "not set".
+peak_base lists "max", "avg", or "min" per range."""
 
 
 def preset_path(source):
@@ -255,16 +271,44 @@ def _preset_text(value, options=None):
     return str(value)
 
 
+def range_texts(first, rest=""):
+    """A per-range field's texts: `first` for Range 1 and `rest` for the
+    others, such as a blank λ Start in an unused range."""
+    return [first] + [rest] * (MAX_RANGES - 1)
+
+
+def used_ranges(vals):
+    """How many ranges a {label: text} uses: up to the last one with a λ
+    Start or a λ Stop. Save makes sure no range before it is blank."""
+    return max([r + 1 for r in range(MAX_RANGES)
+                if any(vals[label][r].strip() for label in RANGE_LABELS)], default=0)
+
+
+def _per_range(value):
+    """A per-range key's value from a file as a list, one item per range.
+    A single value (a preset saved before ranges existed) is one range."""
+    return value if isinstance(value, list) else [value]
+
+
+def _is_pair(value):
+    return (isinstance(value, list) and len(value) == 2
+            and not any(isinstance(v, list) for v in value))
+
+
 def _preset_items(vals):
     """{key: value} for one preset in a file, from the config window's {label: text}."""
+    used = used_ranges(vals)
     items = {}
     for label, key in PRESET_KEYS.items():
+        if label in RANGE_LABELS:
+            items[key] = [_preset_value(text) for text in vals[label][:used]]
+            continue
         text = vals.get(label, "")
         items[key] = list(parse_channels(text)) if label == CHANNEL_LABEL else _preset_value(text)
     for label, key in PASSFAIL_PRESET_KEYS.items():
-        items[key] = [_preset_value(vals.get(passfail_col(label, b), "")) for b in PASSFAIL_BOUNDS]
-    # Old preset CSVs have no base; their presets were tested with the default.
-    items[PEAK_BASE_PRESET_KEY] = vals.get(PEAK_BASE_LABEL, PEAK_BASE_DEFAULT)
+        items[key] = [[_preset_value(vals[passfail_col(label, b)][r]) for b in PASSFAIL_BOUNDS]
+                      for r in range(used)]
+    items[PEAK_BASE_PRESET_KEY] = vals[PEAK_BASE_LABEL][:used]
     return items
 
 
@@ -275,20 +319,32 @@ def _preset_vals(table, where):
     """
     vals = {}
     for label, key in PRESET_KEYS.items():
-        if key not in table:
+        if label in RANGE_LABELS:
+            texts = [_preset_text(v) for v in _per_range(table.get(key, []))]
+            if not texts:
+                texts = [PRESET_DEFAULTS[label]]
+            vals[label] = texts[:MAX_RANGES] + [""] * (MAX_RANGES - len(texts))
+        elif key not in table:
             vals[label] = PRESET_DEFAULTS[label]
         elif label == CHANNEL_LABEL and isinstance(table[key], list):
             vals[label] = channels_to_str(table[key])
         else:
             vals[label] = _preset_text(table[key], PRESET_OPTIONS.get(label))
     for label, key in PASSFAIL_PRESET_KEYS.items():
-        pair = table.get(key, [PASSFAIL_DEFAULT] * 2)
-        if not (isinstance(pair, list) and len(pair) == 2):
-            log.warning("%s: %s is not a [min, max] pair; using 0 and 0.", where, key)
-            pair = [PASSFAIL_DEFAULT] * 2
-        for bound, value in zip(PASSFAIL_BOUNDS, pair):
-            vals[passfail_col(label, bound)] = _preset_text(value)
-    vals[PEAK_BASE_LABEL] = _preset_text(table.get(PEAK_BASE_PRESET_KEY, PEAK_BASE_DEFAULT))
+        pairs = table.get(key, [])
+        if _is_pair(pairs):
+            pairs = [pairs]   # one range's [min, max], saved before ranges existed
+        for bound in PASSFAIL_BOUNDS:
+            vals[passfail_col(label, bound)] = range_texts(PASSFAIL_DEFAULT, PASSFAIL_DEFAULT)
+        for r, pair in enumerate(pairs[:MAX_RANGES] if isinstance(pairs, list) else [pairs]):
+            if not _is_pair(pair):
+                log.warning("%s: %s for Range %d is not a [min, max] pair; using 0 and 0.",
+                            where, key, r + 1)
+                continue
+            for bound, value in zip(PASSFAIL_BOUNDS, pair):
+                vals[passfail_col(label, bound)][r] = _preset_text(value)
+    bases = [_preset_text(b) for b in _per_range(table.get(PEAK_BASE_PRESET_KEY, []))]
+    vals[PEAK_BASE_LABEL] = bases[:MAX_RANGES] + [PEAK_BASE_DEFAULT] * (MAX_RANGES - len(bases))
     unknown = (set(table) - set(PRESET_KEYS.values()) - set(PASSFAIL_PRESET_KEYS.values())
                - {PEAK_BASE_PRESET_KEY})
     if unknown:
@@ -456,6 +512,13 @@ def _read_csv_presets(path):
             for label in EXTRA_LABELS + [CHANNEL_LABEL] + PASSFAIL_COLUMNS:
                 cell = (row.get(label) or "").strip()
                 vals[label] = cell or PRESET_DEFAULTS.get(label, PASSFAIL_DEFAULT)
+            # One range. Old preset CSVs have no base; their presets were
+            # tested with the default.
+            for label in RANGE_LABELS:
+                vals[label] = range_texts(vals[label])
+            for col in PASSFAIL_COLUMNS:
+                vals[col] = range_texts(vals[col], PASSFAIL_DEFAULT)
+            vals[PEAK_BASE_LABEL] = range_texts(PEAK_BASE_DEFAULT, PEAK_BASE_DEFAULT)
             presets[name] = vals
     return presets
 
@@ -647,10 +710,11 @@ def show_info(widget, title, text):
     top.focus_set()
 
 
-def make_extra_widgets(frame, rows, init, on_change, enable_dynamic=True):
+def make_extra_widgets(frame, rows, init, on_change, enable_dynamic=True, span=1):
     """Build the extra dropdowns, one per EXTRA_LABELS entry.
 
-    `rows`         dict of label -> grid row; each dropdown goes on its label's row.
+    `rows`         dict of label -> grid row; each dropdown goes on its label's row,
+                   in column 1 and the `span` - 1 columns after it.
     `init`         dict of label -> initial value (falls back to EXTRA_DEFAULTS).
     `on_change`    callback fired on any selection change.
     `enable_dynamic`  when False, Dynamic Range Scans and Decrement are permanently
@@ -664,7 +728,7 @@ def make_extra_widgets(frame, rows, init, on_change, enable_dynamic=True):
         tk.Label(frame, text=label_text(label), anchor="e").grid(row=rows[label], column=0, pady=4, padx=(0, 8), sticky="e")
         v = tk.StringVar(value=init.get(label, EXTRA_DEFAULTS[label]))
         m = tk.OptionMenu(frame, v, *EXTRA_OPTIONS[label])
-        m.grid(row=rows[label], column=1, pady=4, sticky="w")
+        m.grid(row=rows[label], column=1, columnspan=span, pady=4, sticky="w")
         v.trace_add("write", on_change)
         vars_[label] = v
         menus[label] = m
@@ -683,80 +747,122 @@ def make_extra_widgets(frame, rows, init, on_change, enable_dynamic=True):
     return vars_, menus
 
 
-def validate_inputs(raw_strings, num_data, avg_time, duration, padding, source_spec):
+def validate_inputs(start_strs, stop_strs, raw_strings, num_data, avg_time, duration, padding, source_spec):
     """Return (values, None) on success or (None, error_msg) on failure.
 
+    `start_strs` and `stop_strs` are the range columns' λ Start and λ Stop
+    texts, Range 1 first. A range with both blank is unused, and the used
+    ranges must come first. `raw_strings` are the shared Sweep Speed, Step Size
+    and TLS Power texts. The Log Count and Duration rows show one value per
+    range column: `num_data` and `duration` hold a StringVar per column (NO_VALUE
+    for an unused range), and `avg_time` one for all.
+
     `padding` is the extra sweep range added on each side, in nm (0 for none).
-    It widens the range the log count and bounds check are computed over, but the
-    returned start/stop stay as entered — inst_run/plot_helper re-apply it from
-    Params.padding.
+    It widens the range the log count is computed over, but the returned
+    starts/stops stay as entered — inst_run/plot_helper re-apply it from
+    Params.padding. The gap between ranges doesn't count it.
 
     `source_spec` is the selected laser's TLS_SOURCES entry: its wl_min/wl_max
     bound the wavelengths and its power_rules bound the TLS power. For an
     external source the TLS power may be blank and comes back as None: the app
     never sets that laser's power.
+
+    `values` is {'wl_start', 'wl_stop', 'speed', 'step_pm', 'tls_dbm', 'at_us',
+    'num_data'}, where wl_start, wl_stop and num_data list one value per used
+    range.
     """
     values = []
     for i, s in enumerate(raw_strings):
-        if i == 3 and s.strip() == "":  # step_size defaults to 0 when empty
+        if i == 1 and s.strip() == "":  # step_size defaults to 0 when empty
             values.append(0.0)
             continue
-        if i == 4 and s.strip() == "" and source_spec["external"]:  # TLS power optional for an external laser
+        if i == 2 and s.strip() == "" and source_spec["external"]:  # TLS power optional for an external laser
             values.append(None)
             continue
         try:
             values.append(float(s))
         except ValueError:
             return None, "all fields must be numbers."
-    wav_start, wav_stop, sweep_speed, step_size, power_dbm = values[0], values[1], values[2], values[3], values[4]
-    
-    # wav_start    -= padding
-    # wav_stop     += padding
-    
+    sweep_speed, step_size, power_dbm = values
+
+    # The used ranges: from Range 1 on, with no blank range in between.
+    used = [bool(a.strip() or b.strip()) for a, b in zip(start_strs, stop_strs)]
+    n = used.index(False) if False in used else len(used)
+    if n == 0:
+        return None, "Enter λ Start and λ Stop for Range 1."
+    if any(used[n:]):
+        return None, (f"Range {n + 1} is blank, but Range {n + 1 + used[n:].index(True)} isn't. "
+                      "Fill in the ranges in order, from Range 1.")
+    for r in range(n):
+        if not (start_strs[r].strip() and stop_strs[r].strip()):
+            return None, f"Range {r + 1}: enter both λ Start and λ Stop, or leave both blank."
+    try:
+        wav_starts = [float(s) for s in start_strs[:n]]
+        wav_stops  = [float(s) for s in stop_strs[:n]]
+    except ValueError:
+        return None, "all fields must be numbers."
+
     wl_min, wl_max = source_spec["wl_min"], source_spec["wl_max"]
-    if not (wl_min <= wav_start <= wl_max) or not (wl_min <= wav_stop <= wl_max):
-        return None, f"λ Start and λ Stop must be between {wl_min:g} and {wl_max:g} nm."
-    if wav_start >= wav_stop:
-        return None, "λ Start must be less than λ Stop."
+    for r, (wav_start, wav_stop) in enumerate(zip(wav_starts, wav_stops)):
+        if not (wl_min <= wav_start <= wl_max) or not (wl_min <= wav_stop <= wl_max):
+            return None, f"Range {r + 1}: λ Start and λ Stop must be between {wl_min:g} and {wl_max:g} nm."
+        if wav_start >= wav_stop:
+            return None, f"Range {r + 1}: λ Start must be less than λ Stop."
     if step_size < 0:
         return None, "Step size must not be less than 0."
     if f"{sweep_speed}" not in SWEEP_SPEED_OPTIONS:
         return None, "Sweep speed must be selected from the dropdown list."
     # Maximum input power for N7748A: 16 dBm
-    # TLS power: of the source's bands that contain the whole sweep, the one
-    # with the highest limit applies (nested bands: tightest = highest). The
-    # old if/elif chain fell through to a tighter band's *lower* limit when the
-    # power was under the wider band's limit, rejecting 9-11 dBm in 1515-1620.
-    applicable = [(lo, hi, lim) for lo, hi, lim in source_spec["power_rules"]
-                  if lo <= wav_start and wav_stop <= hi]
-    if applicable and power_dbm is not None:
-        lo, hi, lim = max(applicable, key=lambda rule: rule[2])
-        if power_dbm > lim:
-            return None, f"TLS power exceeds the maximum ({lim:g} dBm) in {lo:g}-{hi:g} nm"
+    # TLS power, for each range: of the source's bands that contain the whole
+    # range, the one with the highest limit applies (nested bands: tightest =
+    # highest). The old if/elif chain fell through to a tighter band's *lower*
+    # limit when the power was under the wider band's limit, rejecting 9-11 dBm
+    # in 1515-1620.
+    for r, (wav_start, wav_stop) in enumerate(zip(wav_starts, wav_stops)):
+        applicable = [(lo, hi, lim) for lo, hi, lim in source_spec["power_rules"]
+                      if lo <= wav_start and wav_stop <= hi]
+        if applicable and power_dbm is not None:
+            lo, hi, lim = max(applicable, key=lambda rule: rule[2])
+            if power_dbm > lim:
+                return None, f"TLS power exceeds the maximum ({lim:g} dBm) in {lo:g}-{hi:g} nm, for Range {r + 1}."
     
     avg_t         = int(step_size/sweep_speed*1e3)  # us
     # 25 us <= avg_t <= 10s
     avg_t         = min(max(avg_t, 25), 10000000)
     step_new      = round((sweep_speed/1e3) * avg_t, 4)
-    wav_range     = ((wav_stop + padding) - (wav_start - padding)) * 1000   # pm
-    pp            = int(wav_range // step_new)
-    qq            = wav_range % step_new
-    num_data_log  = pp if qq == 0 else pp+1
+    num_data_logs = []
+    for wav_start, wav_stop in zip(wav_starts, wav_stops):
+        wav_range = ((wav_stop + padding) - (wav_start - padding)) * 1000   # pm
+        pp        = int(wav_range // step_new)
+        qq        = wav_range % step_new
+        num_data_logs.append(pp if qq == 0 else pp+1)
     
-    num_data.set(f"{num_data_log:,d}")
     avg_time.set(f"{avg_t:,d}")
-    # Logging time of one sweep (padding included); excludes setup and readback.
-    duration.set(f"{num_data_log * avg_t / 1e6:,.2f}")
+    for r in range(len(num_data)):
+        if r < n:
+            num_data[r].set(f"{num_data_logs[r]:,d}")
+            # Logging time of one sweep (padding included); excludes setup and readback.
+            duration[r].set(f"{num_data_logs[r] * avg_t / 1e6:,.2f}")
+        else:
+            num_data[r].set(NO_VALUE)
+            duration[r].set(NO_VALUE)
 
-    if num_data_log > 1000000:
-        return None, "Log count exceeds the maximum (max: 1M)"
+    # Each range starts more than two steps after the one before it ends:
+    # gen_xaxis keeps one step beyond λ Start and λ Stop, so the plotted data
+    # of neighbouring ranges can't overlap. Padding isn't counted, and the
+    # ranges aren't sorted for the user.
+    step_nm = step_new / 1000
+    for r in range(1, n):
+        if round(wav_starts[r] - step_nm, 7) <= round(wav_stops[r - 1] + step_nm, 7):
+            return None, (f"Range {r + 1}: λ Start must be above {round(wav_stops[r - 1] + 2 * step_nm, 7)} nm, "
+                          f"two steps above Range {r}'s λ Stop.")
+
+    for r, num_data_log in enumerate(num_data_logs):
+        if num_data_log > 1000000:
+            return None, f"Range {r + 1}: Log count exceeds the maximum (max: 1M)"
     
-    # values[0]  = wav_start
-    # values[1]  = wav_stop
-    values[3]  = step_new
-    values    += [avg_t, num_data_log]
-    
-    return values, None
+    return {'wl_start': wav_starts, 'wl_stop': wav_stops, 'speed': sweep_speed, 'step_pm': step_new,
+            'tls_dbm': power_dbm, 'at_us': avg_t, 'num_data': num_data_logs}, None
 
 
 def validate_extras(extra_strs):
@@ -777,13 +883,14 @@ def validate_extras(extra_strs):
     return None
 
 
-def validate_passfail(raw):
-    """Validate the Peak Test Criteria fields.
+def validate_passfail(raw, where="Peak Test Criteria"):
+    """Validate one range's Peak Test Criteria fields.
 
     `raw`: dict label -> (min_str, max_str). Returns (values, None) on success or
     (None, error_msg) on failure, where `values` is dict label -> (min_float, max_float).
     Every field must be a number, none may be negative, min must not exceed max,
-    and depth or width can't be set without a wavelength range.
+    and depth or width can't be set without a wavelength range. `where` starts
+    the error messages, such as "Peak Test Criteria, Range 2".
     """
     values = {}
     for label, (lo_s, hi_s) in raw.items():
@@ -792,19 +899,19 @@ def validate_passfail(raw):
         try:
             lo, hi = float(lo_s), float(hi_s)
         except ValueError:
-            return None, "all Peak Test Criteria fields must be numbers."
+            return None, f"{where}: all fields must be numbers."
         if lo < 0 or hi < 0:
-            return None, "Peak Test Criteria values must not be negative."
+            return None, f"{where}: values must not be negative."
         if lo > 0 and hi == 0:
             hi = float("inf")
         if lo > hi:
-            return None, f"Peak Test Criteria: {label_text(label)} min must not exceed max."
+            return None, f"{where}: {label_text(label)} min must not exceed max."
         values[label] = (lo, hi)
     # Depth and width are checked on the peak the wavelength range picks. With
     # no range (0 to 0) no peak is picked, so the test could only fail.
     wl_label, depth_label, width_label = PASSFAIL_LABELS
     if values[wl_label] == (0, 0) and (values[depth_label] != (0, 0) or values[width_label] != (0, 0)):
-        return None, "Peak Test Criteria: Depth and Width need a λ range."
+        return None, f"{where}: Depth and Width need a λ range."
     return values, None
 
 

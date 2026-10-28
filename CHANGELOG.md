@@ -4,11 +4,14 @@
 
 ### Added
 
+- A sweep can measure up to four wavelength ranges. In the config window, λ Start and λ Stop have a column per range, and each range has its own peak test criteria and Base. The graph window shows each range in its own tab.
 - In the config window, "Peak Test Criteria" has a new "Base" dropdown: max (the default), avg, or min. It sets the base the peak test measures depth and width from.
 - In the graph window, "Apply filter" has a new "Off" choice at the end of its list. It removes the filtered curve from the plot.
 
 ### Changed
 - The app is renamed from WavelengthSweep to MultiSweep (`MultiSweep.exe`). Its logs now go to `logs/MultiSweep`.
+- Raw data files have a new layout: a block of columns per range, named with the range (`R1_Wavelength_nm`, `R1_Ch1_W`, ...), and `"format": 2` in the first line. PlotSweep opens only files in this layout.
+- In the config window, the parameter and peak test fields are narrower, 7 characters wide.
 - In the graph window, the label (SN) moved from above the plot to a field in the right panel, where you can change it. "Save raw data" and "Save peak info" use the changed label.
 - If only the label's counter is changed there, the config window's counter continues from it. Any other change stops "Close & Repeat" at the config window with a message.
 - "Save peak info" saves to Excel files (.xlsx) instead of CSV files. In its table, you pick the columns and their decimals, and you can save several peaks at once.

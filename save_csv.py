@@ -19,6 +19,19 @@ COL_SCAN = "Scan"
 RAW_DIR   = data_path("Raw Data")
 PEAKS_DIR = data_path("Peaks")
 
+# The raw file's layout, written into its first line as "format". 2: one
+# column block per wavelength range, each column's name starting with the
+# range (R1_Wavelength_nm, R1_Ch1_W, ...), even for a single range. Files
+# without the key are format 1, one range with unprefixed names. open_csv
+# reads format 2 only.
+RAW_FORMAT = 2
+
+
+def range_prefix(r):
+    """The start of range r's column names in a raw file: R1_, R2_, ..."""
+    return f"R{r + 1}_"
+
+
 def auto_raw_path(params: Params):
     """Auto-save path: Raw Data/<label>_<time>.csv, or <time>.csv with no label.
 
@@ -34,7 +47,12 @@ def auto_raw_path(params: Params):
     return str(path)
 
 
-def save_csv_raw(raw_w: Dataset, params: Params, file_path=None):
+def save_csv_raw(datasets: list[Dataset], params: Params, file_path=None):
+    """Save the sweep, one Dataset per range, as a raw file (RAW_FORMAT).
+
+    Each range is a block of columns side by side, as many rows long as its
+    log count; a shorter block's cells below its end are empty.
+    """
     if file_path is None:
         initial_dir = str(RAW_DIR)
 
@@ -52,22 +70,28 @@ def save_csv_raw(raw_w: Dataset, params: Params, file_path=None):
         log.warning("Raw data save cancelled.\n")
         return
     
-    wav_range, _, _ = gen_xaxis(params)
-    df = pd.DataFrame({COL_X:wav_range})
-    
-    for ch, power in zip(params.channel, raw_w.data):
-        df[f'{COL_CH}{ch}_{raw_w.unit}'] = power
-    
-    if params.reference:
-        for ch, ref_power in zip(params.channel, raw_w.ref):
-            df[f'{COL_REF}{ch}_{raw_w.unit}'] = ref_power
-            
-    for s_idx, scan in enumerate(raw_w.scans, start=1):
-        for ch, spectrum in zip(params.channel, scan):
-            df[f'{COL_SCAN}{s_idx}_{COL_CH}{ch}_{raw_w.unit}'] = spectrum
+    blocks = []
+    for r, raw_w in enumerate(datasets):
+        p = range_prefix(r)
+        wav_range, _, _ = gen_xaxis(params, r)
+        df = pd.DataFrame({f'{p}{COL_X}': wav_range})
+        
+        for ch, power in zip(params.channel, raw_w.data):
+            df[f'{p}{COL_CH}{ch}_{raw_w.unit}'] = power
+        
+        if params.reference:
+            for ch, ref_power in zip(params.channel, raw_w.ref):
+                df[f'{p}{COL_REF}{ch}_{raw_w.unit}'] = ref_power
+                
+        for s_idx, scan in enumerate(raw_w.scans, start=1):
+            for ch, spectrum in zip(params.channel, scan):
+                df[f'{p}{COL_SCAN}{s_idx}_{COL_CH}{ch}_{raw_w.unit}'] = spectrum
+        blocks.append(df)
+    # Side by side on the row index: a shorter block gets NaN, an empty cell.
+    df = pd.concat(blocks, axis=1)
     
     with open(file_path, "w", newline="") as f:
-        f.write("# " + json.dumps(asdict(params) if params is not None else {}) + "\n")
+        f.write("# " + json.dumps({"format": RAW_FORMAT, **asdict(params)}) + "\n")
         df.to_csv(f, index=False)
         
     log.info(f"Saved raw data: {file_path}")
