@@ -1,4 +1,6 @@
+import math
 import numpy as np
+from constants import DELTA_LINE_MAX_POINTS
 from structs import Dataset, Params
 
 def lttb_multi(x, ys, n_out):
@@ -58,6 +60,51 @@ def lttb_multi(x, ys, n_out):
 def lttb(x, y, n_out):
     """Single-series LTTB downsampling (thin wrapper over `lttb_multi`)."""
     return lttb_multi(x, [y], n_out)[0]
+
+
+def delta_line(xs, ys, step, view=None, max_points=DELTA_LINE_MAX_POINTS):
+    """Points along the line between the Delta markers (xs, ys, in click
+    order), for the part of it inside `view`, an x-range (x0, x1), or for
+    all of it when view is None.
+
+    The points are generated, not downsampled: each segment gets one every
+    k steps from its first marker, plus its last marker, so with the markers
+    on data points they land on the data's wavelengths. k is the smallest
+    whole number that keeps the visible line within max_points. One point
+    past each edge of the view keeps the line running to the plot's border.
+    Returns (x, y) arrays.
+    """
+    x0, x1 = sorted(view) if view else (-np.inf, np.inf)
+    segments = list(zip(xs, ys, xs[1:], ys[1:]))
+    seen = sum(max(0.0, min(max(xa, xb), x1) - max(min(xa, xb), x0))
+               for xa, _, xb, _ in segments)
+    gap = max(1, math.ceil(seen / (max_points * step))) * step
+    lx, ly = [], []
+    for xa, ya, xb, yb in segments:
+        dx = xb - xa
+        if dx == 0:   # a vertical step: just its two markers
+            if x0 <= xa <= x1:
+                lx.append([xa, xb])
+                ly.append([ya, yb])
+            continue
+        sign, span = (1 if dx > 0 else -1), abs(dx)
+        # The visible stretch, as distances from xa along the segment.
+        lo, hi = sorted(((x0 - xa) * sign, (x1 - xa) * sign))
+        lo, hi = max(lo, 0.0), min(hi, span)
+        if lo > hi:
+            continue
+        n = int(span / gap + 1e-9)   # whole gaps in the segment
+        last = math.ceil(hi / gap - 1e-9)
+        j = np.arange(max(0, math.floor(lo / gap + 1e-9)), min(n, last) + 1)
+        px = np.round(xa + sign * gap * j, 7)   # the wavelengths are rounded so too (gen_xaxis)
+        lx.append(px)
+        ly.append(ya + (px - xa) / dx * (yb - ya))
+        if last > n and span - n * gap > 1e-9:   # the last marker, off the k-step grid
+            lx.append([xb])
+            ly.append([yb])
+    if not lx:
+        return np.array([]), np.array([])
+    return np.concatenate(lx), np.concatenate(ly)
 
 def gen_xaxis(params: Params):
     wav_stop_tmp = params.wl_start - params.padding + (params.step_pm * 1e-3) * (params.num_data - 1)

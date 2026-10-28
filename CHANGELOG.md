@@ -21,6 +21,7 @@
 
 ### Fixed
 
+- In the graph window, Delta markers far apart no longer slow down the plot. The line between them has a point at every step, or at every few steps when a long stretch of it is in view, so it draws at most about 50,000 points.
 - In the power readout, a channel with no light now shows "< -100 dBm" instead of flickering between a number and "-". Above 10 mW it shows "> +10 dBm".
 - A preset file the program can't read is no longer overwritten. The config window shows the error, with the line and column, and "Manage Presets..." stays off until the file is fixed. Before, saving a preset could replace such a file and lose the other presets.
 

@@ -22,7 +22,7 @@ from datapath import data_path
 from structs import Params, Dataset
 from analyze_data import peak_detection, find_bandwidth, exam_peak
 from save_csv import save_csv_raw, auto_raw_path,COL_CH, COL_REF, COL_SCAN, RAW_DIR, PEAKS_DIR
-from plot_helper import lttb, lttb_multi, pre_process
+from plot_helper import lttb, lttb_multi, pre_process, delta_line
 from filters import FILTER_LABELS, FILTER_OFF, FILTER_PARAMS, apply_filter, FilterError
 from readout import READOUT_COLUMNS, DASH_REFRESH_MS, format_row, format_actual, format_wl
 import plot_tables as pt
@@ -348,10 +348,11 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
 
     # Pale line connecting the mode-1 (Delta) markers. A separate trace from the
     # diamonds (data[1]) and appended last (like the smoothed trace) so the fixed
-    # marker/peak indices above stay put. It is sampled with many interpolated
-    # points per segment (see redraw_markers) rather than one vertex per marker,
-    # so Plotly's closest-point click snaps ONTO the line — letting the user drop
-    # a Delta marker anywhere along the connector, not only at an existing marker.
+    # marker/peak indices above stay put. It has a point at every step or every
+    # few steps (plot_helper.delta_line, redrawn for each zoom) rather than one
+    # vertex per marker, so Plotly's closest-point click snaps ONTO the line —
+    # letting the user drop a Delta marker anywhere along the connector, not only
+    # at an existing marker.
     initial_fig.add_scatter(
         x=[], y=[], mode='lines', name='Delta:line', showlegend=False,
         line=dict(color='rgba(216,90,48,0.35)', width=1.5),
@@ -1815,6 +1816,20 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
             return {'points': points, 'next': 1 - nxt}
         return dash.no_update
 
+    # The x-range on screen, as the zoom messages last reported it (None = the
+    # whole sweep). A window resize arrives as {'autosize': True} with no range
+    # while the view stays zoomed, so it must redraw this range, not the sweep.
+    _view = {'x': None}
+
+    def _patch_delta_line(patched, markers):
+        """Add the line between the Delta markers to `patched`, for the view
+        on screen: a point every step or every few steps, so a click "snaps"
+        onto the line (Plotly reports the nearest of these points). Empty
+        until there are at least two markers to join."""
+        lx, ly = delta_line([m['x'] for m in markers], [m['y'] for m in markers], d_x, _view['x'])
+        patched['data'][delta_line_idx]['x'] = lx
+        patched['data'][delta_line_idx]['y'] = ly
+
     @app.callback(
         Output('spectrum', 'figure'),
         Input('markers-store', 'data'),
@@ -1822,26 +1837,10 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
     )
     def redraw_markers(markers):
         patched = Patch()
-        xs = [m['x'] for m in markers]
-        ys = [m['y'] for m in markers]
-        patched['data'][1]['x']    = xs
-        patched['data'][1]['y']    = ys
+        patched['data'][1]['x']    = [m['x'] for m in markers]
+        patched['data'][1]['y']    = [m['y'] for m in markers]
         patched['data'][1]['text'] = [f'D{i+1}' for i in range(len(markers))]
-
-        # Densify the connector: sample many points along each marker-to-marker
-        # segment so a click "snaps" onto the line (Plotly reports the nearest of
-        # these points). Empty until there are at least two markers to join.
-        lx, ly = [], []
-        for i in range(len(markers) - 1):
-            seg_dx = xs[i + 1] - xs[i]
-            # One interpolated point every ~d_x (the native wavelength spacing)
-            # along the segment's x-span, so snap resolution follows the data.
-            n = max(2, int(round(abs(seg_dx) / d_x)) + 1)
-            t = np.linspace(0.0, 1.0, n)
-            lx.extend((xs[i] + t * seg_dx).tolist())
-            ly.extend((ys[i] + t * (ys[i + 1] - ys[i])).tolist())
-        patched['data'][delta_line_idx]['x'] = lx
-        patched['data'][delta_line_idx]['y'] = ly
+        _patch_delta_line(patched, markers)
         return patched
 
     # ------------------------------------------------------------------
@@ -2158,29 +2157,28 @@ def display_plot(raw_w: Dataset, params: Params, *, readout=None, title="Absorpt
             patched['data'][idx]['y'] = d_d
         return patched
 
-    # The x-range on screen, as the zoom messages last reported it (None = the
-    # whole sweep). A window resize arrives as {'autosize': True} with no range
-    # while the view stays zoomed, so it must redraw this range, not the sweep.
-    _view = {'x': None}
-
     @app.callback(
         Output('spectrum', 'figure', allow_duplicate=True),
         Input('spectrum', 'relayoutData'),
         State('max-display-input', 'value'),
+        State('markers-store', 'data'),
         prevent_initial_call=True,
     )
-    def resample_on_zoom(relayout, max_display):
+    def resample_on_zoom(relayout, max_display, markers):
         if not relayout:
             return dash.no_update
 
-        # Resample over the visible x-window.
+        # Resample over the visible x-window. The Delta line is redrawn for it
+        # too: zoomed in, it gets a point at every step again.
         if relayout.get('xaxis.autorange'):
             _view['x'] = None
         elif 'xaxis.range[0]' in relayout:
             _view['x'] = (relayout['xaxis.range[0]'], relayout['xaxis.range[1]'])
         elif not relayout.get('autosize'):
             return dash.no_update
-        return _resample_curves(max_display, *(_view['x'] or ()))
+        patched = _resample_curves(max_display, *(_view['x'] or ()))
+        _patch_delta_line(patched, markers or [])
+        return patched
 
     @app.callback(
         Output('spectrum', 'figure', allow_duplicate=True),

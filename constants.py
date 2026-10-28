@@ -20,6 +20,12 @@ DATA_FONT          = "Tahoma"   # graph window: tables and plot text
 # 100% (1.25 x 0.8 = 1). 1.0 = no change. Ignored on macOS.
 GRAPH_WINDOW_ZOOM = 1.0
 
+# The most points the line between Delta markers draws at once. The line has
+# a point at every step, or at every 2nd, 3rd, ... step when more of it is in
+# view than this allows. More points mean finer clicks on the line, but a
+# slower plot.
+DELTA_LINE_MAX_POINTS = 50000
+
 # Instrument VISA addresses
 PM  = "POWER METER"
 LAS = "LASER"
