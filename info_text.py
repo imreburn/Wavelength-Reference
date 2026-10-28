@@ -20,7 +20,7 @@ PARAMETERS_INFO="""
 
 - The ranges are swept one after another, each with all of its dynamic range scans. Log Count and Duration are shown for each range.
 
-- In the graph window, each range has its own tab.
+- In the graph window, each range has its own tab. With two or more ranges, an Overview tab comes first and shows every range on one wavelength axis.
 
 
 **Step Size and Averaging Time**

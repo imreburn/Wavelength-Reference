@@ -28,11 +28,21 @@ def lttb_multi(x, ys, n_out):
     """
     x = np.asarray(x)
     ys = [np.asarray(y) for y in ys]
+    if len(x) <= n_out:
+        return [(x, y) for y in ys]
+    sel = lttb_select(x, ys, n_out)
+    return [(x[s], y[s]) for s, y in zip(sel, ys)]
+
+
+def lttb_select(x, ys, n_out):
+    """The points lttb_multi keeps: an array of n_out indices per series, in
+    order (every index when x has no more than n_out points)."""
+    x = np.asarray(x)
     n = len(x)
     if n <= n_out:
-        return [(x, y) for y in ys]
+        return [np.arange(n) for _ in ys]
 
-    Y = np.vstack(ys)          # (T, n)
+    Y = np.vstack([np.asarray(y) for y in ys])   # (T, n)
     T = Y.shape[0]
 
     buckets = np.array_split(np.arange(1, n - 1), n_out - 2)
@@ -54,7 +64,7 @@ def lttb_multi(x, ys, n_out):
         a = bucket[np.argmax(areas, axis=1)]
         sel[:, i + 1] = a
 
-    return [(x[sel[t]], Y[t][sel[t]]) for t in range(T)]
+    return list(sel)
 
 
 def lttb(x, y, n_out):

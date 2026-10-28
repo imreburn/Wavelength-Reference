@@ -4,7 +4,7 @@
 
 ### Added
 
-- A sweep can measure up to four wavelength ranges. In the config window, λ Start and λ Stop have a column per range, and each range has its own peak test criteria and Base. The graph window shows each range in its own tab.
+- A sweep can measure up to four wavelength ranges. In the config window, λ Start and λ Stop have a column per range, and each range has its own peak test criteria and Base. The graph window shows each range in its own tab, after an Overview tab with every range on one wavelength axis.
 - In the config window, "Peak Test Criteria" has a new "Base" dropdown: max (the default), avg, or min. It sets the base the peak test measures depth and width from.
 - In the graph window, "Apply filter" has a new "Off" choice at the end of its list. It removes the filtered curve from the plot.
 

@@ -23,7 +23,7 @@ from datapath import data_path
 from structs import Params, Dataset
 from analyze_data import peak_detection, find_bandwidth, exam_peak
 from save_csv import save_csv_raw, auto_raw_path,COL_CH, COL_REF, COL_SCAN, RAW_DIR, PEAKS_DIR
-from plot_helper import lttb, lttb_multi, pre_process, delta_line
+from plot_helper import lttb, lttb_multi, lttb_select, pre_process, delta_line
 from filters import FILTER_LABELS, FILTER_OFF, FILTER_PARAMS, apply_filter, FilterError
 from readout import READOUT_COLUMNS, DASH_REFRESH_MS, format_row, format_actual, format_wl
 import plot_tables as pt
@@ -185,6 +185,78 @@ TAB_SELECTED_STYLE = {**TAB_STYLE, 'fontWeight': 'bold'}
 # which of them the next click places or moves (0 = B1, 1 = B2).
 BW_EMPTY = {'points': [], 'next': 0}
 
+# Every tab's Delta markers (data[1]) and the pale line joining them (the
+# tab's last trace; see _range_tab).
+DELTA_MARKERS = dict(x=[], y=[], mode='markers+text', name='Delta',
+                     marker=dict(symbol='diamond', size=7, color='#D85A30', line=MARKER_BORDER),
+                     text=[], textposition='top center')
+DELTA_LINE = dict(x=[], y=[], mode='lines', name='Delta:line', showlegend=False,
+                  line=dict(color='rgba(216,90,48,0.35)', width=1.5),
+                  hovertemplate='%{x:.12~f}<br>%{y:.5f}')
+GRAPH_CONFIG = {'scrollZoom': True, 'displayModeBar': True,  'displaylogo': False}
+CLEAR_BTN_STYLE = {'width': '150px', 'fontSize': '13px', 'padding': '5px 12px', 'marginTop': '5px'}
+
+
+def _style_figure(fig):
+    """The layout every tab's plot shares."""
+    fig.update_layout(
+        font=dict(family=DATA_CSS_FONT),   # same font as the tables
+        xaxis_title=dict(text='λ (nm)', font=dict(size=12), standoff=5),
+        yaxis_title=dict(text='Power (dB | dBm)', font=dict(size=12), standoff=5),
+        hovermode='closest',
+        showlegend=True,
+        legend=dict(x=1.0, xanchor='left'),
+        # No width or height: the dcc.Graph below is responsive, so the plot
+        # fills its box, which is as wide as the sidebar leaves and 550px tall.
+        margin=dict(l=50, t=30, b=5),
+        uirevision='constant',
+    )
+
+    fig.update_xaxes(tickformat='.7~f', hoverformat='.12~f')
+    fig.update_xaxes(showspikes=True, spikecolor="gray", spikemode="across", spikethickness=1)
+    fig.update_yaxes(showspikes=True, spikemode="across", spikecolor="gray", spikethickness=1)
+
+
+def _plot_sampling(input_id):
+    """The sidebar's Plot sampling section, with its Max points field."""
+    return html.Div([
+        html.Label("Plot sampling", style=HEADING_STYLE),
+        html.Label("Max points per curve (x1000)",
+                   style={**NOTE_STYLE, 'marginBottom': '4px'}),
+        dcc.Input(
+            id=input_id,
+            type='number', min=0, max=1000, value=MAX_DISPLAY // 1000,
+            debounce=True,
+            style=INPUT_STYLE,
+        ),
+        html.Div("0 = no downsampling (may be slow)",
+                 style={**NOTE_STYLE, 'marginTop': '2px'}),
+    ])
+
+
+def _max_points(max_display):
+    """The real cap from the Max points field's value, which is in
+    thousands of points. None/empty -> default; 0 -> downsampling
+    disabled (full data)."""
+    max_display = MAX_DISPLAY // 1000 if max_display in (None, '') else int(max_display)
+    return max_display * 1000
+
+
+def _zoomed(relayout, view):
+    """Note in view['x'] the x-range a zoom message reports: (x0, x1), or
+    None for the whole sweep. False for a message that changes nothing to
+    redraw. A window resize arrives as {'autosize': True} with no range while
+    the view stays zoomed, so it must redraw this range, not the sweep."""
+    if not relayout:
+        return False
+    if relayout.get('xaxis.autorange'):
+        view['x'] = None
+    elif 'xaxis.range[0]' in relayout:
+        view['x'] = (relayout['xaxis.range[0]'], relayout['xaxis.range[1]'])
+    elif not relayout.get('autosize'):
+        return False
+    return True
+
 # Everything the "Show / hide" popup can list, as (value, label) per group,
 # in its order. A window lists an item only when one of its tabs has it (see
 # _range_tab's sh_keys): peaks found, peak test criteria set (the table
@@ -268,11 +340,7 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
     # keep the whole figure on one renderer (mixing scattergl draws WebGL
     # traces on a separate layer above the SVG line).
     # data[1] — mode-1 accumulated markers
-    initial_fig.add_scatter(
-        x=[], y=[], mode='markers+text', name='Delta',
-        marker=dict(symbol='diamond', size=7, color='#D85A30', line=MARKER_BORDER),
-        text=[], textposition='top center',
-    )
+    initial_fig.add_scatter(**DELTA_MARKERS)
     # data[2] — mode-2 markers B1 (peak) and B2 (base); clicks alternate between them
     initial_fig.add_scatter(
         x=[], y=[], mode='markers+text', name='Bandwidth',
@@ -415,29 +483,10 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
     # vertex per marker, so Plotly's closest-point click snaps ONTO the line —
     # letting the user drop a Delta marker anywhere along the connector, not only
     # at an existing marker.
-    initial_fig.add_scatter(
-        x=[], y=[], mode='lines', name='Delta:line', showlegend=False,
-        line=dict(color='rgba(216,90,48,0.35)', width=1.5),
-        hovertemplate='%{x:.12~f}<br>%{y:.5f}',
-    )
+    initial_fig.add_scatter(**DELTA_LINE)
     delta_line_idx = len(initial_fig.data) - 1
 
-    initial_fig.update_layout(
-        font=dict(family=DATA_CSS_FONT),   # same font as the tables
-        xaxis_title=dict(text='λ (nm)', font=dict(size=12), standoff=5),
-        yaxis_title=dict(text='Power (dB | dBm)', font=dict(size=12), standoff=5),
-        hovermode='closest',
-        showlegend=True,
-        legend=dict(x=1.0, xanchor='left'),
-        # No width or height: the dcc.Graph below is responsive, so the plot
-        # fills its box, which is as wide as the sidebar leaves and 550px tall.
-        margin=dict(l=50, t=30, b=5),
-        uirevision='constant',
-    )
-
-    initial_fig.update_xaxes(tickformat='.7~f', hoverformat='.12~f')
-    initial_fig.update_xaxes(showspikes=True, spikecolor="gray", spikemode="across", spikethickness=1)
-    initial_fig.update_yaxes(showspikes=True, spikemode="across", spikecolor="gray", spikethickness=1)
+    _style_figure(initial_fig)
 
     # The plot trace behind each "Show / hide" item: data[5] the peaks,
     # [6]/[7] their left/right bases, [8..10] the max/avg/min-base widths
@@ -527,19 +576,7 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
     # each under a bold title. The window puts the Label (SN) above them.
     # ------------------------------------------------------------------
     panel = html.Div([
-        html.Div([
-            html.Label("Plot sampling", style=HEADING_STYLE),
-            html.Label("Max points per curve (x1000)",
-                       style={**NOTE_STYLE, 'marginBottom': '4px'}),
-            dcc.Input(
-                id=rid('max-display-input'),
-                type='number', min=0, max=1000, value=MAX_DISPLAY // 1000,
-                debounce=True,
-                style=INPUT_STYLE,
-            ),
-            html.Div("0 = no downsampling (may be slow)",
-                     style={**NOTE_STYLE, 'marginTop': '2px'}),
-        ]),
+        _plot_sampling(rid('max-display-input')),
         html.Div([
             html.Label("Click mode", style=HEADING_STYLE),
             dcc.RadioItems(
@@ -550,9 +587,7 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
                 labelStyle={'display': 'inline-block', 'marginRight': '16px'},
                 style={'display': 'inline-block'},
             ),
-            html.Button('Clear all', id=rid('clear-btn'), n_clicks=0,
-                        style={'width': '150px', 'fontSize': '13px',
-                               'padding': '5px 12px', 'marginTop': '5px'}),
+            html.Button('Clear all', id=rid('clear-btn'), n_clicks=0, style=CLEAR_BTN_STYLE),
             # The width at the Bandwidth markers' peak, B1. Bandwidth mode picks
             # how its level is set: Automatic measures at a % of the depth
             # from B1 up to B2 (the base), searching as far out as B2 is;
@@ -614,7 +649,7 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
         # "100%" of a parent with no set height, which collapses to 0
         # and lets the plot cover everything below it.
         dcc.Graph(id=rid('spectrum'), figure=initial_fig,
-                  config={'scrollZoom': True, 'displayModeBar': True,  'displaylogo': False}, responsive=True, style={'height': '550px'}),
+                  config=GRAPH_CONFIG, responsive=True, style={'height': '550px'}),
         # Top to bottom, one table per row: the Custom peak table (once
         # a Bandwidth marker exists), the Delta table (once a Delta
         # marker exists), the Pass/Fail table, and the Peak table. The
@@ -698,8 +733,7 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
         return dash.no_update
 
     # The x-range on screen, as the zoom messages last reported it (None = the
-    # whole sweep). A window resize arrives as {'autosize': True} with no range
-    # while the view stays zoomed, so it must redraw this range, not the sweep.
+    # whole sweep; see _zoomed).
     _view = {'x': None}
     # The Max points field's last value (None until it's changed: the
     # default), for Apply filter, which the window runs.
@@ -917,13 +951,6 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
                 'amplitude_db': y_offset if width_pm is not None else None, 'base': base}
         return patched, f"Marker:{x:.7f} nm\n       {y:.5f} dBm\n", width_info, info, hint
 
-    def _max_points(max_display):
-        """The real cap from the Max points field's value, which is in
-        thousands of points. None/empty -> default; 0 -> downsampling
-        disabled (full data)."""
-        max_display = MAX_DISPLAY // 1000 if max_display in (None, '') else int(max_display)
-        return max_display * 1000
-
     def _resample_curves(max_display, x0=None, x1=None):
         """Patch every spectrum/reference/overlay line to <=max_display points
         over the wavelength window [x0, x1] (full range when x0/x1 are None).
@@ -964,16 +991,9 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
         prevent_initial_call=True,
     )
     def resample_on_zoom(relayout, max_display, markers):
-        if not relayout:
-            return dash.no_update
-
         # Resample over the visible x-window. The Delta line is redrawn for it
         # too: zoomed in, it gets a point at every step again.
-        if relayout.get('xaxis.autorange'):
-            _view['x'] = None
-        elif 'xaxis.range[0]' in relayout:
-            _view['x'] = (relayout['xaxis.range[0]'], relayout['xaxis.range[1]'])
-        elif not relayout.get('autosize'):
+        if not _zoomed(relayout, _view):
             return dash.no_update
         patched = _resample_curves(max_display, *(_view['x'] or ()))
         _patch_delta_line(patched, markers or [])
@@ -1109,15 +1129,194 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
     # What the window uses: the parts it places (content: the plot and the
     # tables; panel: the sidebar part; stores), what Show / hide and the
     # Customize dialog list, and the helpers for Save peak info, Apply
-    # filter and Plot in Watt.
+    # filter and Plot in Watt. The Overview draws from the rest: the range's
+    # wavelengths, its plot, and its lines as (trace index, wl-aligned y), in
+    # the same order in every range tab.
     return SimpleNamespace(
         key=key, id=rid, content=content, panel=panel, stores=stores,
         sh_keys=sh_keys, peak_rows=peak_rows,
+        wl=wl, d_x=d_x, figure=initial_fig, curves=main_traces + ref_traces + overlay_traces,
         has_custom=_has_custom, peak_choices=_peak_choices, default_peak=_default_peak,
         peak_name=_peak_name, row_values=_row_values, sweep_values=_sweep_values,
         apply_filter=_apply_filter, watt_figure=_watt_figure,
     )
 
+
+
+def _overview_tab(app, tabs):
+    """The Overview tab, first when a sweep has two or more ranges: every
+    range's lines on one wavelength axis, Delta markers and their table, and
+    its part of the right sidebar (Plot sampling and Clear all; clicks always
+    place Delta markers). No peaks, insertion loss, filter or Bandwidth
+    markers. tabs: the range tabs (_range_tab), in range order.
+
+    Each line holds every range end to end, from the range tabs' data
+    (trimmed, without padding), as the same line in a range tab: the same
+    name, color and visibility. A NaN point between ranges ends the line, and
+    Plotly starts it again at the next range, so no line crosses a gap. The
+    rule between ranges (config_helper.validate_inputs) keeps the wavelengths
+    increasing. Ids end in "-ov".
+    """
+    key = 'ov'
+
+    def rid(name):
+        """This tab's id for the component called `name`."""
+        return f'{name}-{key}'
+
+    x_all = np.concatenate([t.wl for t in tabs])
+    # Each point's range: a line gets a break wherever its next point is in
+    # another range.
+    range_of = np.concatenate([np.full(len(t.wl), r) for r, t in enumerate(tabs)])
+    d_x = tabs[0].d_x
+    # The lines in a range tab's order (the channels, then the reference and
+    # raw lines, then the scans), each with every range's y end to end, and
+    # Range 1's trace for its name, color and visibility.
+    lines = [(tabs[0].figure.data[idx], np.concatenate([t.curves[c][1] for t in tabs]))
+             for c, (idx, _) in enumerate(tabs[0].curves)]
+
+    def _sampled(max_display, x0=None, x1=None):
+        """(x, y) of every line over [x0, x1] (all of it when None), at most
+        max_display points each: one LTTB pass over the visible part of every
+        range at once, so the ranges share the budget (zoomed into one range,
+        it gets all of it), then a NaN wherever a line goes on to another range."""
+        cap = _max_points(max_display)
+        if x0 is None or x1 is None:
+            i0, i1 = 0, len(x_all)
+        else:
+            i0 = max(0, int(np.searchsorted(x_all, x0)) - 1)
+            i1 = min(len(x_all), int(np.searchsorted(x_all, x1)) + 1)
+        xs, ranges = x_all[i0:i1], range_of[i0:i1]
+        ys = [y[i0:i1] for _, y in lines]
+        kept = [np.arange(len(xs))] * len(ys) if cap <= 0 else lttb_select(xs, ys, cap)
+        out = []
+        for y, k in zip(ys, kept):
+            breaks = np.flatnonzero(np.diff(ranges[k])) + 1
+            out.append((np.insert(xs[k], breaks, np.nan), np.insert(y[k], breaks, np.nan)))
+        return out
+
+    # data[0] — channel 1 and data[1] — the Delta markers, as in a range tab;
+    # then the other lines, and the Delta line last.
+    fig = go.Figure()
+    line_idx = []
+    for i, ((trace, _), (x, y)) in enumerate(zip(lines, _sampled(None))):
+        fig.add_scatter(x=x, y=y, mode='lines', name=trace.name, line=trace.line,
+                        hovertemplate=trace.hovertemplate, visible=trace.visible)
+        line_idx.append(len(fig.data) - 1)
+        if i == 0:
+            fig.add_scatter(**DELTA_MARKERS)
+    fig.add_scatter(**DELTA_LINE)
+    delta_line_idx = len(fig.data) - 1
+    _style_figure(fig)
+
+    # This tab's part of the right sidebar: Plot sampling, and Clear all for
+    # the Delta markers. The Bandwidth markers are in the range tabs.
+    panel = html.Div([
+        _plot_sampling(rid('max-display-input')),
+        html.Div([
+            html.Label("Click mode", style=HEADING_STYLE),
+            html.Div("Delta"),
+            html.Div("Bandwidth markers are in the range tabs.",
+                     style={**NOTE_STYLE, 'marginTop': '2px'}),
+            html.Button('Clear all', id=rid('clear-btn'), n_clicks=0, style=CLEAR_BTN_STYLE),
+        ]),
+    ], id=rid('panel'), style=PANEL_STYLE)
+
+    # The plot, and the Delta table under it (once a Delta marker exists).
+    content = [
+        dcc.Graph(id=rid('spectrum'), figure=fig,
+                  config=GRAPH_CONFIG, responsive=True, style={'height': '550px'}),
+        html.Div(id=rid('delta-block'), style={'display': 'none', 'marginTop': '5px'}, children=[
+            pt.caption('delta', key), html.Div(id=rid('delta-table'))]),
+    ]
+    stores = [dcc.Store(id=rid('markers-store'), data=[])]
+
+    # ------------------------------------------------------------------
+    # Callbacks: the range tab's, for Delta markers only.
+    # ------------------------------------------------------------------
+    @app.callback(
+        Output(rid('markers-store'), 'data'),
+        Input(rid('spectrum'), 'clickData'),
+        Input(rid('clear-btn'), 'n_clicks'),
+        State(rid('markers-store'), 'data'),
+        prevent_initial_call=True,
+    )
+    def update_markers(clickData, n_clicks, markers):
+        if callback_context.triggered_id == rid('clear-btn'):
+            return []
+        if clickData:
+            point = clickData['points'][0]
+            markers.append({'x': point['x'], 'y': point['y']})
+        return markers
+
+    # The x-range on screen (None = all of it; see _zoomed).
+    _view = {'x': None}
+
+    def _patch_delta_line(patched, markers):
+        """Add the line between the Delta markers to `patched`, for the view
+        on screen (see _range_tab). It crosses the gaps between ranges."""
+        lx, ly = delta_line([m['x'] for m in markers], [m['y'] for m in markers], d_x, _view['x'])
+        patched['data'][delta_line_idx]['x'] = lx
+        patched['data'][delta_line_idx]['y'] = ly
+
+    def _resample(max_display):
+        """A Patch with every line resampled for the view on screen."""
+        patched = Patch()
+        for idx, (x, y) in zip(line_idx, _sampled(max_display, *(_view['x'] or ()))):
+            patched['data'][idx]['x'] = x
+            patched['data'][idx]['y'] = y
+        return patched
+
+    @app.callback(
+        Output(rid('spectrum'), 'figure'),
+        Input(rid('markers-store'), 'data'),
+        prevent_initial_call=True,
+    )
+    def redraw_markers(markers):
+        patched = Patch()
+        patched['data'][1]['x']    = [m['x'] for m in markers]
+        patched['data'][1]['y']    = [m['y'] for m in markers]
+        patched['data'][1]['text'] = [f'D{i+1}' for i in range(len(markers))]
+        _patch_delta_line(patched, markers)
+        return patched
+
+    @app.callback(
+        Output(rid('delta-table'), 'children'),
+        Output(rid('delta-block'), 'style'),
+        Input(rid('markers-store'), 'data'),
+        Input('table-views', 'data'),
+    )
+    def render_delta_table(markers, views):
+        # Shown only while Delta markers exist (e.g. not after Clear).
+        if not markers:
+            return None, {'display': 'none'}
+        return (pt.build_table('delta', views['delta'], pt.delta_rows(markers)),
+                {'marginTop': '5px'})
+
+    @app.callback(
+        Output(rid('spectrum'), 'figure', allow_duplicate=True),
+        Input(rid('spectrum'), 'relayoutData'),
+        State(rid('max-display-input'), 'value'),
+        State(rid('markers-store'), 'data'),
+        prevent_initial_call=True,
+    )
+    def resample_on_zoom(relayout, max_display, markers):
+        if not _zoomed(relayout, _view):
+            return dash.no_update
+        patched = _resample(max_display)
+        _patch_delta_line(patched, markers or [])
+        return patched
+
+    @app.callback(
+        Output(rid('spectrum'), 'figure', allow_duplicate=True),
+        Input(rid('max-display-input'), 'value'),
+        prevent_initial_call=True,
+    )
+    def resample_on_max_display(max_display):
+        return _resample(max_display)
+
+    # Like a range tab's, for the window; nothing to show or hide here.
+    return SimpleNamespace(key=key, id=rid, content=content, panel=panel, stores=stores,
+                           sh_keys=set(), peak_rows=[])
 
 def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title="Absorption Spectrum",
                  autosaved_to=None, autosave_error=None):
@@ -1163,9 +1362,13 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     # number, which ends its components' ids.
     tabs = [_range_tab(app, str(r + 1), raw_w, params, r) for r, raw_w in enumerate(datasets)]
     tab_of = {t.key: t for t in tabs}
+    # With two or more ranges, the Overview comes first (_overview_tab).
+    # every_tab is the tab bar's order; the first tab opens first.
+    overview = _overview_tab(app, tabs) if len(tabs) > 1 else None
+    every_tab = ([overview] if overview else []) + tabs
     # Only the open tab's part of the sidebar shows (switch_tab).
-    for t in tabs:
-        t.panel.style = PANEL_STYLE if t is tabs[0] else PANEL_HIDDEN
+    for t in every_tab:
+        t.panel.style = PANEL_STYLE if t is every_tab[0] else PANEL_HIDDEN
     # Save peak info's peaks (until it lists every range's).
     open_tab = tabs[0]
 
@@ -1186,7 +1389,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
                             'display': '-webkit-box', 'WebkitBoxOrient': 'vertical',
                             'WebkitLineClamp': '2', 'overflow': 'hidden'}),
         ]),
-        *[t.panel for t in tabs],
+        *[t.panel for t in every_tab],
     # A fixed width, so the graph beside it doesn't resize when the Bandwidth
     # settings appear or hide. It fits the widest item, the 150px Clear all button.
     ], style={'padding': '20px 10px', 'display': 'flex', 'flexDirection': 'column',
@@ -1203,6 +1406,10 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         'background': 'transparent', 'color': '#fff', 'cursor': 'pointer',
         'fontFamily': WINDOW_CSS_FONT,
     }
+    NAV_OFF_STYLE = {**NAV_BTN_STYLE, 'opacity': 0.4, 'cursor': 'default'}   # a disabled button
+    # Apply filter and Plot in Watt are off while the Overview is open,
+    # which it is first (switch_tab).
+    range_open = overview is None
 
     # What the "Show / hide" popup lists, as (value, label) per group: the
     # items of SH_ALL that some tab has.
@@ -1215,21 +1422,21 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     top_navbar = html.Nav([
         html.Button('Save raw data...(S)', id='save-raw-btn', n_clicks=0, style=NAV_BTN_STYLE),
         html.Button(['Save peak info...(P)'], id='save-peak-btn', n_clicks=0, style=NAV_BTN_STYLE),
-        html.Button('Apply filter...(F)', id='apply-filter-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        html.Button('Apply filter...(F)', id='apply-filter-btn', n_clicks=0, disabled=not range_open,
+                    style=NAV_BTN_STYLE if range_open else NAV_OFF_STYLE),
         # Disabled when there's nothing to show or hide (no peaks, criteria or reference).
         html.Button('Show / hide...(H)', id='show-hide-btn', n_clicks=0,
                     disabled=not has_show_hide,
-                    style=NAV_BTN_STYLE if has_show_hide
-                    else {**NAV_BTN_STYLE, 'opacity': 0.4, 'cursor': 'default'}),
-        html.Button('Plot in Watt...', id='plot-watt-btn', n_clicks=0, style=NAV_BTN_STYLE),
+                    style=NAV_BTN_STYLE if has_show_hide else NAV_OFF_STYLE),
+        html.Button('Plot in Watt...', id='plot-watt-btn', n_clicks=0, disabled=not range_open,
+                    style=NAV_BTN_STYLE if range_open else NAV_OFF_STYLE),
         html.Div(id='plot-watt-dummy', style={'display': 'none'}),
         html.Button('Sweep info...(I)', id='sweep-info-btn', n_clicks=0, style=NAV_BTN_STYLE),
         # Power Readout: live meter values in a modal (readout.PowerReadout).
         # Disabled when there is no readout, e.g. plotting a saved CSV.
         html.Button('Power readout...(R)', id='readout-btn', n_clicks=0,
                     disabled=readout is None,
-                    style=NAV_BTN_STYLE if readout is not None
-                    else {**NAV_BTN_STYLE, 'opacity': 0.4, 'cursor': 'default'}),
+                    style=NAV_BTN_STYLE if readout is not None else NAV_OFF_STYLE),
 
         # Close & Repeat: close this plot window and auto-Run the next sweep with the same parameters. Also bound to the Enter key (see the clientside callback below).
         html.Button('Close & Repeat (Enter)', id='repeat-btn', n_clicks=0,
@@ -1547,20 +1754,21 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         html.Div([
             # Takes all the width the sidebar leaves. Below 900px the page
             # scrolls sideways instead of squeezing the plot. With two or more
-            # ranges, a tab bar over the plot picks the range; dcc.Tabs puts
-            # only the open tab's plot and tables on the page.
-            html.Div(tabs[0].content if len(tabs) == 1 else dcc.Tabs(
-                id='range-tabs', value=tabs[0].key,
-                children=[dcc.Tab(label=f'Range {t.key}', value=t.key, children=t.content,
+            # ranges, a tab bar over the plot picks the Overview or a range;
+            # dcc.Tabs puts only the open tab's plot and tables on the page.
+            html.Div(tabs[0].content if len(every_tab) == 1 else dcc.Tabs(
+                id='range-tabs', value=every_tab[0].key,
+                children=[dcc.Tab(label='Overview' if t is overview else f'Range {t.key}',
+                                  value=t.key, children=t.content,
                                   style=TAB_STYLE, selected_style=TAB_SELECTED_STYLE)
-                          for t in tabs],
+                          for t in every_tab],
                 style=TABS_STYLE, colors=TABS_COLORS),
                 style={'flex': '1', 'minWidth': '900px'}),
             right_sidebar,
         ], style={'display': 'flex', 'alignItems': 'flex-start'}),
-        *[store for t in tabs for store in t.stores],
+        *[store for t in every_tab for store in t.stores],
         # The open tab's key, for the menu bar's Apply filter and Plot in Watt.
-        dcc.Store(id='open-tab', data=tabs[0].key),
+        dcc.Store(id='open-tab', data=every_tab[0].key),
         dcc.Store(id='idle-store', data=None),
         # Each table's columns/decimals (starts from the remembered ones) and
         # which table (and tab) the Customize dialog is editing.
@@ -1615,7 +1823,10 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     def plot_watt(n_clicks, key):
         # Option A: build a standalone Plotly figure in linear (Watt) units and
         # open it in a SECOND pywebview window as a self-contained HTML file.
-        # It's the open tab's range (_range_tab's _watt_figure).
+        # It's the open tab's range (_range_tab's _watt_figure); the button
+        # is off on the Overview.
+        if key not in tab_of:
+            return dash.no_update
         fig = tab_of[key].watt_figure()
 
         # Self-contained HTML (plotly.js inlined) so it opens offline / in the
@@ -1673,23 +1884,31 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
             window.destroy()
         return dash.no_update
 
-    # Opening a tab: note which tab is open, for the menu bar, and show its
-    # part of the sidebar. In the browser, so the sidebar switches with the
-    # tab bar.
-    if len(tabs) > 1:
+    # Opening a tab: note which tab is open, for the menu bar, show its part
+    # of the sidebar, and turn Apply filter and Plot in Watt off on the
+    # Overview. In the browser, so the sidebar switches with the tab bar.
+    if len(every_tab) > 1:
         app.clientside_callback(
             """
             function(key) {
                 var keys = __KEYS__;
+                var off = key === 'ov';
+                var btn = off ? __OFF__ : __ON__;
                 return [key].concat(keys.map(function (k) {
                     return k === key ? __SHOWN__ : __HIDDEN__;
-                }));
+                }), [off, btn, off, btn]);
             }
-            """.replace('__KEYS__', json.dumps([t.key for t in tabs]))
+            """.replace('__KEYS__', json.dumps([t.key for t in every_tab]))
                .replace('__SHOWN__', json.dumps(PANEL_STYLE))
-               .replace('__HIDDEN__', json.dumps(PANEL_HIDDEN)),
+               .replace('__HIDDEN__', json.dumps(PANEL_HIDDEN))
+               .replace('__ON__', json.dumps(NAV_BTN_STYLE))
+               .replace('__OFF__', json.dumps(NAV_OFF_STYLE)),
             Output('open-tab', 'data'),
-            *[Output(t.id('panel'), 'style') for t in tabs],
+            *[Output(t.id('panel'), 'style') for t in every_tab],
+            Output('apply-filter-btn', 'disabled'),
+            Output('apply-filter-btn', 'style'),
+            Output('plot-watt-btn', 'disabled'),
+            Output('plot-watt-btn', 'style'),
             Input('range-tabs', 'value'),
         )
 
@@ -2159,7 +2378,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     )
     def close_or_apply_filter(cancel, confirm, filt, parameter1, parameter2, key):
         triggered = callback_context.triggered[0]['prop_id']
-        if 'filter-cancel' in triggered:
+        if 'filter-cancel' in triggered or key not in tab_of:   # off on the Overview
             return MODAL_HIDDEN, ""
         tab = tab_of[key]
         try:
