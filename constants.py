@@ -7,7 +7,7 @@ can import these values without any instrument backend present.
 """
 
 # Application version (keep in sync with CHANGELOG.md)
-APP_VERSION = "2.0.4"
+APP_VERSION = "3.0.0"
 
 # Font families. None = the system's interface font (Segoe UI on Windows,
 # San Francisco on macOS). Tahoma ships with Windows and macOS.

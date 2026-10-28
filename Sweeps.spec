@@ -43,7 +43,7 @@ exe_sweep = EXE(
     a_sweep.scripts,
     [],
     exclude_binaries=True,
-    name="WavelengthSweep",
+    name="MultiSweep",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

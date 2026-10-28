@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [Unreleased] (to be 3.0.0)
 
 ### Added
 
@@ -8,6 +8,7 @@
 - In the graph window, "Apply filter" has a new "Off" choice at the end of its list. It removes the filtered curve from the plot.
 
 ### Changed
+- The app is renamed from WavelengthSweep to MultiSweep (`MultiSweep.exe`). Its logs now go to `logs/MultiSweep`.
 - In the graph window, the label (SN) moved from above the plot to a field in the right panel, where you can change it. "Save raw data" and "Save peak info" use the changed label.
 - If only the label's counter is changed there, the config window's counter continues from it. Any other change stops "Close & Repeat" at the config window with a message.
 - "Save peak info" saves to Excel files (.xlsx) instead of CSV files. In its table, you pick the columns and their decimals, and you can save several peaks at once.

@@ -12,7 +12,7 @@ from constants import APP_VERSION, TLS_SOURCES
 import shutdown
 import gc
 
-log = setup_logging("WavelengthSweep")
+log = setup_logging("MultiSweep")
 log.info(f"Version_{APP_VERSION}")
 
 
