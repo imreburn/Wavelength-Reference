@@ -113,11 +113,17 @@ def _column_option(option):
 
 def _peak_option(option):
     """A peak: "P2 (tested) (deepest)" in the list, and "P2" over "tested,
-    deepest" in the field."""
+    deepest" in the field. With two or more ranges, the list shows a heading
+    over each range's peaks (a disabled option, kept as it is), and the field
+    and the search text start with the range, its 'prefix': "R1-P2" in the
+    field, "R1-P2 (tested) (deepest)" to search, so typing "r1" finds Range 1."""
+    if option.get('disabled'):
+        return option
+    prefix = option.get('prefix', '')
     name, _, tags = option['label'].partition(' ')
     tags = ', '.join(t.strip('()') for t in tags.split())
-    return {'label': _label(option['label'], name, tags), 'value': option['value'],
-            'search': option['label']}
+    return {'label': _label(option['label'], prefix + name, tags), 'value': option['value'],
+            'search': prefix + option['label']}
 
 
 COLUMN_OPTIONS = [_column_option(o) for o in pf.column_options()]

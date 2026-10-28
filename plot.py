@@ -275,6 +275,11 @@ SH_ALL = {
 }
 
 
+def _nm(x):
+    """A wavelength as text without trailing zeros: 1530, 1567.5, 1531.0005."""
+    return f'{x:.7f}'.rstrip('0').rstrip('.')
+
+
 def _table_absent(params):
     """Columns a table doesn't have in this window. They keep their place (and
     shown/hidden choice) in the remembered column order for later windows."""
@@ -505,8 +510,14 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
             initial_fig.data[i].visible = 'legendonly'
 
     # ------------------------------------------------------------------
-    # This tab's peaks for "Save peak info" (the window's dialog).
+    # This tab's peaks for "Save peak info" (the window's dialog). A peak's
+    # value names this tab: "<key>:peak:<number>", or "<key>:custom" for the
+    # Bandwidth markers. With two or more ranges, a peak's name starts with
+    # its range (R2-P1, R2-custom), and the list puts this tab's peaks under
+    # a heading.
     # ------------------------------------------------------------------
+    name_prefix = f'R{key}-' if params.n_ranges > 1 else ''
+    heading = f'——— Range {key} ({_nm(params.wl_start[r])}–{_nm(params.wl_stop[r])} nm) ———'
     if pk is not None:
         # The tested peak first, then the deepest (max Depth_max), then the rest.
         max_peak = int(peak_df.loc[peak_df['Depth_max'].idxmax(), 'Peak'])
@@ -522,7 +533,7 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
                 label += " (tested)"
             if p == max_peak:
                 label += " (deepest)"
-            peak_options.append({'label': label, 'value': f'peak:{p}'})
+            peak_options.append({'label': label, 'value': f'{key}:peak:{p}', 'prefix': name_prefix})
     else:
         ordered_peaks, peak_options = [], []
 
@@ -536,17 +547,21 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
 
     def _peak_choices(m2):
         """The peak dropdowns' options: the detected peaks, then "custom"."""
-        return peak_options + ([{'label': 'custom', 'value': 'custom'}] if _has_custom(m2) else [])
+        custom = {'label': 'custom', 'value': f'{key}:custom', 'prefix': name_prefix}
+        return peak_options + ([custom] if _has_custom(m2) else [])
 
     def _default_peak(m2):
-        """A new dialog's one row: the tested peak, else the deepest, else custom."""
+        """This tab's row in a new dialog: the tested peak, else the deepest,
+        else custom, else none."""
         if ordered_peaks:
-            return f'peak:{ordered_peaks[0]}'
-        return 'custom' if _has_custom(m2) else None
+            return f'{key}:peak:{ordered_peaks[0]}'
+        return f'{key}:custom' if _has_custom(m2) else None
 
     def _peak_name(peak):
-        """A peak's name in messages: "P2" or "custom"."""
-        return 'custom' if peak == 'custom' else f"P{peak.split(':')[1]}"
+        """A peak's name in messages: "P2" or "custom" (R1-P2 or R1-custom
+        with two or more ranges)."""
+        _, kind, *number = peak.split(':')
+        return name_prefix + ('custom' if kind == 'custom' else f'P{number[0]}')
 
     def _row_values(peak, m2):
         """Item key -> value for a row with this peak; a value it doesn't have
@@ -554,7 +569,8 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
         (the Bandwidth markers: B1 the peak, B2 the base) has no max, avg or
         min ones. Full precision: the dialog rounds them for display and Save."""
         values = dict(_sweep_values)
-        if peak == 'custom':
+        _, kind, *number = (peak or '::').split(':')
+        if kind == 'custom':
             if _has_custom(m2):
                 base_y = m2['base']['y']
                 values.update(wl=m2['x'], depth_custom=base_y - m2['y'],
@@ -562,8 +578,8 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
                 if params.reference:
                     # Negated like IL, so a base above the reference reads as a gain.
                     values['il_custom'] = -base_y
-        elif peak and pk is not None:
-            i = int(peak.split(':')[1]) - 1
+        elif kind == 'peak' and pk is not None:
+            i = int(number[0]) - 1
             values['wl'] = float(pk.x_nm[i])
             for base in ('max', 'avg', 'min'):
                 widths = getattr(pk, base)
@@ -983,31 +999,27 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
             patched['data'][idx]['y'] = d_d
         return patched
 
+    # A zoom and a new Max points both resample the visible x-window. One
+    # callback for both, so a zoom right after a Max points change (or the
+    # other way round) can't be overwritten by the older one's result: Dash
+    # drops a callback's unfinished run when it fires again.
     @app.callback(
         Output(rid('spectrum'), 'figure', allow_duplicate=True),
         Input(rid('spectrum'), 'relayoutData'),
-        State(rid('max-display-input'), 'value'),
+        Input(rid('max-display-input'), 'value'),
         State(rid('markers-store'), 'data'),
         prevent_initial_call=True,
     )
-    def resample_on_zoom(relayout, max_display, markers):
-        # Resample over the visible x-window. The Delta line is redrawn for it
-        # too: zoomed in, it gets a point at every step again.
-        if not _zoomed(relayout, _view):
+    def resample(relayout, max_display, markers):
+        if callback_context.triggered_id == rid('max-display-input'):
+            _sampling['max'] = max_display
+        elif not _zoomed(relayout, _view):
             return dash.no_update
+        # The Delta line is redrawn for the view too: zoomed in, it gets a
+        # point at every step again.
         patched = _resample_curves(max_display, *(_view['x'] or ()))
         _patch_delta_line(patched, markers or [])
         return patched
-
-    @app.callback(
-        Output(rid('spectrum'), 'figure', allow_duplicate=True),
-        Input(rid('max-display-input'), 'value'),
-        prevent_initial_call=True,
-    )
-    def resample_on_max_display(max_display):
-        # Re-render at the new resolution over the x-range on screen.
-        _sampling['max'] = max_display
-        return _resample_curves(max_display, *(_view['x'] or ()))
 
     # Show / hide (the window's popup): this tab's plot items and its Pass/Fail
     # table. The window remembers the choices for the next plot window.
@@ -1136,7 +1148,7 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
         key=key, id=rid, content=content, panel=panel, stores=stores,
         sh_keys=sh_keys, peak_rows=peak_rows,
         wl=wl, d_x=d_x, figure=initial_fig, curves=main_traces + ref_traces + overlay_traces,
-        has_custom=_has_custom, peak_choices=_peak_choices, default_peak=_default_peak,
+        heading=heading, peak_choices=_peak_choices, default_peak=_default_peak,
         peak_name=_peak_name, row_values=_row_values, sweep_values=_sweep_values,
         apply_filter=_apply_filter, watt_figure=_watt_figure,
     )
@@ -1292,31 +1304,26 @@ def _overview_tab(app, tabs):
         return (pt.build_table('delta', views['delta'], pt.delta_rows(markers)),
                 {'marginTop': '5px'})
 
+    # A zoom or a new Max points, in one callback as in a range tab.
     @app.callback(
         Output(rid('spectrum'), 'figure', allow_duplicate=True),
         Input(rid('spectrum'), 'relayoutData'),
-        State(rid('max-display-input'), 'value'),
+        Input(rid('max-display-input'), 'value'),
         State(rid('markers-store'), 'data'),
         prevent_initial_call=True,
     )
-    def resample_on_zoom(relayout, max_display, markers):
-        if not _zoomed(relayout, _view):
+    def resample(relayout, max_display, markers):
+        if (callback_context.triggered_id != rid('max-display-input')
+                and not _zoomed(relayout, _view)):
             return dash.no_update
         patched = _resample(max_display)
         _patch_delta_line(patched, markers or [])
         return patched
 
-    @app.callback(
-        Output(rid('spectrum'), 'figure', allow_duplicate=True),
-        Input(rid('max-display-input'), 'value'),
-        prevent_initial_call=True,
-    )
-    def resample_on_max_display(max_display):
-        return _resample(max_display)
-
     # Like a range tab's, for the window; nothing to show or hide here.
     return SimpleNamespace(key=key, id=rid, content=content, panel=panel, stores=stores,
                            sh_keys=set(), peak_rows=[])
+
 
 def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title="Absorption Spectrum",
                  autosaved_to=None, autosave_error=None):
@@ -1369,8 +1376,6 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     # Only the open tab's part of the sidebar shows (switch_tab).
     for t in every_tab:
         t.panel.style = PANEL_STYLE if t is every_tab[0] else PANEL_HIDDEN
-    # Save peak info's peaks (until it lists every range's).
-    open_tab = tabs[0]
 
     # Three sections, top to bottom: Label (SN), then the tab's Plot sampling
     # and Click mode (its panel), each under a bold title. Show / hide lives
@@ -1473,8 +1478,36 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     # ------------------------------------------------------------------
     # "Save peak info" dialog (peak_dialog.py): pick a peak file, then the
     # columns and the peaks in a table that previews the rows to save. The
-    # peaks and their values come from the open tab (_range_tab).
+    # peaks and their values come from every range tab (_range_tab), whose
+    # Bandwidth markers (M2_STATES, one per tab) make its "custom" peak.
     # ------------------------------------------------------------------
+    M2_STATES = [State(t.id('mode2-info-store'), 'data') for t in tabs]
+
+    def _m2_of(m2s):
+        """{tab key: its Bandwidth markers}, from the M2_STATES values."""
+        return dict(zip((t.key for t in tabs), m2s))
+
+    def _peak_choices(m2_of):
+        """The peak dropdowns' options: every range tab's peaks in range order,
+        under a heading per range when there are two or more. A range with no
+        peak to save gets no heading."""
+        options = []
+        for t in tabs:
+            choices = t.peak_choices(m2_of[t.key])
+            if choices and len(tabs) > 1:
+                options.append({'label': t.heading, 'value': f'__range{t.key}', 'disabled': True})
+            options += choices
+        return options
+
+    def _row_values(peak, m2_of):
+        """A row's values, from the tab its peak names (_range_tab's row_values)."""
+        key = peak.split(':')[0]
+        return tab_of[key].row_values(peak, m2_of[key])
+
+    def _peak_name(peak):
+        """A peak's name in messages, like "P2" or "R2-P1"."""
+        return tab_of[peak.split(':')[0]].peak_name(peak)
+
     def _peak_file_options():
         """The File menu, with the recent files that still exist."""
         return pdlg.file_options([p for p in pf.recent_files(RECENT_PEAK_FILES)
@@ -2064,8 +2097,8 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
 
     # X (via the hidden reset-zoom-btn): autoscale both axes, the same as the
     # modebar's Autoscale or Reset axes for this plot. It must run in the
-    # browser: Plotly then reports the change in relayoutData, and
-    # resample_on_zoom redraws the curves for the full sweep. A reset sent from
+    # browser: Plotly then reports the change in relayoutData, and the tab's
+    # resample callback redraws the curves for the full sweep. A reset sent from
     # the server wouldn't be reported, leaving the zoomed-in sampling in place.
     # The plot is the open tab's: a tab's graph (spectrum-<key>) is on the page
     # only while its tab is open.
@@ -2143,16 +2176,20 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     # (pf-state) in step with the table's controls, draw the table, and Save
     # or Cancel.
     # ------------------------------------------------------------------
-    def _fresh_peak_state(path, m2):
+    def _fresh_peak_state(path, m2_of):
         """The dialog's state for the chosen file (its path, or '' for a new
-        file), with one row for the default peak."""
+        file), with a row for each range's default peak (_range_tab's
+        default_peak; a range with none gets no row). The ranges share the
+        date, source and detector that pick the saved rows a peak could
+        replace, so Range 1's sweep values serve them all."""
         if path:
-            state = pdlg.file_state(path, _peak_decimals, open_tab.sweep_values)
+            state = pdlg.file_state(path, _peak_decimals, tabs[0].sweep_values)
         else:
             state = pdlg.new_file_state(_peak_columns, _peak_decimals)
-        peak = open_tab.default_peak(m2)
-        if peak and not state['bad']:
-            pdlg.add_row(state, peak)
+        for t in tabs:
+            peak = t.default_peak(m2_of[t.key])
+            if peak and not state['bad']:
+                pdlg.add_row(state, peak)
         return state
 
     # Opening the dialog starts its state over, with the file saved to last.
@@ -2167,12 +2204,12 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         Output('peak-temperature', 'value'),
         Output('peak-modal-error', 'children', allow_duplicate=True),
         Input('save-peak-btn', 'n_clicks'),
-        State(open_tab.id('mode2-info-store'), 'data'),
+        *M2_STATES,
         prevent_initial_call=True,
     )
-    def open_peak_modal(n_clicks, m2):
+    def open_peak_modal(n_clicks, *m2s):
         # Label (SN) starts with the sweep's label, and Temperature empty.
-        return (MODAL_SHOWN, _peak_file_options(), _fresh_peak_state(_first_peak_file(), m2),
+        return (MODAL_SHOWN, _peak_file_options(), _fresh_peak_state(_first_peak_file(), _m2_of(m2s)),
                 params.label or '', None, '')
 
     # A pick in the File menu. Its value goes back to None, so it shows "File
@@ -2187,10 +2224,10 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         Output('pf-state', 'data', allow_duplicate=True),
         Input('peak-file-select', 'value'),
         State('pf-state', 'data'),
-        State(open_tab.id('mode2-info-store'), 'data'),
+        *M2_STATES,
         prevent_initial_call=True,
     )
-    def pick_peak_file(value, state, m2):
+    def pick_peak_file(value, state, *m2s):
         if value is None or not state:
             return dash.no_update, dash.no_update, dash.no_update
         path = '' if value == pdlg.NEW_FILE else value
@@ -2208,7 +2245,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
             path = os.path.abspath(result[0] if isinstance(result, (list, tuple)) else result)
         if path == state['path'] or (path and state['path'] and pf.same_file(path, state['path'])):
             return None, dash.no_update, dash.no_update
-        new = _fresh_peak_state(path, m2)
+        new = _fresh_peak_state(path, _m2_of(m2s))
         if not path or new['bad']:
             return None, dash.no_update, new
         _remember_peak_file(path)
@@ -2257,15 +2294,16 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         Input('pf-state', 'data'),
         Input('peak-label', 'value'),
         Input('peak-temperature', 'value'),
-        State(open_tab.id('mode2-info-store'), 'data'),
+        *M2_STATES,
         prevent_initial_call=True,
     )
-    def render_peak_dialog(state, label, temperature, m2):
+    def render_peak_dialog(state, label, temperature, *m2s):
         # Any change also clears the last Save's error message.
         if not state:
             return [], '', '', '', ''
-        table = pdlg.table(state, open_tab.peak_choices(m2),
-                           lambda peak: open_tab.row_values(peak, m2), label, temperature)
+        m2_of = _m2_of(m2s)
+        table = pdlg.table(state, _peak_choices(m2_of),
+                           lambda peak: _row_values(peak, m2_of), label, temperature)
         return table, pdlg.file_line(state), pdlg.save_hint(state), pdlg.file_message(state), ''
 
     @app.callback(
@@ -2277,20 +2315,20 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         State('pf-state', 'data'),
         State('peak-label', 'value'),
         State('peak-temperature', 'value'),
-        State(open_tab.id('mode2-info-store'), 'data'),
+        *M2_STATES,
         prevent_initial_call=True,
     )
-    def close_or_save_peak(cancel, confirm, state, label, temperature, m2):
+    def close_or_save_peak(cancel, confirm, state, label, temperature, *m2s):
         if callback_context.triggered_id == 'peak-cancel':
             return MODAL_HIDDEN, dash.no_update, ''
         if not state:
             return dash.no_update, dash.no_update, ''
         label = (label or '').strip()
-        trouble = pdlg.problem(state, label, lambda peak: open_tab.row_values(peak, m2),
-                               open_tab.peak_name)
+        m2_of = _m2_of(m2s)
+        trouble = pdlg.problem(state, label, lambda peak: _row_values(peak, m2_of), _peak_name)
         if trouble:
             return dash.no_update, dash.no_update, trouble
-        rows = [{**open_tab.row_values(r['peak'], m2), 'label': label, 'temperature': temperature,
+        rows = [{**_row_values(r['peak'], m2_of), 'label': label, 'temperature': temperature,
                  'texts': pdlg.row_texts(state, r)} for r in state['rows']]
 
         window = _window_holder.get('window')
