@@ -1157,10 +1157,11 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
 
 def _overview_tab(app, tabs):
     """The Overview tab, first when a sweep has two or more ranges: every
-    range's lines on one wavelength axis, Delta markers and their table, and
-    its part of the right sidebar (Plot sampling and Clear all; clicks always
-    place Delta markers). No peaks, insertion loss, filter or Bandwidth
-    markers. tabs: the range tabs (_range_tab), in range order.
+    range's lines on one wavelength axis, Delta markers and their table, its
+    part of the right sidebar (Plot sampling and Clear all; clicks always
+    place Delta markers), and Plot in Watt for every range at once. No peaks,
+    insertion loss, filter or Bandwidth markers. tabs: the range tabs
+    (_range_tab), in range order.
 
     Each line holds every range end to end, from the range tabs' data
     (trimmed, without padding), as the same line in a range tab: the same
@@ -1320,9 +1321,28 @@ def _overview_tab(app, tabs):
         _patch_delta_line(patched, markers or [])
         return patched
 
+    def _watt_figure():
+        """Plot in Watt for the Overview: the range tabs' Watt plots on one
+        axis. Each line runs through the ranges end to end, with a NaN at
+        each gap, at full resolution like a range tab's."""
+        figs = [t.watt_figure() for t in tabs]
+        fig = go.Figure(layout=figs[0].layout)
+        for i, trace in enumerate(figs[0].data):
+            xs, ys = [], []
+            for f in figs:
+                if xs:
+                    xs.append([np.nan])
+                    ys.append([np.nan])
+                xs.append(np.asarray(f.data[i].x, dtype=float))
+                ys.append(np.asarray(f.data[i].y, dtype=float))
+            fig.add_scatter(x=np.concatenate(xs), y=np.concatenate(ys), mode=trace.mode,
+                            name=trace.name, line=trace.line, visible=trace.visible,
+                            hovertemplate=trace.hovertemplate)
+        return fig
+
     # Like a range tab's, for the window; nothing to show or hide here.
     return SimpleNamespace(key=key, id=rid, content=content, panel=panel, stores=stores,
-                           sh_keys=set(), peak_rows=[])
+                           sh_keys=set(), peak_rows=[], watt_figure=_watt_figure)
 
 
 def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title="Absorption Spectrum",
@@ -1412,8 +1432,8 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         'fontFamily': WINDOW_CSS_FONT,
     }
     NAV_OFF_STYLE = {**NAV_BTN_STYLE, 'opacity': 0.4, 'cursor': 'default'}   # a disabled button
-    # Apply filter and Plot in Watt are off while the Overview is open,
-    # which it is first (switch_tab).
+    # Apply filter is off while the Overview is open, which it is first
+    # (switch_tab): a filter across a gap would mix two ranges.
     range_open = overview is None
 
     # What the "Show / hide" popup lists, as (value, label) per group: the
@@ -1433,8 +1453,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         html.Button('Show / hide...(H)', id='show-hide-btn', n_clicks=0,
                     disabled=not has_show_hide,
                     style=NAV_BTN_STYLE if has_show_hide else NAV_OFF_STYLE),
-        html.Button('Plot in Watt...', id='plot-watt-btn', n_clicks=0, disabled=not range_open,
-                    style=NAV_BTN_STYLE if range_open else NAV_OFF_STYLE),
+        html.Button('Plot in Watt...', id='plot-watt-btn', n_clicks=0, style=NAV_BTN_STYLE),
         html.Div(id='plot-watt-dummy', style={'display': 'none'}),
         html.Button('Sweep info...(I)', id='sweep-info-btn', n_clicks=0, style=NAV_BTN_STYLE),
         # Power Readout: live meter values in a modal (readout.PowerReadout).
@@ -1856,11 +1875,12 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     def plot_watt(n_clicks, key):
         # Option A: build a standalone Plotly figure in linear (Watt) units and
         # open it in a SECOND pywebview window as a self-contained HTML file.
-        # It's the open tab's range (_range_tab's _watt_figure); the button
-        # is off on the Overview.
-        if key not in tab_of:
+        # It's the open tab's range (_range_tab's _watt_figure), or every
+        # range on the Overview (_overview_tab's).
+        tab = overview if key == 'ov' else tab_of.get(key)
+        if tab is None:
             return dash.no_update
-        fig = tab_of[key].watt_figure()
+        fig = tab.watt_figure()
 
         # Self-contained HTML (plotly.js inlined) so it opens offline / in the
         # packaged build, served by this window's own Dash server (see
@@ -1868,7 +1888,8 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         # host_url is that server's address.
         _watt_page['html'] = fig.to_html(include_plotlyjs=True, config={'scrollZoom': True})
         watt_window = webview.create_window(
-            f'{title} — Watt' + (f' (Range {key})' if len(tabs) > 1 else ''),
+            f'{title} — Watt' + ('' if len(tabs) == 1 else ' (Overview)' if key == 'ov'
+                                  else f' (Range {key})'),
             flask.request.host_url + 'watt-plot',
             width=1250, height=700, maximized=True,
         )
@@ -1918,18 +1939,17 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         return dash.no_update
 
     # Opening a tab: note which tab is open, for the menu bar, show its part
-    # of the sidebar, and turn Apply filter and Plot in Watt off on the
-    # Overview. In the browser, so the sidebar switches with the tab bar.
+    # of the sidebar, and turn Apply filter off on the Overview. In the
+    # browser, so the sidebar switches with the tab bar.
     if len(every_tab) > 1:
         app.clientside_callback(
             """
             function(key) {
                 var keys = __KEYS__;
                 var off = key === 'ov';
-                var btn = off ? __OFF__ : __ON__;
                 return [key].concat(keys.map(function (k) {
                     return k === key ? __SHOWN__ : __HIDDEN__;
-                }), [off, btn, off, btn]);
+                }), [off, off ? __OFF__ : __ON__]);
             }
             """.replace('__KEYS__', json.dumps([t.key for t in every_tab]))
                .replace('__SHOWN__', json.dumps(PANEL_STYLE))
@@ -1940,8 +1960,6 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
             *[Output(t.id('panel'), 'style') for t in every_tab],
             Output('apply-filter-btn', 'disabled'),
             Output('apply-filter-btn', 'style'),
-            Output('plot-watt-btn', 'disabled'),
-            Output('plot-watt-btn', 'style'),
             Input('range-tabs', 'value'),
         )
 
