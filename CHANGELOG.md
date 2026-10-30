@@ -1,25 +1,23 @@
 # Changelog
 
-## [Unreleased] (to be 3.0.0)
+## [3.0.0] - 2026-10-30
 
 ### Added
 
 - A sweep can measure up to four wavelength ranges. In the config window, λ Start and λ Stop have a column per range, and each range has its own peak test criteria and Base. The graph window shows each range in its own tab, after an Overview tab with every range on one wavelength axis.
-- With two or more ranges, "Save peak info" lists every range's peaks under a heading per range, names them by range (R2-P1), and starts with one row per range.
 - In the config window, "Peak Test Criteria" has a new "Base" dropdown: max (the default), avg, or min. It sets the base the peak test measures depth and width from.
 - In the graph window, "Apply filter" has a new "Off" choice at the end of its list. It removes the filtered curve from the plot.
 
 ### Changed
 - The app is renamed from WavelengthSweep to MultiSweep (`MultiSweep.exe`). Its logs now go to `logs/MultiSweep`.
 - Raw data files have a new layout: a block of columns per range, named with the range (`R1_Wavelength_nm`, `R1_Ch1_W`, ...), and `"format": 2` in the first line. PlotSweep opens only files in this layout.
-- In the config window, the parameter and peak test fields are narrower, 7 characters wide.
-- In the graph window, the label (SN) moved from above the plot to a field in the right panel, where you can change it. "Save raw data" and "Save peak info" use the changed label.
-- If only the label's counter is changed there, the config window's counter continues from it. Any other change stops "Close & Repeat" at the config window with a message.
+- In the graph window, the label (SN) moved to a field in the right panel, where you can change it. "Save raw data" and "Save peak info" use the changed label.
+- If only the label's counter is changed there, the config window's counter continues from it. Any other change stops at the config window with a message.
 - "Save peak info" saves to Excel files (.xlsx) instead of CSV files. In its table, you pick the columns and their decimals, and you can save several peaks at once.
 - In "Save peak info", the File menu has "New file", "Open file…" to pick a file in any folder, and your recent files. It no longer lists every file in the Peaks folder.
 - In "Save peak info", saving the same peak again keeps the earlier row and marks it "replaced" in a new Status column. A new Time column shows when each sweep ran.
 - In the graph window's dialogs, Esc in a text box now only leaves the box. Press Esc again to close the dialog.
-- In the graph window, "Depth (dB)" in the Peak table (under Max base, Avg base and Min base) and in the Peak test result now shows 3 decimal places by default instead of 2. In "Save peak info", the Depth columns also start with 3 decimal places.
+- In the graph window, "Depth (dB)" in the Peak table and in the Peak test result now shows 3 decimal places by default instead of 2. In "Save peak info", the Depth columns also start with 3 decimal places.
 - In the config window, "Peak Test Criteria" is laid out as a table: "min" and "max" are column headers instead of labels on every row.
 - Presets are now saved in TOML files (`preset_N7778C.toml`, `preset_81600B.toml`) instead of CSV files, in the same folder. The first time the config window opens for a source, its presets are moved from `preset_<source>.csv` to the new file, and the CSV is renamed to `preset_<source>.csv.bak`.
 
@@ -27,7 +25,7 @@
 
 - In the graph window, Delta markers far apart no longer slow down the plot. The line between them has a point at every step, or at every few steps when a long stretch of it is in view, so it draws at most about 50,000 points.
 - In the power readout, a channel with no light now shows "< -100 dBm" instead of flickering between a number and "-". Above 10 mW it shows "> +10 dBm".
-- A preset file the program can't read is no longer overwritten. The config window shows the error, with the line and column, and "Manage Presets..." stays off until the file is fixed. Before, saving a preset could replace such a file and lose the other presets.
+
 
 ## [2.0.4] - 2026-10-19
 
