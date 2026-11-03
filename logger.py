@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 import threading
+import time
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -51,10 +52,6 @@ def setup_logging(app_name, level=logging.INFO, max_files=20, max_bytes=10 * 102
     )
 
 
-    # logging.getLogger("inst_helper").setLevel(logging.DEBUG)
-    # logging.getLogger("inst_run_ext").setLevel(logging.DEBUG)
-    # logging.getLogger("inst_run").setLevel(logging.DEBUG)
-
     # Werkzeug's dev server logs one INFO line per HTTP request (static assets,
     # callbacks, etc.). Quiet it to WARNING so only real problems (4xx/5xx) show.
     logging.getLogger("werkzeug").setLevel(logging.WARNING)
@@ -103,5 +100,38 @@ def setup_logging(app_name, level=logging.INFO, max_files=20, max_bytes=10 * 102
         )
 
     sys.unraisablehook = _log_unraisable
+
+    # An exception that escapes the main program ends it, and in the packaged
+    # .exe the console window closes along with it, before anyone can read the
+    # error (#127). Log it here, and in the .exe keep the window open until
+    # the user closes it. Python calls this hook only after every `finally`
+    # on the way out has run, so main.py has already turned the laser off and
+    # closed the instruments: the open window holds nothing.
+    def _log_uncaught(exc_type, exc_value, exc_tb):
+        if issubclass(exc_type, KeyboardInterrupt):
+            # Ctrl+C means "quit", not an error: no message and no wait.
+            sys.__excepthook__(exc_type, exc_value, exc_tb)
+            return
+        logging.getLogger(app_name).error(
+            "Unhandled error", exc_info=(exc_type, exc_value, exc_tb))
+        if getattr(sys, "frozen", False):
+            bar = "=" * 60
+            print(f"\n{bar}\n"
+                  " The program stopped because of an error. The log is saved to:\n"
+                  f"   {log_file}\n"
+                  " Close this window, then restart the program.\n"
+                  f"{bar}", flush=True)
+            # Sleep rather than input(): an Enter typed into the console
+            # earlier is still in its input buffer, and input() would read it
+            # and close the window at once. Closing the window ends the
+            # process; Ctrl+C (not mentioned to users) ends the wait quietly.
+            try:
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                pass
+        fast_exit(1)
+
+    sys.excepthook = _log_uncaught
 
     return logging.getLogger(app_name)
