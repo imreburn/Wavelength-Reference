@@ -2769,7 +2769,7 @@ if __name__ == "__main__":
     from open_csv import plot_raw
     from inst_dummy import dummy_readout
     # csv_path = "Raw Data/hc13n_watt_reference.csv"
-    csv_path = "Raw Data/02609299.csv"
+    csv_path = "Raw Data/unisearch-8560.csv"
     # Dummy instruments, so the Power Readout modal can be exercised here.
     plot_raw(csv_path, readout=dummy_readout("N7778C"))
 
