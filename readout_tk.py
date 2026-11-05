@@ -72,7 +72,10 @@ class ReadoutSection:
             self.dbm_entry.config(state="disabled")
             self.laser_cb.config(state="disabled")
 
-        self.msg = tk.Label(f, text="", fg="red", wraplength=380, justify="left")
+        # Always two lines tall, so a message never resizes the window (#145).
+        # Every message fits on one line at 480 px.
+        self.msg = tk.Label(f, text="", fg="red", wraplength=480, justify="left",
+                            height=2, anchor="nw")
         self.msg.grid(row=3, column=0, columnspan=5, sticky="w")
 
         # ---- the table: header row, then one row per channel
