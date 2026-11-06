@@ -83,6 +83,7 @@ LABEL_TEXT = {
     "Start Wavelength (nm)": "λ Start (nm)",
     "Stop Wavelength (nm)" : "λ Stop (nm)",
     PADDING_LABEL          : "λ Padding (pm)",
+    PM_RANGE_LABEL         : "Initial Power Range (dBm)",
     "Peak Wavelength (nm)" : "λ (nm)",
     "Peak Depth (dB)"      : "Depth (dB)",
     "Peak Width (pm)"      : "Width (pm)",

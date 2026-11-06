@@ -35,7 +35,7 @@ from info_text import PASSFAIL_INFO, REFERENCE_INFO, PARAMETERS_INFO, AUTOSAVE_I
 _last = {}  # persists raw field values within one execution
 
 # Fixed on-screen position for the window at first launch (top-left x, y).
-WINDOW_POS = (50, 10)
+WINDOW_POS = (0, 0)
 
 # The parameter fields' width, in characters: enough for "XXXX.XX" (Tk counts
 # "0" widths, and a dot is narrower). A longer value scrolls in its field.
@@ -670,11 +670,8 @@ def get_inputs(readout=None, auto_run=False, source=None):
     AVGTIME_ROW  = LOGCOUNT_ROW + 1
     DURATION_ROW = AVGTIME_ROW + 1
     SAVEBTN_ROW  = DURATION_ROW + 1
-    HEADER2_ROW  = SAVEBTN_ROW + 1   # Reference
-    REFBTN_ROW   = HEADER2_ROW + 2   # +2 leaves room for the separator line
-    HEADER3_ROW  = REFBTN_ROW + 1    # Instruments
-    RUNBTN_ROW   = HEADER3_ROW + 2
-    RESULT_ROW   = RUNBTN_ROW + 1    # status messages sit right below Run
+    ACTIONS_ROW  = SAVEBTN_ROW + 1   # Reference and Instruments, side by side
+    RESULT_ROW   = ACTIONS_ROW + 1   # status messages sit right below Run
     # Columns: the labels, then one per range (column 1 + r for range r). λ
     # Start, λ Stop, Log Count and Duration have a value per range; every other
     # field sits in Range 1's column and spans the rest. Peak Test Criteria and
@@ -973,10 +970,26 @@ def get_inputs(readout=None, auto_run=False, source=None):
     preset_save_btn = tk.Button(save_frame, text="Manage Presets...", command=on_save_preset, state="disabled")
     preset_save_btn.pack(side="left", padx=5)
 
+    # ---- Reference and Instruments -----------------------------------------
+    # Side by side on one row, so the Parameters column (the window's tallest)
+    # needs one section header fewer (#145). Each header sits in its own
+    # sub-frame, so its line runs only over its own section; the two sections'
+    # contents share a grid row, so the checkbox and Run line up. Reference's
+    # column is as wide as its row, and Instruments takes the rest.
+    actions = tk.Frame(frame)
+    actions.grid(row=ACTIONS_ROW, column=0, columnspan=COLS, sticky="ew")
+    actions.columnconfigure(1, weight=1)
+    ref_head = tk.Frame(actions)
+    ref_head.grid(row=0, column=0, sticky="ew")
+    ref_head.columnconfigure(0, weight=1)
+    inst_head = tk.Frame(actions)
+    inst_head.grid(row=0, column=1, sticky="ew", padx=(20, 0))
+    inst_head.columnconfigure(0, weight=1)
+
     # ---- Reference -------------------------------------------------------
-    section_header(frame, "Reference", HEADER2_ROW, info=REFERENCE_INFO, span=COLS)
-    ref_frame = tk.Frame(frame)
-    ref_frame.grid(row=REFBTN_ROW, column=0, columnspan=COLS, pady=4)
+    section_header(ref_head, "Reference", 0, info=REFERENCE_INFO, span=1)
+    ref_frame = tk.Frame(actions)
+    ref_frame.grid(row=1, column=0, pady=4)
     ref_var = tk.IntVar(value=0)
     ref_check = tk.Checkbutton(ref_frame, text="Use reference (R)", variable=ref_var,
                                command=on_toggle_ref, state="disabled")
@@ -990,9 +1003,9 @@ def get_inputs(readout=None, auto_run=False, source=None):
     _bind_checkbox_key(root, "r", ref_check)
 
     # ---- Instruments -----------------------------------------------------
-    section_header(frame, "Instruments", HEADER3_ROW, span=COLS)
-    inst_frame = tk.Frame(frame)
-    inst_frame.grid(row=RUNBTN_ROW, column=0, columnspan=COLS, pady=10)
+    section_header(inst_head, "Instruments", 0, span=1)
+    inst_frame = tk.Frame(actions)
+    inst_frame.grid(row=1, column=1, padx=(20, 0), pady=10)
     run_btn = tk.Button(inst_frame, text="Run (Enter)", command=on_run, width=10, state="disabled")
     run_btn.pack(side="left", padx=5)
 
@@ -1000,7 +1013,11 @@ def get_inputs(readout=None, auto_run=False, source=None):
     root.bind("<Return>", lambda _e: on_run())
     root.bind("<KP_Enter>", lambda _e: on_run())
 
-    result_label = tk.Label(frame, text="", wraplength=400, justify="left")
+    # Always three lines tall, so a long message never makes the window taller
+    # (#145). Every message wraps to three lines or fewer at 480 px (the
+    # Parameters column is 495 px wide on the Mac); a longer one is cut off at
+    # the bottom. The text starts at the top, right below Run.
+    result_label = tk.Label(frame, text="", wraplength=480, justify="left", height=3, anchor="n")
     result_label.grid(row=RESULT_ROW, column=0, columnspan=COLS)
 
     update_ref_ui()
