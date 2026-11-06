@@ -31,7 +31,7 @@ PARAMETERS_INFO="""
 
 - If the step size is empty or 0, it's set to the smallest step the sweep speed allows (sweep speed × 25 µs).
 
-- If the step size is adjusted, the field shows the new value in orange.
+- If the step size is adjusted, the field shows the new value in orange, with "Adjusted" next to it.
 
 
 **λ Padding (pm)**
@@ -56,13 +56,17 @@ REFERENCE_INFO="""
 - The reference and later measurements must use the same parameters. So clicking "Change" is taken to mean the parameters are about to change, and it deletes the reference right away. Then a new measurement should be taken before a reference can be used.
 
 
-**Status messages**
+**Reference data**
+
+The line above the checkbox shows whether there is data to use as a reference.
 
 - **No data:** No data is available to use as a reference. This appears right after the program starts and after "Change" is clicked. The "Use reference" checkbox is disabled.
 
 - **Data ready:** Measured data is available but isn't being used as the reference. Check "Use reference" to use it.
 
 - **In use:** The reference is in use.
+
+- The date and time after **Data ready** and **In use** are when the reference measurement started, when Run was clicked. Its raw data file names use the same time, written as YYYY-MM-DD_hh-mm-ss.
 """
 
 

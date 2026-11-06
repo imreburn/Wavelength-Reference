@@ -123,24 +123,24 @@ def validate_label(prefix, digits_s, start_s):
     text, so leading zeros survive.
     """
     if digits_s not in LABEL_DIGIT_OPTIONS:
-        return None, None, "label digits must be selected from the dropdown list."
+        return None, None, "Label digits must be selected from the dropdown list."
     digits = int(digits_s)
     if any(c in FILENAME_BAD_CHARS for c in prefix):
-        return None, None, f"label prefix must not contain any of {FILENAME_BAD_CHARS}"
+        return None, None, f"Label prefix must not contain any of {FILENAME_BAD_CHARS}"
     if prefix != prefix.rstrip(" ."):
-        return None, None, "label prefix must not end with a space or a dot."
+        return None, None, "Label prefix must not end with a space or a dot."
     n = None
     if digits:
         start_s = start_s.strip()
         if not (start_s.isascii() and start_s.isdigit()):   # isdigit alone accepts "²"
-            return None, None, "label 'starting from' must be a whole number."
+            return None, None, "Label 'starting from' must be a whole number."
         n = int(start_s)
         limit = 10 ** digits - 1
         if n > limit:
-            return None, None, f"label counter is over {limit}, the {digits}-digit limit."
+            return None, None, f"Label counter is over {limit}, the {digits}-digit limit."
     label = build_label(prefix, digits, n)
     if not label:
-        return None, None, "label is empty. Enter a prefix or choose 1 or more digits."
+        return None, None, "Label is empty. Enter a prefix or choose 1 or more digits."
     return label, n, None
 
 
@@ -353,19 +353,31 @@ def _preset_vals(table, where):
     return vals
 
 
+# What the config window shows when the preset file can't be used. The
+# details (the file and the system's error) go to the log instead, so each
+# message keeps a fixed length.
+PRESET_READ_ERROR    = "Could not read the preset file. See the log."
+PRESET_WRITE_ERROR   = "Could not write the preset file. See the log."
+PRESET_CONVERT_ERROR = "Could not convert the old preset CSV file. See the log."
+PRESET_NOT_FOUND     = "Preset not found in the preset file."
+
+
 def _read_preset_doc(path):
-    """Return (document, None) for the preset file at `path`, or (None, error
-    text) if it can't be read or parsed. A missing file gives (None, None)."""
+    """Return (document, None) for the preset file at `path`, or (None,
+    PRESET_READ_ERROR) if it can't be read or parsed, with the reason logged.
+    A missing file gives (None, None)."""
     try:
         text = path.read_text(encoding="utf-8-sig")   # -sig skips a byte-order mark
     except FileNotFoundError:
         return None, None
     except (OSError, UnicodeError) as e:
-        return None, f"Could not read {path.name}: {e}"
+        log.error("Could not read %s: %s", path, e)
+        return None, PRESET_READ_ERROR
     try:
         return tomlkit.parse(text), None
     except TOMLKitError as e:
-        return None, f"Could not read {path.name}: {e}"
+        log.error("Could not read %s: %s", path, e)
+        return None, PRESET_READ_ERROR
 
 
 def _write_preset_doc(path, doc):
@@ -399,13 +411,12 @@ def _add_preset(doc, name, vals):
 def load_presets(path):
     """Read the preset file at `path`.
 
-    Returns ({name: {label: text}}, None), or ({}, error text) if the file
-    can't be read. A missing file just means no presets yet. The texts are
-    what the config window's fields show (see _preset_vals).
+    Returns ({name: {label: text}}, None), or ({}, PRESET_READ_ERROR) if the
+    file can't be read. A missing file just means no presets yet. The texts
+    are what the config window's fields show (see _preset_vals).
     """
     doc, error = _read_preset_doc(path)
     if error:
-        log.error(error)
         return {}, error
     presets = {}
     for name, table in (doc.unwrap() if doc is not None else {}).items():
@@ -419,7 +430,8 @@ def load_presets(path):
 
 def save_preset(path, name, vals):
     """Save preset `name` to the file at `path`, from the config window's
-    {label: text}. Returns None on success or an error message.
+    {label: text}. Returns None on success, or PRESET_READ_ERROR or
+    PRESET_WRITE_ERROR, with the reason logged.
 
     A preset that already exists is updated where it is, so comments next to
     its values stay. A new one goes at the end. A file that can't be read is
@@ -437,24 +449,28 @@ def save_preset(path, name, vals):
         else:
             _add_preset(doc, name, vals)
         _write_preset_doc(path, doc)
-    except Exception as e:
-        return f"Could not write {path.name}: {e}"
+    except Exception:
+        log.exception("Could not write %s", path)
+        return PRESET_WRITE_ERROR
     return None
 
 
 def delete_preset(path, name):
-    """Remove preset `name` from the file at `path`. Returns None on success or
-    an error message. A file that can't be read is never written over."""
+    """Remove preset `name` from the file at `path`. Returns None on success,
+    or PRESET_READ_ERROR, PRESET_NOT_FOUND or PRESET_WRITE_ERROR, with the
+    reason logged. A file that can't be read is never written over."""
     doc, error = _read_preset_doc(path)
     if error:
         return error
     if doc is None or name not in doc:
-        return f"Preset '{name}' not found."
+        log.warning("Preset %r not found in %s", name, path)
+        return PRESET_NOT_FOUND
     try:
         del doc[name]
         _write_preset_doc(path, doc)
-    except Exception as e:
-        return f"Could not write {path.name}: {e}"
+    except Exception:
+        log.exception("Could not write %s", path)
+        return PRESET_WRITE_ERROR
     return None
 
 
@@ -466,9 +482,9 @@ def convert_csv_presets(path):
     """Move the presets of the old CSV next to `path` (preset_<source>.csv)
     into `path`, the TOML preset file, then rename the CSV to .csv.bak.
 
-    Does nothing once `path` exists, or if there is no CSV. Returns None, or an
-    error message if the CSV can't be read or `path` can't be written. The CSV
-    is left as it is then.
+    Does nothing once `path` exists, or if there is no CSV. Returns None, or
+    PRESET_CONVERT_ERROR if the CSV can't be read or `path` can't be written,
+    with the reason logged. The CSV is left as it is then.
     """
     csv_path = path.with_suffix(".csv")
     if path.exists() or not csv_path.exists():
@@ -479,10 +495,9 @@ def convert_csv_presets(path):
         for name, vals in presets.items():
             _add_preset(doc, name, vals)
         _write_preset_doc(path, doc)
-    except Exception as e:
-        error = f"Could not convert {csv_path.name} to {path.name}: {e}"
-        log.error(error)
-        return error
+    except Exception:
+        log.exception("Could not convert %s to %s", csv_path, path.name)
+        return PRESET_CONVERT_ERROR
     log.info("Moved %d preset(s) from %s to %s.", len(presets), csv_path, path.name)
     bak_path = csv_path.with_name(csv_path.name + ".bak")
     try:
@@ -783,7 +798,7 @@ def validate_inputs(start_strs, stop_strs, raw_strings, num_data, avg_time, dura
         try:
             values.append(float(s))
         except ValueError:
-            return None, "all fields must be numbers."
+            return None, "All fields must be numbers."
     sweep_speed, step_size, power_dbm = values
 
     # The used ranges: from Range 1 on, with no blank range in between.
@@ -796,12 +811,12 @@ def validate_inputs(start_strs, stop_strs, raw_strings, num_data, avg_time, dura
                       "Fill in the ranges in order, from Range 1.")
     for r in range(n):
         if not (start_strs[r].strip() and stop_strs[r].strip()):
-            return None, f"Range {r + 1}: enter both λ Start and λ Stop, or leave both blank."
+            return None, f"Range {r + 1}: Enter both λ Start and λ Stop, or leave both blank."
     try:
         wav_starts = [float(s) for s in start_strs[:n]]
         wav_stops  = [float(s) for s in stop_strs[:n]]
     except ValueError:
-        return None, "all fields must be numbers."
+        return None, "All fields must be numbers."
 
     wl_min, wl_max = source_spec["wl_min"], source_spec["wl_max"]
     for r, (wav_start, wav_stop) in enumerate(zip(wav_starts, wav_stops)):
@@ -851,16 +866,16 @@ def validate_inputs(start_strs, stop_strs, raw_strings, num_data, avg_time, dura
     # Each range starts more than two steps after the one before it ends:
     # gen_xaxis keeps one step beyond λ Start and λ Stop, so the plotted data
     # of neighbouring ranges can't overlap. Padding isn't counted, and the
-    # ranges aren't sorted for the user.
+    # ranges aren't sorted for the user. The message leaves out the lowest
+    # λ Start that works, so it keeps a fixed length.
     step_nm = step_new / 1000
     for r in range(1, n):
         if round(wav_starts[r] - step_nm, 7) <= round(wav_stops[r - 1] + step_nm, 7):
-            return None, (f"Range {r + 1}: λ Start must be above {round(wav_stops[r - 1] + 2 * step_nm, 7)} nm, "
-                          f"two steps above Range {r}'s λ Stop.")
+            return None, f"Range {r + 1}: λ Start must be more than two steps above Range {r}'s λ Stop."
 
     for r, num_data_log in enumerate(num_data_logs):
         if num_data_log > 1000000:
-            return None, f"Range {r + 1}: Log count exceeds the maximum (max: 1M)"
+            return None, f"Range {r + 1}: Log Count exceeds the maximum of 1,000,000."
     
     return {'wl_start': wav_starts, 'wl_stop': wav_stops, 'speed': sweep_speed, 'step_pm': step_new,
             'tls_dbm': power_dbm, 'at_us': avg_t, 'num_data': num_data_logs}, None
@@ -900,9 +915,9 @@ def validate_passfail(raw, where="Peak Test Criteria"):
         try:
             lo, hi = float(lo_s), float(hi_s)
         except ValueError:
-            return None, f"{where}: all fields must be numbers."
+            return None, f"{where}: All fields must be numbers."
         if lo < 0 or hi < 0:
-            return None, f"{where}: values must not be negative."
+            return None, f"{where}: Values must not be negative."
         if lo > 0 and hi == 0:
             hi = float("inf")
         if lo > hi:

@@ -127,7 +127,7 @@ try:
                 raw_w.ref = ref
         else:
             ref_data = [raw_w.data.copy() for raw_w in datasets]
-            mark_ref_available()
+            mark_ref_available(params.time)
 
         # Auto-save after the reference is attached, so the file matches what
         # "Save raw data..." would write. A failure is shown on the plot rather

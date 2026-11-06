@@ -8,7 +8,6 @@
 
 ### Fixed
 
-- The bottom of the config window is no longer cut off. "Reference" and "Instruments" now sit side by side. ([#145](https://github.com/imreburn/Wavelength-Reference/issues/145))
 - When the program stops because of an error, its console window now stays open until you close it, and it shows where the log file is saved. ([#127](https://github.com/imreburn/Wavelength-Reference/issues/127))
 - The app now uses Dash 4.5.0 instead of 4.2.0. Dash 4.2.0 rebuilt the whole "Save peak info" table on every change, which caused [#132](https://github.com/imreburn/Wavelength-Reference/issues/132).
 

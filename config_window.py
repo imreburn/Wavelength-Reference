@@ -50,9 +50,43 @@ SPEED_LABEL, STEP_LABEL = FIELD_LABELS[2], FIELD_LABELS[3]
 # before a held key starts repeating.
 KEY_QUIET_S = 1.0
 
+# The Status section's box: STATUS_CHARS characters wide ("0" widths, so it
+# scales with the font and the display scaling) and STATUS_LINES lines tall.
+# The longest message takes 3 lines on Windows; the rest is room for later
+# changes.
+STATUS_CHARS = 40
+STATUS_LINES = 6
+
+# The color of a step size that Save adjusted: the field's text, and the
+# "Adjusted" note next to it.
+ADJUSTED_FG = "#cc7a00"
+
+# How the Reference section shows the time of the sweep its data came from.
+REF_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+# The status messages this file shows. The checks' errors come from
+# config_helper, and the Power Readout's messages from readout_tk. Each message
+# has a fixed length, apart from an error it may include, and those come from a
+# short, known set. So the Status box always holds them.
+MSG_SAVED          = "Parameters saved. Review values, then click Run or press Enter."
+MSG_UNLOCKED       = "Parameters unlocked. Edit and Save again; the reference has been cleared."
+MSG_INPUTS_CHANGED = "Inputs changed — please Save again."
+MSG_NO_CHANNEL     = "At least one channel must be selected."
+MSG_BAD_BASE       = "{where}: " + PEAK_BASE_LABEL + " must be selected from the dropdown list."
+MSG_PRESET_LOADED  = "Preset loaded and saved. Click Run or press Enter, or Change to edit."
+MSG_PRESET_ERROR   = "Preset error: {error} Fix it, then Save."
+MSG_PRESET_SAVED   = "Preset saved."
+MSG_PRESET_DELETED = "Preset deleted."
+MSG_PRESETS_OFF    = "Error: {error} Manage Presets is off until this is fixed."
+MSG_RUNNING        = "Running..."
+MSG_LABEL_NOTICE   = ("The new label from the graph window doesn't fit the prefix and counter, "
+                      "so the counter wasn't updated. Check the label, then press Run.")
+
 # Persists across get_inputs() calls (the window is recreated each loop):
 #   ref_available — a sweep without a reference has finished since startup or
 #                   the last Change, so "Use reference" has data to use
+#   ref_time      — when that sweep was Run, as the Reference section shows it
+#                   (REF_TIME_FORMAT); None without data
 #   reference     — current reference status (True/False)
 #   label_n       — the label counter value the last Run used; None when its
 #                   label had no number (or there was no label)
@@ -60,15 +94,18 @@ KEY_QUIET_S = 1.0
 #                   tracks wherever the user moved it
 #   notice        — why the graph window's label edit wasn't carried over
 #                   (see relabel); the next window shows it once
-_state = {"ref_available": False, "reference": False, "label_n": None, "pos": None,
-          "notice": None}
+_state = {"ref_available": False, "ref_time": None, "reference": False, "label_n": None,
+          "pos": None, "notice": None}
 
 
-def mark_ref_available():
+def mark_ref_available(sweep_time):
     """Mark the last sweep's data as usable for "Use reference". main.py calls
-    this once a sweep without a reference has finished; a cancelled or failed
-    sweep never gets here, so it can't leave stale or empty data selectable."""
+    this once a sweep without a reference has finished, with that sweep's
+    params.time (TIME_FORMAT), which the Reference section then shows. A
+    cancelled or failed sweep never gets here, so it can't leave stale or
+    empty data selectable."""
     _state["ref_available"] = True
+    _state["ref_time"] = datetime.strptime(sweep_time, TIME_FORMAT).strftime(REF_TIME_FORMAT)
 
 
 def advance_label():
@@ -99,9 +136,7 @@ def relabel(run_label, label):
     if n is not None:
         info["start"] = str(n + 1)
         return None
-    _state["notice"] = (f'The label was changed to "{label or ""}" in the graph window, but it '
-                        "doesn't fit the prefix and counter, so the counter wasn't updated. "
-                        "Check the label, then press Run.")
+    _state["notice"] = MSG_LABEL_NOTICE
     return _state["notice"]
 
 
@@ -116,6 +151,18 @@ def _is_disabled(widget):
         return str(widget.cget("state")) == "disabled"
     except (AttributeError, tk.TclError):
         return False
+
+
+def _wrap_to_width(label):
+    """Make `label` wrap its text at whatever width the layout gives it.
+
+    The label's requested size must come from its width and height options
+    (characters and lines), not from its text. Then a new wraplength can't
+    resize it and set off another <Configure>. Its border and padding sit
+    inside that width, so the text gets what's left.
+    """
+    inset = 2 * sum(int(label.cget(o)) for o in ("borderwidth", "padx", "highlightthickness"))
+    label.bind("<Configure>", lambda e: label.config(wraplength=e.width - inset))
 
 
 def _bind_checkbox_key(root, letter, checkbox):
@@ -224,14 +271,21 @@ def get_inputs(readout=None, auto_run=False, source=None):
         change_btn.config(state="normal" if locked else "disabled")
         preset_save_btn.config(state="normal" if locked and not preset_error else "disabled")
         run_btn.config(state="normal" if locked else "disabled")
+        if not locked:
+            step_note.config(text="")   # it's about the value Save locked in
         _pin_padding()
 
     def on_save():
+        """Check every field and, if they all pass, lock them for Run. Returns
+        None, or the error it shows (without the "Error: " in front)."""
+        def fail(error):
+            validation_error(error, result_label, num_data, avg_time, saved, run_btn)
+            return error
+
         extra_strs = {label: extra_vars[label].get() for label in EXTRA_LABELS}
         error = validate_extras(extra_strs)
         if error:
-            validation_error(error, result_label, num_data, avg_time, saved, run_btn)
-            return
+            return fail(error)
 
         padding = padding_nm(extra_strs[PADDING_LABEL])
 
@@ -240,8 +294,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
                                         [texts[label] for label in FIELD_LABELS[2:]],
                                         num_data, avg_time, duration, padding, source_spec)
         if error:
-            validation_error(error, result_label, num_data, avg_time, saved, run_btn)
-            return
+            return fail(error)
         n_ranges = len(values['wl_start'])
 
         pm_range  = int(extra_strs[PM_RANGE_LABEL])
@@ -251,8 +304,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
 
         channels = tuple(ch for ch in CHANNEL_OPTIONS if channel_vars[ch].get())
         if not channels:
-            validation_error("at least one channel must be selected.", result_label, num_data, avg_time, saved, run_btn)
-            return
+            return fail(MSG_NO_CHANNEL)
 
         # The used ranges' criteria columns. An unused range's are ignored.
         pf_values = []   # one {label: (min, max)} per used range
@@ -262,13 +314,10 @@ def get_inputs(readout=None, auto_run=False, source=None):
                       for label, cols in passfail_entries.items()}
             pf_range, error = validate_passfail(pf_raw, where)
             if error:
-                validation_error(error, result_label, num_data, avg_time, saved, run_btn)
-                return
+                return fail(error)
             # The dropdown offers only valid options, but a preset file can hold any text.
             if base_vars[r].get() not in PEAK_BASE_OPTIONS:
-                validation_error(f"{where}: {PEAK_BASE_LABEL} must be selected from the dropdown list.",
-                                 result_label, num_data, avg_time, saved, run_btn)
-                return
+                return fail(MSG_BAD_BASE.format(where=where))
             pf_values.append(pf_range)
 
         params.wl_start   = values['wl_start']
@@ -293,16 +342,16 @@ def get_inputs(readout=None, auto_run=False, source=None):
         # TODO #95
         params.name       = "unknown" if preset_var.get() == "none" else preset_var.get()
 
-        # If step size is adjusted, change the field color
-        step_adjusted = ""
+        # An adjusted step size shows in orange, with "Adjusted" next to it
+        # until the fields unlock (set_locked).
         entered_step = float(step_entry.get() or 0)
         if params.step_pm != entered_step:
             step_entry.delete(0, tk.END)
             step_entry.insert(0, f"{params.step_pm:.4f}")
-            step_entry.config(disabledforeground="#cc7a00")
-            step_adjusted = "Step size is adjusted."
+            step_entry.config(disabledforeground=ADJUSTED_FG)
+            step_note.config(text="Adjusted")
         else:
-            # Clear any red left over from a previous adjustment.
+            # Clear any orange left over from a previous adjustment.
             step_entry.config(fg="black", disabledforeground=default_disabledfg)
 
         # Blank fields become 0 and a 0 max becomes inf, so show what was actually saved.
@@ -314,13 +363,14 @@ def get_inputs(readout=None, auto_run=False, source=None):
                         entry.delete(0, tk.END)
                         entry.insert(0, text)
 
-        result_label.config(text="Parameters saved. Review values, then click Run or press Enter. " + step_adjusted, fg="blue")
+        result_label.config(text=MSG_SAVED, fg="blue")
 
         saved["ok"] = True
         set_locked(True)
         # Take the keyboard focus away from whichever field had it (the readout
         # fields swallow Enter), so Enter now reaches the Run binding.
         root.focus_set()
+        return None
 
     # Set while set_preset_name() writes a name, so on_preset_change leaves
     # the fields alone instead of reloading them (or resetting them to defaults).
@@ -353,9 +403,10 @@ def get_inputs(readout=None, auto_run=False, source=None):
         # resets the reference section to its pre-first-run state.
         _state["reference"] = False
         _state["ref_available"] = False
+        _state["ref_time"] = None
         params.reference = False
         update_ref_ui()
-        result_label.config(text="Parameters unlocked. Edit and Save again; the reference has been cleared.", fg="red")
+        result_label.config(text=MSG_UNLOCKED, fg="red")
 
     def on_entry_change(*args):
         # Enter doesn't modify the field — let it trigger Run instead of
@@ -374,7 +425,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
         if saved["ok"]:
             saved["ok"] = False
             set_locked(False)
-            result_label.config(text="Inputs changed — please Save again.", fg="red")
+            result_label.config(text=MSG_INPUTS_CHANGED, fg="red")
 
     def on_preset_change(*_):
         if _keep_fields["on"]:
@@ -423,16 +474,15 @@ def get_inputs(readout=None, auto_run=False, source=None):
             return
         # A preset goes straight to the Saved (locked) state, so its values
         # can't be edited and then run under its name; Change clears the name.
-        on_save()
-        if saved["ok"]:
-            result_label.config(text=f"Preset '{name}' loaded and saved. Click Run or press Enter, "
-                                     "or Change to edit.", fg="blue")
+        # The messages leave the name out: the Load Preset dropdown shows it.
+        error = on_save()
+        if error is None:
+            result_label.config(text=MSG_PRESET_LOADED, fg="blue")
         else:
-            # Invalid preset: keep the error on screen, but drop the name so the
-            # fixed-up values aren't saved under it.
-            error_text = result_label.cget("text")
+            # Invalid preset: keep its values in the fields for the fix, but
+            # drop the name so the fixed-up values aren't saved under it.
             clear_preset_name()
-            result_label.config(text=f"{error_text} (preset '{name}' not loaded as-is)", fg="red")
+            result_label.config(text=MSG_PRESET_ERROR.format(error=error), fg="red")
 
     def on_run():
         if not saved["ok"]:
@@ -481,7 +531,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
         if readout_section:
             readout_section.stop()
         _cancel_idle()
-        result_label.config(text="Running...", fg="black")
+        result_label.config(text=MSG_RUNNING, fg="black")
         root.after(200, root.destroy)
 
     def on_save_preset():
@@ -530,8 +580,12 @@ def get_inputs(readout=None, auto_run=False, source=None):
         delete_menu = tk.OptionMenu(top, delete_var, *(names or [""]))
         delete_menu.grid(row=5, column=0, sticky="w", padx=34, pady=(0, 4))
 
-        msg = tk.Label(top, text="", fg="red", wraplength=320, justify="left")
-        msg.grid(row=6, column=0, padx=10)
+        # A fixed box, two lines tall and as wide as the dialog, so a message
+        # never resizes it. Every message here fits on one line.
+        msg = tk.Label(top, name="message", text="", fg="red", width=1, height=2,
+                       justify="left", anchor="nw")
+        msg.grid(row=6, column=0, padx=10, sticky="ew")
+        _wrap_to_width(msg)
 
         def sync_mode(*_):
             replace_menu.config(state="normal" if (mode.get() == "replace" and names) else "disabled")
@@ -563,7 +617,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
                 remove_from_main_menu(name)
                 presets.pop(name, None)   # keep the in-memory copy in sync with disk
                 top.destroy()
-                result_label.config(text=f"Preset '{name}' deleted.", fg="black")
+                result_label.config(text=MSG_PRESET_DELETED, fg="black")
                 return
 
             if mode.get() == "replace":
@@ -594,7 +648,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
             # (and run under it) without reloading the fields.
             set_preset_name(name)
             top.destroy()
-            result_label.config(text=f"Preset '{name}' saved.", fg="black")
+            result_label.config(text=MSG_PRESET_SAVED, fg="black")
 
         btn_frame = tk.Frame(top)
         btn_frame.grid(row=7, column=0, pady=10)
@@ -606,13 +660,14 @@ def get_inputs(readout=None, auto_run=False, source=None):
 
     def update_ref_ui():
         # Also syncs the check mark, since Change turns the reference off.
+        # With data, the line also shows when the sweep it came from was Run.
         ref_var.set(1 if _state["reference"] else 0)
         if _state["reference"]:
-            status_value.config(text="In use", fg="red")
+            status_value.config(text=f"In use: {_state['ref_time']}", fg="red")
             # A reference in use can always be turned off.
             ref_check.config(state="normal")
         elif _state["ref_available"]:
-            status_value.config(text="Data ready", fg="blue")
+            status_value.config(text=f"Data ready: {_state['ref_time']}", fg="blue")
             ref_check.config(state="normal")
         else:
             status_value.config(text="No data", fg="black")
@@ -622,6 +677,11 @@ def get_inputs(readout=None, auto_run=False, source=None):
         _state["reference"] = bool(ref_var.get())
         params.reference = _state["reference"]
         update_ref_ui()
+
+    def show_status(text, color):
+        """Show a message in the Status section. The Power Readout section
+        shows its messages through this."""
+        result_label.config(text=text, fg=color)
 
     root = tk.Tk()
     use_ui_font(root)   # constants.CONFIG_WINDOW_FONT; None keeps the system font
@@ -652,10 +712,23 @@ def get_inputs(readout=None, auto_run=False, source=None):
 
     root.protocol("WM_DELETE_WINDOW", on_close)
 
-    frame = tk.Frame(root, padx=20, pady=15)
-    frame.pack()
+    # ---- The window's three columns ----------------------------------------
+    # Each column is a frame of its own, at the top of the window, so one
+    # column's height never stretches another's rows: the Parameters section
+    # (`frame`); Reference, Instruments and Status; then Peak Test Criteria,
+    # Label & Auto-Save and the Power Readout. Every section in the second and
+    # third columns has its own frame, too. Created in this order, so Tab
+    # moves through the columns from left to right.
+    body = tk.Frame(root, padx=20, pady=15)
+    body.pack()
+    frame = tk.Frame(body)
+    frame.grid(row=0, column=0, sticky="n")
+    mid_col = tk.Frame(body)
+    mid_col.grid(row=0, column=1, sticky="n", padx=(40, 0))
+    right_col = tk.Frame(body)
+    right_col.grid(row=0, column=2, sticky="n", padx=(40, 0))
 
-    # ---- Grid row layout -------------------------------------------------
+    # ---- The Parameters section's grid rows --------------------------------
     SOURCE_ROW   = 2                     # read-only: the laser chosen at startup
     DETECTOR_ROW = SOURCE_ROW + 1        # read-only: the power meter
     FIELDS_START = DETECTOR_ROW + 1      # preset at FIELDS_START, channel next, fields after
@@ -670,13 +743,10 @@ def get_inputs(readout=None, auto_run=False, source=None):
     AVGTIME_ROW  = LOGCOUNT_ROW + 1
     DURATION_ROW = AVGTIME_ROW + 1
     SAVEBTN_ROW  = DURATION_ROW + 1
-    ACTIONS_ROW  = SAVEBTN_ROW + 1   # Reference and Instruments, side by side
-    RESULT_ROW   = ACTIONS_ROW + 1   # status messages sit right below Run
     # Columns: the labels, then one per range (column 1 + r for range r). λ
     # Start, λ Stop, Log Count and Duration have a value per range; every other
-    # field sits in Range 1's column and spans the rest. Peak Test Criteria and
-    # the Power Readout sit in their own sub-frame in the column after them
-    # (right of the Parameters section), so they consume no rows here.
+    # field sits in Range 1's column and spans the rest. Step Size spans only
+    # Range 1's: its "Adjusted" note takes the rest.
     COLS = 1 + MAX_RANGES
 
     # ---- Set Parameters --------------------------------------------------
@@ -747,11 +817,17 @@ def get_inputs(readout=None, auto_run=False, source=None):
         else:
             e = tk.Entry(frame, width=ENTRY_WIDTH)
             e.insert(0, init_fields[label])
-            e.grid(row=row, column=1, columnspan=MAX_RANGES, pady=4, padx=RANGE_PADX, sticky="w")
+            span = 1 if label == STEP_LABEL else MAX_RANGES
+            e.grid(row=row, column=1, columnspan=span, pady=4, padx=RANGE_PADX, sticky="w")
             e.bind("<Key>", on_entry_change)
             shared_fields[label] = e
             entry_widgets.append(e)
     step_entry = shared_fields[STEP_LABEL]
+    # "Adjusted" while Save's adjusted step size is locked in (on_save, set_locked).
+    # It starts at Range 2's column, which with the ones after it is far wider
+    # than the note, so the note never widens a column.
+    step_note = tk.Label(frame, text="", fg=ADJUSTED_FG)
+    step_note.grid(row=PARAM_ROWS[STEP_LABEL], column=2, columnspan=MAX_RANGES - 1, pady=4, sticky="w")
 
     def field_texts():
         """Every field's text, the way a preset holds it: for λ Start and λ
@@ -789,14 +865,10 @@ def get_inputs(readout=None, auto_run=False, source=None):
     for r, var in enumerate(duration):
         tk.Label(frame, textvariable=var, anchor="w").grid(row=DURATION_ROW, column=1 + r, sticky="w", pady=4, padx=RANGE_PADX)
 
-    # ---- Right column: Peak Test Criteria, then the live Power Readout ----
-    # One sub-frame spanning every row of the main grid, so however tall the
-    # readout gets it never stretches the rows of the Parameters column.
+    # ---- Right column: Peak Test Criteria, Label & Auto-Save, Power Readout
     # Each section fills the column's width and hands the spare width to a
     # grid column whose widgets stay put, so every header line runs the full
     # width of the column, however wide its widest section makes it.
-    right_col = tk.Frame(frame)
-    right_col.grid(row=0, column=COLS, rowspan=RESULT_ROW + 1, sticky="n", padx=(40, 0))
 
     # Peak Test Criteria: a table with a min and a max column per range under
     # two header rows (the range, then min and max), a row of float entries per
@@ -955,9 +1027,9 @@ def get_inputs(readout=None, auto_run=False, source=None):
 
     # Power Readout: live meter values plus the laser wavelength/power controls.
     # Started once the window is up (below), except on a Repeat; Run and Close
-    # stop it.
+    # stop it. Its messages show in the Status section.
     if readout is not None:
-        readout_section = ReadoutSection(right_col, readout)
+        readout_section = ReadoutSection(right_col, readout, show_status)
         readout_section.frame.pack(anchor="w", fill="x", pady=(16, 0))
         _bind_checkbox_key(root, "l", readout_section.laser_cb)
 
@@ -970,55 +1042,48 @@ def get_inputs(readout=None, auto_run=False, source=None):
     preset_save_btn = tk.Button(save_frame, text="Manage Presets...", command=on_save_preset, state="disabled")
     preset_save_btn.pack(side="left", padx=5)
 
-    # ---- Reference and Instruments -----------------------------------------
-    # Side by side on one row, so the Parameters column (the window's tallest)
-    # needs one section header fewer (#145). Each header sits in its own
-    # sub-frame, so its line runs only over its own section; the two sections'
-    # contents share a grid row, so the checkbox and Run line up. Reference's
-    # column is as wide as its row, and Instruments takes the rest.
-    actions = tk.Frame(frame)
-    actions.grid(row=ACTIONS_ROW, column=0, columnspan=COLS, sticky="ew")
-    actions.columnconfigure(1, weight=1)
-    ref_head = tk.Frame(actions)
-    ref_head.grid(row=0, column=0, sticky="ew")
-    ref_head.columnconfigure(0, weight=1)
-    inst_head = tk.Frame(actions)
-    inst_head.grid(row=0, column=1, sticky="ew", padx=(20, 0))
-    inst_head.columnconfigure(0, weight=1)
+    # ---- Middle column: Reference, Instruments, then Status ----------------
+    # Stacked at the top of the column, each in its own frame, with its header
+    # line across the column's full width. The column is as wide as the Status
+    # box, unless a section needs more.
+    def column_section(title, info=None, first=False):
+        sec = tk.Frame(mid_col)
+        sec.pack(anchor="w", fill="x", pady=(0 if first else 16, 0))
+        sec.columnconfigure(0, weight=1)
+        section_header(sec, title, 0, info=info, span=1)
+        return sec
 
-    # ---- Reference -------------------------------------------------------
-    section_header(ref_head, "Reference", 0, info=REFERENCE_INFO, span=1)
-    ref_frame = tk.Frame(actions)
-    ref_frame.grid(row=1, column=0, pady=4)
+    # ---- Reference ---------------------------------------------------------
+    # The data's state, with when its sweep was Run (update_ref_ui), on its
+    # own row above the checkbox, so a change of text moves nothing.
+    ref_sec = column_section("Reference", info=REFERENCE_INFO, first=True)
+    status_value = tk.Label(ref_sec, text="No data", fg="black", font=ui_font(10, "bold"), anchor="w")
+    status_value.grid(row=2, column=0, sticky="w")
     ref_var = tk.IntVar(value=0)
-    ref_check = tk.Checkbutton(ref_frame, text="Use reference (R)", variable=ref_var,
+    ref_check = tk.Checkbutton(ref_sec, text="Use reference (R)", variable=ref_var,
                                command=on_toggle_ref, state="disabled")
-    ref_check.pack(side="left", padx=5)
-    # Status sits to the right of the checkbox. Fixed width so the checkbox
-    # stays put as the text changes ("In use" vs "Data ready").
-    status_value = tk.Label(ref_frame, text="No data", fg="black", font=ui_font(10, "bold"),
-                            width=10, anchor="w")
-    status_value.pack(side="left", padx=(8, 0))
-
+    ref_check.grid(row=3, column=0, sticky="w", pady=(2, 0))
     _bind_checkbox_key(root, "r", ref_check)
 
-    # ---- Instruments -----------------------------------------------------
-    section_header(inst_head, "Instruments", 0, span=1)
-    inst_frame = tk.Frame(actions)
-    inst_frame.grid(row=1, column=1, padx=(20, 0), pady=10)
-    run_btn = tk.Button(inst_frame, text="Run (Enter)", command=on_run, width=10, state="disabled")
-    run_btn.pack(side="left", padx=5)
+    # ---- Instruments -------------------------------------------------------
+    inst_sec = column_section("Instruments")
+    run_btn = tk.Button(inst_sec, text="Run (Enter)", command=on_run, width=10, state="disabled")
+    run_btn.grid(row=2, column=0, sticky="w", pady=(2, 0))
 
     # Enter triggers Run when it's enabled (on_run is a no-op until saved).
     root.bind("<Return>", lambda _e: on_run())
     root.bind("<KP_Enter>", lambda _e: on_run())
 
-    # Always three lines tall, so a long message never makes the window taller
-    # (#145). Every message wraps to three lines or fewer at 480 px (the
-    # Parameters column is 495 px wide on the Mac); a longer one is cut off at
-    # the bottom. The text starts at the top, right below Run.
-    result_label = tk.Label(frame, text="", wraplength=480, justify="left", height=3, anchor="n")
-    result_label.grid(row=RESULT_ROW, column=0, columnspan=COLS)
+    # ---- Status ------------------------------------------------------------
+    # Every message, the Power Readout's too. A fixed box, so no message ever
+    # resizes the window (#145, #154): STATUS_CHARS wide and STATUS_LINES tall.
+    # If a section makes the column wider, the box stretches with it, and the
+    # text wraps at whatever width it gets. The text starts at the top left.
+    status_sec = column_section("Status")
+    result_label = tk.Label(status_sec, name="status", text="", width=STATUS_CHARS,
+                            height=STATUS_LINES, justify="left", anchor="nw")
+    result_label.grid(row=2, column=0, sticky="ew")
+    _wrap_to_width(result_label)
 
     update_ref_ui()
 
@@ -1029,14 +1094,14 @@ def get_inputs(readout=None, auto_run=False, source=None):
         on_save()
 
     if preset_error:
-        result_label.config(text=f"Error: {preset_error}. Manage Presets is off until this is fixed.", fg="red")
+        result_label.config(text=MSG_PRESETS_OFF.format(error=preset_error), fg="red")
 
     # The previous sweep may have pushed the label counter past its digit limit.
     # Say so now rather than only when Run is pressed (or a Repeat stalls).
     if add_label_var.get():
         _, _, label_error = validate_label(prefix_var.get(), digits_var.get(), start_var.get())
         if label_error:
-            result_label.config(text=f"Label: {label_error}", fg="red")
+            result_label.config(text=f"Error: {label_error}", fg="red")
     # The last graph window's label change that couldn't be carried over.
     if _state["notice"]:
         result_label.config(text=_state["notice"], fg="red")
