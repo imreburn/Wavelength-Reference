@@ -9,6 +9,7 @@
 ### Fixed
 
 - The bottom of the config window is no longer cut off. "Reference" and "Instruments" now sit side by side. ([#145](https://github.com/imreburn/Wavelength-Reference/issues/145))
+- When the program stops because of an error, its console window now stays open until you close it, and it shows where the log file is saved. ([#127](https://github.com/imreburn/Wavelength-Reference/issues/127))
 
 
 ## [3.0.0] - 2026-10-30
