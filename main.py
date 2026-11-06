@@ -154,14 +154,12 @@ try:
         if relabel(run_label, params.label):
             auto_run = False
 
-except Exception:
-    log.exception("Unhandled error")
-    raise
-
 finally:
     # Runs on the normal exit and on any escaping error, so the shutter never
     # stays open: with the per-sweep power-off disabled, this is the only
-    # place the laser is turned off.
+    # place the laser is turned off. An escaping error is logged after this,
+    # by the sys.excepthook that setup_logging installs; in the .exe, that
+    # hook also keeps the console open so the user can read the error.
     close_inst(pm, laser)
 
 # Skip the slow pywebview/.NET native teardown — all work is done and

@@ -9,7 +9,7 @@ log = logging.getLogger(__name__)
 _rm = None
 
 _NAMES = {addr: name for name, addr in VISA_ADDRS.items()}
-VISA_TIMEOUT  = 10000
+VISA_TIMEOUT  = 20000
 OPC_TRIES     = 20
 OPC_INTERVAL  = 0.5
 ERR_DRAIN_MAX = 20      # cap on :SYST:ERR? reads, so a stuck queue cannot hang
