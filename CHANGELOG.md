@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- The app now uses Dash 4.5.0 instead of 4.2.0. Dash 4.2.0 rebuilt the whole "Save peak info" table on every change, which caused [#132](https://github.com/imreburn/Wavelength-Reference/issues/132).
+
+
 ## [3.0.0] - 2026-10-30
 
 ### Added
