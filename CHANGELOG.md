@@ -8,7 +8,7 @@
 
 ### Fixed
 
-- The bottom of the config window is no longer cut off, by putting "Reference" and "Instruments" now sit side by side. ([#145](https://github.com/imreburn/Wavelength-Reference/issues/145))
+- The bottom of the config window is no longer cut off. "Reference" and "Instruments" now sit side by side. ([#145](https://github.com/imreburn/Wavelength-Reference/issues/145))
 
 
 ## [3.0.0] - 2026-10-30
