@@ -31,7 +31,7 @@ PARAMETERS_INFO="""
 
 - If the step size is empty or 0, it's set to the smallest step the sweep speed allows (sweep speed × 25 µs).
 
-- If the step size is adjusted, the field shows the new value in orange.
+- If the step size is adjusted, the field shows the new value in orange, with "Adjusted" next to it.
 
 
 **λ Padding (pm)**
@@ -56,13 +56,17 @@ REFERENCE_INFO="""
 - The reference and later measurements must use the same parameters. So clicking "Change" is taken to mean the parameters are about to change, and it deletes the reference right away. Then a new measurement should be taken before a reference can be used.
 
 
-**Status messages**
+**Reference data**
+
+The lines under the checkbox show whether there is data to use as a reference, and when it was measured.
 
 - **No data:** No data is available to use as a reference. This appears right after the program starts and after "Change" is clicked. The "Use reference" checkbox is disabled.
 
 - **Data ready:** Measured data is available but isn't being used as the reference. Check "Use reference" to use it.
 
 - **In use:** The reference is in use.
+
+- The date and time after **Measured** are when the reference measurement started, when Run was clicked. Its raw data file names use the same time, written as YYYY-MM-DD_hh-mm-ss.
 """
 
 
@@ -135,5 +139,5 @@ The fields in this section don't lock after Save, so you can change them without
 
 - The graph window shows a status message with the file name, or an error if the save failed.
 
-- With a label, the file name is "<label>_<time>.csv". Without one, it's "<time>.csv". The time is when you click Run, in the form YYYY-MM-DD_hh-mm-ss. The name is previewed next to the checkbox.
+- With a label, the file name is "<label>_<time>.csv". Without one, it's "<time>.csv". The time is when you click Run, in the form YYYY-MM-DD_hh-mm-ss. The name is previewed below the checkbox, where ".../" stands for the data folder.
 """

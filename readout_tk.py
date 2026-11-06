@@ -2,7 +2,8 @@
 
 Builds the widgets into a parent frame and runs the refresh tick on Tk's own
 event loop. All instrument work is in readout.PowerReadout; this file only
-formats what it returns and forwards the controls.
+formats what it returns and forwards the controls. Its messages go to the
+config window's Status section, through the callback it is given.
 """
 import logging
 import tkinter as tk
@@ -15,15 +16,26 @@ log = logging.getLogger(__name__)
 # Label widths (chars) for the four value columns: range, dBm, W, max W.
 VALUE_WIDTHS = (7, 11, 11, 11)
 
+# The section's messages. They show in the config window's Status section,
+# so each starts with where it comes from. The errors from the λ and power
+# fields (readout.PowerReadout) follow MSG_PREFIX too.
+MSG_PREFIX      = "Power Readout: "
+MSG_UNAVAILABLE = MSG_PREFIX + "Unavailable. See the log."
+MSG_STOPPED     = MSG_PREFIX + "Stopped by an instrument error. See the log."
+MSG_APPLIED     = MSG_PREFIX + "Applied."
+
 
 class ReadoutSection:
     """Widgets plus tick. Pack or grid `.frame` where the section should sit,
-    then start(); stop() before the window is torn down."""
+    then start(); stop() before the window is torn down. `show_message(text,
+    color)` shows the section's messages, in the config window's Status
+    section."""
 
-    def __init__(self, parent, readout):
-        self.readout  = readout
-        self._job     = None      # pending after() id: the deferred start, or the next tick
-        self._started = False
+    def __init__(self, parent, readout, show_message):
+        self.readout      = readout
+        self.show_message = show_message
+        self._job         = None      # pending after() id: the deferred start, or the next tick
+        self._started     = False
 
         f = self.frame = tk.Frame(parent)
         # The line spans the table plus an empty last column that takes any
@@ -72,24 +84,20 @@ class ReadoutSection:
             self.dbm_entry.config(state="disabled")
             self.laser_cb.config(state="disabled")
 
-        # Always two lines tall, so a message never resizes the window (#145).
-        # Every message fits on one line at 480 px.
-        self.msg = tk.Label(f, text="", fg="red", wraplength=480, justify="left",
-                            height=2, anchor="nw")
-        self.msg.grid(row=3, column=0, columnspan=5, sticky="w")
-
-        # ---- the table: header row, then one row per channel
+        # ---- the table: header row, then one row per channel. It sits right
+        # under the buttons, as close as the fields above them sit to each
+        # other: the messages are in the Status section.
         value_font, header_font = ui_font(11), ui_font(10, "bold")
         for col, text in enumerate(READOUT_COLUMNS):
             tk.Label(f, text=text, font=header_font).grid(
-                row=4, column=col, padx=3, pady=(4, 1), sticky="e")
+                row=3, column=col, padx=3, pady=(4, 1), sticky="e")
         self.vars = []    # per channel: (range, dBm, W, max W) StringVars
         for i in range(4):
-            tk.Label(f, text=str(i + 1), font=value_font).grid(row=5 + i, column=0, padx=3)
+            tk.Label(f, text=str(i + 1), font=value_font).grid(row=4 + i, column=0, padx=3)
             row_vars = tuple(tk.StringVar(value="—") for _ in VALUE_WIDTHS)
             for col, (var, width) in enumerate(zip(row_vars, VALUE_WIDTHS), start=1):
                 tk.Label(f, textvariable=var, anchor="e", width=width, font=value_font).grid(
-                    row=5 + i, column=col, padx=3, sticky="e")
+                    row=4 + i, column=col, padx=3, sticky="e")
             self.vars.append(row_vars)
 
     # ---- lifecycle -------------------------------------------------------
@@ -105,7 +113,7 @@ class ReadoutSection:
             self.readout.start()
         except Exception:
             log.exception("Power readout failed to start")
-            self.msg.config(text="Readout unavailable — see the log.")
+            self.show_message(MSG_UNAVAILABLE, "red")
             return
         self._started = True
         self._tick()
@@ -119,7 +127,7 @@ class ReadoutSection:
         except Exception:
             # Don't keep hammering a failing instrument every 50 ms.
             log.exception("Power readout stopped: instrument error")
-            self.msg.config(text="Readout stopped — instrument error, see the log.")
+            self.show_message(MSG_STOPPED, "red")
             return
         if rows is not None:
             for (rng, w), row_vars, max_w in zip(rows, self.vars, self.readout.max_w):
@@ -159,7 +167,10 @@ class ReadoutSection:
         err = self.readout.set_wavelength(self.wl_entry.get())
         if err is None and self.readout.has_laser:
             err = self.readout.set_power(self.dbm_entry.get())
-        self.msg.config(text=err or "Applied.", fg="red" if err else "blue")
+        if err:
+            self.show_message(MSG_PREFIX + err, "red")
+        else:
+            self.show_message(MSG_APPLIED, "blue")
         return err is None
 
     def _on_apply_click(self):

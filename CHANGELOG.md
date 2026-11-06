@@ -2,13 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- In the config window, messages show in a new "Status" section.
+
 ### Changed
 
+- The config window now has three columns. Reference and Instruments moved to the new second column, above the Status section.
 - In the config window, "Initial Power Meter Range (dBm)" is renamed to "Initial Power Range (dBm)".
+- In the config window, "Reference" now shows when the reference spectrum was measured, such as "Measured: 2026-11-06 13:03:59".
 
 ### Fixed
 
-- The bottom of the config window is no longer cut off. "Reference" and "Instruments" now sit side by side. ([#145](https://github.com/imreburn/Wavelength-Reference/issues/145))
 - When the program stops because of an error, its console window now stays open until you close it, and it shows where the log file is saved. ([#127](https://github.com/imreburn/Wavelength-Reference/issues/127))
 - The app now uses Dash 4.5.0 instead of 4.2.0. Dash 4.2.0 rebuilt the whole "Save peak info" table on every change, which caused [#132](https://github.com/imreburn/Wavelength-Reference/issues/132).
 
