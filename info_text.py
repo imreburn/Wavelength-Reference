@@ -58,7 +58,7 @@ REFERENCE_INFO="""
 
 **Reference data**
 
-The line above the checkbox shows whether there is data to use as a reference.
+The lines under the checkbox show whether there is data to use as a reference, and when it was measured.
 
 - **No data:** No data is available to use as a reference. This appears right after the program starts and after "Change" is clicked. The "Use reference" checkbox is disabled.
 
@@ -66,7 +66,7 @@ The line above the checkbox shows whether there is data to use as a reference.
 
 - **In use:** The reference is in use.
 
-- The date and time after **Data ready** and **In use** are when the reference measurement started, when Run was clicked. Its raw data file names use the same time, written as YYYY-MM-DD_hh-mm-ss.
+- The date and time after **Measured** are when the reference measurement started, when Run was clicked. Its raw data file names use the same time, written as YYYY-MM-DD_hh-mm-ss.
 """
 
 
@@ -139,5 +139,5 @@ The fields in this section don't lock after Save, so you can change them without
 
 - The graph window shows a status message with the file name, or an error if the save failed.
 
-- With a label, the file name is "<label>_<time>.csv". Without one, it's "<time>.csv". The time is when you click Run, in the form YYYY-MM-DD_hh-mm-ss. The name is previewed next to the checkbox.
+- With a label, the file name is "<label>_<time>.csv". Without one, it's "<time>.csv". The time is when you click Run, in the form YYYY-MM-DD_hh-mm-ss. The name is previewed below the checkbox, where ".../" stands for the data folder.
 """

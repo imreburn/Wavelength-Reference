@@ -5,6 +5,9 @@
 ### Changed
 
 - In the config window, "Initial Power Meter Range (dBm)" is renamed to "Initial Power Range (dBm)".
+- In the config window, messages show in a new "Status" section with a fixed size, so the window no longer changes its width when a message appears. The Power Readout's messages show there too, starting with "Power Readout:". ([#154](https://github.com/imreburn/Wavelength-Reference/issues/154))
+- The config window now has three columns: Reference and Instruments moved to here and Status is added.
+- In the config window, "Reference" now shows when the reference spectrum was measured, such as "Measured: 2026-11-06 13:03:59".
 
 ### Fixed
 

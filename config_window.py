@@ -64,6 +64,10 @@ ADJUSTED_FG = "#cc7a00"
 # How the Reference section shows the time of the sweep its data came from.
 REF_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
+# The indent of a line that sits under a checkbox, so it starts under the
+# checkbox's text rather than its box.
+CHECKBOX_TEXT_INDENT = 24
+
 # The status messages this file shows. The checks' errors come from
 # config_helper, and the Power Readout's messages from readout_tk. Each message
 # has a fixed length, apart from an error it may include, and those come from a
@@ -660,18 +664,19 @@ def get_inputs(readout=None, auto_run=False, source=None):
 
     def update_ref_ui():
         # Also syncs the check mark, since Change turns the reference off.
-        # With data, the line also shows when the sweep it came from was Run.
+        # With data, the line under the state shows when its sweep was Run.
         ref_var.set(1 if _state["reference"] else 0)
         if _state["reference"]:
-            status_value.config(text=f"In use: {_state['ref_time']}", fg="red")
+            status_value.config(text="In use", fg="red")
             # A reference in use can always be turned off.
             ref_check.config(state="normal")
         elif _state["ref_available"]:
-            status_value.config(text=f"Data ready: {_state['ref_time']}", fg="blue")
+            status_value.config(text="Data ready", fg="blue")
             ref_check.config(state="normal")
         else:
             status_value.config(text="No data", fg="black")
             ref_check.config(state="disabled")
+        ref_time_value.config(text=f"Measured: {_state['ref_time']}" if _state["ref_time"] else "")
 
     def on_toggle_ref():
         _state["reference"] = bool(ref_var.get())
@@ -868,7 +873,9 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # ---- Right column: Peak Test Criteria, Label & Auto-Save, Power Readout
     # Each section fills the column's width and hands the spare width to a
     # grid column whose widgets stay put, so every header line runs the full
-    # width of the column, however wide its widest section makes it.
+    # width of the column, however wide its widest section makes it. Each
+    # section lines up only its own fields: its label column fits its own
+    # widest label.
 
     # Peak Test Criteria: a table with a min and a max column per range under
     # two header rows (the range, then min and max), a row of float entries per
@@ -893,12 +900,10 @@ def get_inputs(readout=None, auto_run=False, source=None):
     init_passfail = _last.get("passfail", {})
     passfail_entries = {}   # label -> [(min_entry, max_entry) per range]
     passfail_widgets = []   # flat list for lock/unlock
-    pf_labels = []          # their widths line up the Label & Auto-Save fields below
     for j, label in enumerate(PASSFAIL_LABELS):
         row = j + 4
-        pf_label = tk.Label(pf_container, text=label_text(label), anchor="e")
-        pf_label.grid(row=row, column=0, pady=4, padx=(0, 8), sticky="e")
-        pf_labels.append(pf_label)
+        tk.Label(pf_container, text=label_text(label), anchor="e").grid(
+            row=row, column=0, pady=4, padx=(0, 8), sticky="e")
         inits = init_passfail.get(label, [(PASSFAIL_DEFAULT, PASSFAIL_DEFAULT)] * MAX_RANGES)
         cols = []
         for r in range(MAX_RANGES):
@@ -917,9 +922,8 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # (PASSFAIL_INFO). Each spans its range's min and max columns, so it can't
     # widen the min column.
     base_row = len(PASSFAIL_LABELS) + 4
-    base_label = tk.Label(pf_container, text=PEAK_BASE_LABEL, anchor="e")
-    base_label.grid(row=base_row, column=0, pady=4, padx=(0, 8), sticky="e")
-    pf_labels.append(base_label)
+    tk.Label(pf_container, text=PEAK_BASE_LABEL, anchor="e").grid(
+        row=base_row, column=0, pady=4, padx=(0, 8), sticky="e")
     init_bases = _last.get("peak_base", range_texts(PEAK_BASE_DEFAULT, PEAK_BASE_DEFAULT))
     base_vars = []
     for r in range(MAX_RANGES):
@@ -936,9 +940,9 @@ def get_inputs(readout=None, auto_run=False, source=None):
     info_container = tk.Frame(right_col)
     info_container.pack(anchor="w", fill="x", pady=(16, 0))
     section_header(info_container, "Label & Auto-Save (Optional)", 0, info=AUTOSAVE_INFO)
-    # Column 1's weight gives it all the extra width the Auto-save row needs,
-    # so the filename preview grows to the right instead of shifting the fields
-    # each time its text changes. Column 0 is set below, once its items exist.
+    # Column 0 fits its widest item, the "Add label (SN)" checkbox. Column 1
+    # takes the spare width, so the fields stay next to their labels and the
+    # filename preview (which spans both) gets the column's full width.
     info_container.columnconfigure(1, weight=1)
     init_info = _last.get("info", {})
 
@@ -955,15 +959,15 @@ def get_inputs(readout=None, auto_run=False, source=None):
                              font=ui_font(10, "bold"))
     label_preview.grid(row=2, column=1, pady=4, sticky="w")
 
-    # Left-aligned and indented to sit under the "Add label" text, not the box.
-    prefix_label = tk.Label(info_container, text="Prefix", anchor="w")
-    prefix_label.grid(row=3, column=0, pady=4, padx=(24, 8), sticky="w")
+    # Right-aligned next to its field, like the labels in the other sections.
+    tk.Label(info_container, text="Prefix", anchor="e").grid(
+        row=3, column=0, pady=4, padx=(0, 8), sticky="e")
     prefix_entry = tk.Entry(info_container, textvariable=prefix_var, width=20)
     prefix_entry.grid(row=3, column=1, pady=4, sticky="w")
 
     # The counter row: its two fields each carry their own name, like Starting from.
-    counter_label = tk.Label(info_container, text="Counter", anchor="w")
-    counter_label.grid(row=4, column=0, pady=4, padx=(24, 8), sticky="w")
+    tk.Label(info_container, text="Counter", anchor="e").grid(
+        row=4, column=0, pady=4, padx=(0, 8), sticky="e")
     digits_frame = tk.Frame(info_container)
     digits_frame.grid(row=4, column=1, pady=4, sticky="w")
     tk.Label(digits_frame, text="Digits").pack(side="left", padx=(0, 2))
@@ -973,25 +977,21 @@ def get_inputs(readout=None, auto_run=False, source=None):
     start_entry = tk.Entry(digits_frame, textvariable=start_var, width=6)
     start_entry.pack(side="left")
 
-    # Column 1 starts at the same place here as in Peak Test Criteria above,
-    # so these fields line up with the entries there. Column 0 in both gets
-    # the width of the widest column-0 item in either, padding included: 8 px
-    # after a criteria label, 24 + 8 px around Prefix and Counter.
-    col0 = max([l.winfo_reqwidth() + 8 for l in pf_labels]
-               + [add_label_cb.winfo_reqwidth()]
-               + [l.winfo_reqwidth() + 32 for l in (prefix_label, counter_label)])
-    pf_container.columnconfigure(0, minsize=col0)
-    info_container.columnconfigure(0, minsize=col0)
-
     # Spans both columns so its long text doesn't widen column 0 (which would
-    # push the Prefix/Digits fields to the right); column 1 takes the extra.
-    save_raw_frame = tk.Frame(info_container)
-    save_raw_frame.grid(row=5, column=0, columnspan=2, pady=4, sticky="w")
-    tk.Checkbutton(save_raw_frame, text="Auto-save raw data", variable=save_raw_var).pack(side="left")
-    # Shows the name the file will get. The time part is only stamped at Run,
-    # so it stands in as its format (see save_csv.auto_raw_path).
-    save_note = tk.Label(save_raw_frame, text="", fg="gray")
-    save_note.pack(side="left", padx=(4, 0))
+    # push the Prefix/Digits fields to the right).
+    tk.Checkbutton(info_container, text="Auto-save raw data", variable=save_raw_var).grid(
+        row=5, column=0, columnspan=2, pady=4, sticky="w")
+    # The name the file will get, on its own line under the checkbox's text.
+    # The time part is only stamped at Run, so it stands in as its format (see
+    # save_csv.auto_raw_path), and ".../" stands for the data folder.
+    # width=1 with sticky "ew" makes the label as wide as the column, whatever
+    # its text. So typing never resizes it (when it sized itself to its text,
+    # the text shifted a little on every keystroke), and a name too long for
+    # the column is cut off instead of widening the window. The row stays
+    # while auto-save is off, so the window's height doesn't change either.
+    save_note = tk.Label(info_container, text="", fg="gray", anchor="w", width=1)
+    save_note.grid(row=6, column=0, columnspan=2, padx=(CHECKBOX_TEXT_INDENT, 0), pady=(0, 4),
+                   sticky="ew")
 
     def update_label_ui(*_):
         """Enable the label fields to match the checkbox/digits; refresh the preview."""
@@ -1015,11 +1015,11 @@ def get_inputs(readout=None, auto_run=False, source=None):
         if not save_raw_var.get():
             save_note.config(text="")
         elif on and error:
-            save_note.config(text="→ Raw Data/")
+            save_note.config(text=".../Raw Data/")
         elif on:
-            save_note.config(text=f"→ Raw Data/{label}_{TIME_PLACEHOLDER}.csv")
+            save_note.config(text=f".../Raw Data/{label}_{TIME_PLACEHOLDER}.csv")
         else:
-            save_note.config(text=f"→ Raw Data/{TIME_PLACEHOLDER}.csv")
+            save_note.config(text=f".../Raw Data/{TIME_PLACEHOLDER}.csv")
 
     for v in (add_label_var, prefix_var, digits_var, start_var, save_raw_var):
         v.trace_add("write", update_label_ui)
@@ -1054,16 +1054,21 @@ def get_inputs(readout=None, auto_run=False, source=None):
         return sec
 
     # ---- Reference ---------------------------------------------------------
-    # The data's state, with when its sweep was Run (update_ref_ui), on its
-    # own row above the checkbox, so a change of text moves nothing.
+    # The checkbox, then two lines under its text (update_ref_ui): the data's
+    # state, and when its sweep was Run. Each has its own row, and the time's
+    # row stays while there's no data, so a change of text moves nothing.
     ref_sec = column_section("Reference", info=REFERENCE_INFO, first=True)
-    status_value = tk.Label(ref_sec, text="No data", fg="black", font=ui_font(10, "bold"), anchor="w")
-    status_value.grid(row=2, column=0, sticky="w")
     ref_var = tk.IntVar(value=0)
     ref_check = tk.Checkbutton(ref_sec, text="Use reference (R)", variable=ref_var,
                                command=on_toggle_ref, state="disabled")
-    ref_check.grid(row=3, column=0, sticky="w", pady=(2, 0))
+    ref_check.grid(row=2, column=0, sticky="w")
     _bind_checkbox_key(root, "r", ref_check)
+    # Bold, at the other labels' size.
+    status_value = tk.Label(ref_sec, text="No data", fg="black", font=ui_font(None, "bold"), anchor="w")
+    status_value.grid(row=3, column=0, sticky="w", padx=(CHECKBOX_TEXT_INDENT, 0), pady=(2, 0))
+    # The dark gray of the Power Readout's PM and Laser values.
+    ref_time_value = tk.Label(ref_sec, text="", fg="gray30", anchor="w")
+    ref_time_value.grid(row=4, column=0, sticky="w", padx=(CHECKBOX_TEXT_INDENT, 0))
 
     # ---- Instruments -------------------------------------------------------
     inst_sec = column_section("Instruments")

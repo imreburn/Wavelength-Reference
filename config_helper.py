@@ -559,8 +559,11 @@ def use_ui_font(root):
 
 def ui_font(size, *style):
     """Font tuple in the config window's family, e.g. ui_font(10, "bold").
-    Call it once the Tk root exists; it reads TkDefaultFont's family."""
-    return (tkfont.nametofont("TkDefaultFont").actual("family"), size, *style)
+    A size of None takes TkDefaultFont's size, the one the other labels use,
+    so ui_font(None, "bold") matches them on any platform. Call it once the Tk
+    root exists; it reads TkDefaultFont."""
+    default = tkfont.nametofont("TkDefaultFont")
+    return (default.actual("family"), default.cget("size") if size is None else size, *style)
 
 
 def section_header(frame, text, row, info=None, span=2):
