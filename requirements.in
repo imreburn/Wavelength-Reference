@@ -2,7 +2,7 @@ pandas
 numpy
 scipy
 plotly
-dash
+dash>=4.5  # 4.2–4.4 rebuild the peak table on every change (#132)
 pywebview
 pyvisa
 tomlkit
