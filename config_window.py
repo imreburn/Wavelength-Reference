@@ -954,9 +954,10 @@ def get_inputs(readout=None, auto_run=False, source=None):
 
     add_label_cb = tk.Checkbutton(info_container, text="Add label (SN)", variable=add_label_var)
     add_label_cb.grid(row=2, column=0, pady=4, sticky="w")
-    # Fixed width so the row doesn't shift as the preview text changes.
+    # Fixed width so the row doesn't shift as the preview text changes. Bold,
+    # at the other labels' size.
     label_preview = tk.Label(info_container, text="", anchor="w", width=20,
-                             font=ui_font(10, "bold"))
+                             font=ui_font(None, "bold"))
     label_preview.grid(row=2, column=1, pady=4, sticky="w")
 
     # Right-aligned next to its field, like the labels in the other sections.
