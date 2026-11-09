@@ -6,6 +6,8 @@
 
 - "Save peak info" saves numbers as measured. The decimals buttons set only how many decimal places the dialog and the Excel file show. Temperature has them too, starting at 1 (23 shows as 23.0).
 - In "Save peak info" files, "replaced" in the Status column is red.
+- In "Save peak info", now Temperature is checked, and it must be between 18 and 29 °C with at most one decimal place, or empty. The box starts with the last saved Temperature until the program closes. ([#158](https://github.com/imreburn/Wavelength-Reference/issues/158))
+- In "Save peak info", λ (nm) shows 1 decimal place by default instead of 4.
 
 ### Fixed
 
