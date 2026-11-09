@@ -16,8 +16,8 @@ The state lives in a dcc.Store ('pf-state') as a plain dict:
   dec    item key -> decimals
   rows   one per peak: {'id': n, 'peak': 'peak:2' or 'custom', 'texts':
          {column id as str: text}}
-  saved  for a file: the current rows this sweep's peaks could replace, with
-         their cells as text (see peak_file.read)
+  saved  for a file: its current rows, which the new peaks could replace,
+         with their cells as text (see peak_file.read)
   recent for a file: its last few rows as the file shows them, which the
          table lists above the new rows (see peak_file._recent)
   msg    for a file: why it can't be used, or a warning; '' if neither
@@ -220,13 +220,12 @@ def new_file_state(columns, decimals):
             'next': len(cols) + 1}
 
 
-def file_state(path, decimals, sweep):
+def file_state(path, decimals):
     """An existing file's state, read from disk. decimals: the fallback for a
-    column with no number in it yet. sweep: the sweep's values (item key ->
-    value), which pick the saved rows its peaks could replace. A file that
-    can't be used gives a state with bad=True and the reason in msg."""
+    column with no number in it yet. A file that can't be used gives a state
+    with bad=True and the reason in msg."""
     try:
-        info = pf.read(path, sweep)
+        info = pf.read(path)
     except pf.PeakFileError as e:
         return {'mode': 'file', 'path': path, 'cols': [], 'dec': dict(pf.DEFAULT_DECIMALS),
                 'rows': [], 'saved': [], 'recent': [], 'msg': str(e), 'bad': True, 'next': 1}
@@ -374,19 +373,17 @@ def problem(state, label, values_of, name_of):
             if pa == pb:
                 return f'{name_of(pa)} is in the table twice. Remove one.'
             wa, wb = values_of(pa).get('wl'), values_of(pb).get('wl')
-            if wa is not None and wb is not None and abs(wa - wb) <= pf.SAME_PEAK_NM:
+            if wa is not None and wb is not None and pf.same_wl(wa, wb):
                 return (f'{name_of(pa)} and {name_of(pb)} are within {pf.SAME_PEAK_NM} nm, '
                         "so they'd be the same row in the file. Remove one.")
     if state['mode'] == 'file':
         taken = {}
         for r in rows:
-            target = pf.find_saved(state['saved'], {**values_of(r['peak']), 'label': label})
-            if target is None:
-                continue
-            if target in taken:
-                return (f'{taken[target]} and {name_of(r["peak"])} would both replace '
-                        'the same saved peak. Remove one.')
-            taken[target] = name_of(r['peak'])
+            for target in pf.find_same(state['saved'], {**values_of(r['peak']), 'label': label}):
+                if target in taken:
+                    return (f'{taken[target]} and {name_of(r["peak"])} would both replace '
+                            'the same saved peak. Remove one.')
+                taken[target] = name_of(r['peak'])
     return None
 
 
@@ -436,16 +433,22 @@ def _head_cell(state, cid, key, header):
                                 className='pf-dd', style=DROPDOWN), style=HEAD)
 
 
-def _status(saved, cols):
-    """For a file: whether the row is new or replaces a saved one (saved,
-    from state['saved'], or None), named by its label, λ and date on two
-    lines, so the column stays narrow. Shown below the row's peak."""
+def _status(targets, cols):
+    """For a file: whether the row is new or replaces saved rows (targets,
+    from state['saved']), on two lines, so the column stays narrow. One row
+    is named by its label, then its λ and date; more than one (a file that
+    already had two current rows of the peak) by the label, then their row
+    numbers, which the rows above show. Shown below the row's peak."""
     style = {'fontSize': '12px', 'marginTop': '2px'}
-    if saved is None:
+    if not targets:
         return html.Div('new row', style={**style, 'color': SAVED_COLOR})
-    text = {key: t for (_, key, _), t in zip(cols, saved['cells']) if key}
-    return html.Div([f"replaces {text.get('label', '—')}", html.Br(),
-                     f"{text.get('wl', '—')} nm, {text.get('date', '—')}"],
+    text = {key: t for (_, key, _), t in zip(cols, targets[0]['cells']) if key}
+    if len(targets) == 1:
+        second = f"{text.get('wl', '—')} nm, {text.get('date', '—')}"
+    else:
+        nums = [str(t['row']) for t in targets]
+        second = f"rows {', '.join(nums[:-1])} and {nums[-1]}"
+    return html.Div([f"replaces {text.get('label', '—')}", html.Br(), second],
                     style={**style, 'color': WARN_COLOR})
 
 
@@ -482,7 +485,7 @@ def _saved_rows(state, cols, replaced):
 def table(state, peak_options, values_of, label, temperature):
     """The dialog's table: decimals controls, column headers, a file's last
     few rows and the rows Save will mark replaced, then one row per peak with
-    the values as they'll be saved, and an "Add peak…" row.
+    the values as the file will show them, and an "Add peak…" row.
     values_of(peak) -> item key -> value for that peak's row."""
     cols = _columns(state)
     is_new = state['mode'] == 'new'
@@ -503,11 +506,9 @@ def table(state, peak_options, values_of, label, temperature):
                             value=r['peak'], clearable=True, className='pf-dd', style=DROPDOWN)
         first = [peak]
         if not is_new and label and values.get('wl') is not None:
-            target = pf.find_saved(state['saved'], values)
-            if target is not None:
-                replaced.add(target)
-            first.append(_status(next((s for s in state['saved'] if s['row'] == target), None),
-                                 cols))
+            targets = pf.find_same(state['saved'], values)
+            replaced.update(targets)
+            first.append(_status([s for s in state['saved'] if s['row'] in targets], cols))
         cells = [html.Td(first, style=ROW_HEAD)]
         for cid, key, _ in cols:
             if key is None:
