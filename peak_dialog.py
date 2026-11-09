@@ -30,6 +30,7 @@ import os
 from dash import dcc, html
 
 import peak_file as pf
+from constants import PEAK_TEMPERATURE_RANGE
 from plot_tables import DATA_CSS_FONT, WINDOW_CSS_FONT, SMALL_BTN_STYLE
 
 # A new file's fixed columns get ids of their own (the others are numbers).
@@ -165,7 +166,10 @@ def modal(hidden_style):
     """The dialog, hidden until "Save peak info" opens it. The File menu
     comes first, then the Label (SN) and Temperature boxes that every row
     shares, then the table. Temperature is saved only when its column is in
-    the table, but its box is always there."""
+    the table, but its box is always there. Its -/+ buttons step by 0.1, so
+    the browser won't take a second decimal place either. Dash sends what the
+    browser won't take as None, the same as an empty box, so Save first asks
+    the page which it is (plot.py), and problem() checks both."""
     return html.Div(id='peak-modal', style=hidden_style, children=html.Div([
         html.H4('Save peak info', style={'marginTop': 0}),
         html.Div([
@@ -184,7 +188,7 @@ def modal(hidden_style):
             html.Div([
                 html.Label('Temperature (°C)', style=LABEL_STYLE),
                 # Wide enough for "Optional" between Dash 4's -/+ buttons.
-                dcc.Input(id='peak-temperature', type='number', placeholder='Optional',
+                dcc.Input(id='peak-temperature', type='number', placeholder='Optional', step=0.1,
                           debounce=False, style={**FIELD_STYLE, 'width': '170px'})]),
         ], style={'display': 'flex', 'gap': '16px', 'alignItems': 'flex-end', 'flexWrap': 'wrap'}),
         # Under the File menu: the file Save writes to (see file_line), then a
@@ -204,6 +208,9 @@ def modal(hidden_style):
             html.Button('Save', id='peak-save-confirm', n_clicks=0, style={'marginLeft': '8px'}),
         ], style={'textAlign': 'right'}),
         dcc.Store(id='pf-state', data=None),
+        # Save's click with the browser's verdict on the Temperature box (see
+        # plot.py's close_or_save_peak).
+        dcc.Store(id='pf-save-request', data=None),
     ], style={'backgroundColor': 'white', 'padding': '20px 24px', 'borderRadius': '8px',
               'width': 'fit-content', 'minWidth': '560px', 'maxWidth': '95vw',
               'maxHeight': '90vh', 'overflowY': 'auto', 'boxSizing': 'border-box',
@@ -352,14 +359,25 @@ def update(state, changes, current):
     return None if s == state else s
 
 
-def problem(state, label, values_of, name_of):
+def problem(state, label, values_of, name_of, temperature=None, entry=''):
     """Why Save can't go ahead, worded for the dialog, or None.
     values_of(peak) -> item key -> value for that peak's row, as for table();
-    name_of(peak) -> its name, like "P2"."""
+    name_of(peak) -> its name, like "P2". temperature: the Temperature box's
+    number, or None. entry: the browser's verdict on the box: '' when it
+    took the text (or the box is empty), 'number' when the text isn't a
+    number, 'step' when it has more than one decimal place, 'range' for any
+    other reason."""
     if state.get('bad'):
         return state['msg']
     if not label:
         return 'Enter a Label (SN).'
+    if entry == 'number':
+        return 'Temperature must be a number, like 23.5.'
+    if entry == 'step':
+        return 'Temperature can have only one decimal place.'
+    low, high = PEAK_TEMPERATURE_RANGE
+    if entry or (temperature is not None and not low <= temperature <= high):
+        return f'Temperature must be between {low} and {high} °C.'
     rows = state['rows']
     if not rows:
         return 'Add a peak to save.'

@@ -34,11 +34,12 @@ import peak_file as pf
 # Remembered across display_plot() calls (i.e. across loop iterations) for the
 # "Save peak info" dialog: the file saved to last (a full path), where the
 # dialog starts, and a new file's columns ([{'item': key} or {'text': name}]
-# after the fixed ones) and decimals (item key -> decimals). Label (SN) and
-# Temperature aren't.
+# after the fixed ones) and decimals (item key -> decimals), and the
+# Temperature box at the last Save (None when it was empty). Label (SN) isn't.
 _last_peak_file = ''
 _peak_columns   = []
 _peak_decimals  = {}
+_peak_temperature = None
 # The files "Save peak info" opened or saved to lately, kept across runs:
 # newest first, one path per line (see peak_file.remember). The File menu
 # lists them under "Recent files".
@@ -2224,9 +2225,10 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         prevent_initial_call=True,
     )
     def open_peak_modal(n_clicks, *m2s):
-        # Label (SN) starts with the sweep's label, and Temperature empty.
+        # Label (SN) starts with the sweep's label, and Temperature with the
+        # one saved last.
         return (MODAL_SHOWN, _peak_file_options(), _fresh_peak_state(_first_peak_file(), _m2_of(m2s)),
-                params.label or '', None, '')
+                params.label or '', _peak_temperature, '')
 
     # A pick in the File menu. Its value goes back to None, so it shows "File
     # menu" again. "Open file…" asks the system's Open dialog for the file. A
@@ -2322,26 +2324,45 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
                            lambda peak: _row_values(peak, m2_of), label, temperature)
         return table, pdlg.file_line(state), pdlg.save_hint(state), pdlg.file_message(state), ''
 
+    # Save goes through the page first. The Temperature box is a number
+    # Input, which sends None both when it's empty and when the browser won't
+    # take its text ("2e", or 23.25 with its 0.1 step), so only the page can
+    # tell them apart: the box's validity, as peak_dialog.problem's entry.
+    app.clientside_callback(
+        """
+        function(n) {
+            var box = document.getElementById('peak-temperature');
+            var v = box ? box.validity : {valid: true};
+            return {n: n, temperature: v.valid ? '' : v.badInput ? 'number'
+                                       : v.stepMismatch ? 'step' : 'range'};
+        }
+        """,
+        Output('pf-save-request', 'data'),
+        Input('peak-save-confirm', 'n_clicks'),
+        prevent_initial_call=True,
+    )
+
     @app.callback(
         Output('peak-modal', 'style', allow_duplicate=True),
         Output('nav-status', 'children', allow_duplicate=True),
         Output('peak-modal-error', 'children'),
         Input('peak-cancel', 'n_clicks'),
-        Input('peak-save-confirm', 'n_clicks'),
+        Input('pf-save-request', 'data'),
         State('pf-state', 'data'),
         State('peak-label', 'value'),
         State('peak-temperature', 'value'),
         *M2_STATES,
         prevent_initial_call=True,
     )
-    def close_or_save_peak(cancel, confirm, state, label, temperature, *m2s):
+    def close_or_save_peak(cancel, request, state, label, temperature, *m2s):
         if callback_context.triggered_id == 'peak-cancel':
             return MODAL_HIDDEN, dash.no_update, ''
-        if not state:
+        if not state or not request:
             return dash.no_update, dash.no_update, ''
         label = (label or '').strip()
         m2_of = _m2_of(m2s)
-        trouble = pdlg.problem(state, label, lambda peak: _row_values(peak, m2_of), _peak_name)
+        trouble = pdlg.problem(state, label, lambda peak: _row_values(peak, m2_of), _peak_name,
+                               temperature, request.get('temperature', ''))
         if trouble:
             return dash.no_update, dash.no_update, trouble
         rows = [{**_row_values(r['peak'], m2_of), 'label': label, 'temperature': temperature,
@@ -2372,8 +2393,9 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         except pf.PeakFileError as e:
             return dash.no_update, dash.no_update, str(e)
 
-        global _last_peak_file
+        global _last_peak_file, _peak_temperature
         _last_peak_file = os.path.abspath(path)
+        _peak_temperature = temperature
         _remember_peak_file(path)
         log.info(f"Saved peak info: {path} (rows added {added}, replaced {replaced})")
         done = [f"{len(added)} new row" + ('s' if len(added) > 1 else '')]

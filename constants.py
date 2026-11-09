@@ -53,6 +53,10 @@ DETECTOR = "N7748A"
 # window's label field.
 FILENAME_BAD_CHARS = '\\/:*?"<>|'
 
+# "Save peak info" won't save while its Temperature (°C) box holds a number
+# outside this range (both ends allowed). An empty box is fine.
+PEAK_TEMPERATURE_RANGE = (18, 29)
+
 
 # Laser sources offered at startup. "external": the app never talks to it —
 # the user sets it up by hand and its trigger starts the power meter's log.

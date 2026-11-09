@@ -65,7 +65,7 @@ ITEMS = [
     Item('source',       'Source',             'Fixed'),
     Item('detector',     'Detector',           'Fixed'),
     Item('label',        'Label (SN)',         'Fixed'),
-    Item('wl',           'λ (nm)',             'Fixed', 4),
+    Item('wl',           'λ (nm)',             'Fixed', 1),
     Item('status',       'Status',             'Fixed'),
     Item('depth_max',    'Depth, max (dB)',    'Peak', 3),
     Item('depth_avg',    'Depth, avg (dB)',    'Peak', 3),
