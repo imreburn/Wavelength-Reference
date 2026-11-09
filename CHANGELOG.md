@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- "Save peak info" saves numbers as measured. The decimals buttons set only how many decimal places the dialog and the Excel file show. Temperature has them too, starting at 1 (23 shows as 23.0).
+- In "Save peak info" files, "replaced" in the Status column is red.
+
+### Fixed
+
+- In "Save peak info", saving the same peak again sometimes didn't mark the earlier row "replaced". ([#135](https://github.com/imreburn/Wavelength-Reference/issues/135))
+
 ## [3.0.1] - 2026-11-06
 
 ### Added

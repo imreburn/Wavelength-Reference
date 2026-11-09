@@ -1149,7 +1149,7 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
         sh_keys=sh_keys, peak_rows=peak_rows,
         wl=wl, d_x=d_x, figure=initial_fig, curves=main_traces + ref_traces + overlay_traces,
         heading=heading, peak_choices=_peak_choices, default_peak=_default_peak,
-        peak_name=_peak_name, row_values=_row_values, sweep_values=_sweep_values,
+        peak_name=_peak_name, row_values=_row_values,
         apply_filter=_apply_filter, watt_figure=_watt_figure,
     )
 
@@ -2197,11 +2197,9 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     def _fresh_peak_state(path, m2_of):
         """The dialog's state for the chosen file (its path, or '' for a new
         file), with a row for each range's default peak (_range_tab's
-        default_peak; a range with none gets no row). The ranges share the
-        date, source and detector that pick the saved rows a peak could
-        replace, so Range 1's sweep values serve them all."""
+        default_peak; a range with none gets no row)."""
         if path:
-            state = pdlg.file_state(path, _peak_decimals, tabs[0].sweep_values)
+            state = pdlg.file_state(path, _peak_decimals)
         else:
             state = pdlg.new_file_state(_peak_columns, _peak_decimals)
         for t in tabs:
