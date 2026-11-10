@@ -57,11 +57,11 @@ _hidden_items = set()
 # Page template: Dash's default plus one style block. Buttons and form fields
 # don't inherit the page font by default, so they're told to. The pf- rules
 # are for the Save peak info table (peak_dialog._label): an option's label
-# holds a one-line text for the open list (.pf-menu) and a two-line one for
-# the field (.pf-field). Dropdowns with class pf-dd show the two-line one,
-# left-aligned, in a narrower field. The list opens outside the dropdown's
-# element, so it keeps the one-line text. Dash's field grid puts the text in
-# an auto-width first column; 1fr gives the text the free space instead.
+# has a line break where the field splits it. Dropdowns with class pf-dd show
+# it on two lines (pre-line), left-aligned, in a narrower field. The list
+# opens outside the dropdown's element, and Dash's list doesn't wrap, so it
+# shows the label on one line. Dash's field grid puts the text in an
+# auto-width first column; 1fr gives the text the free space instead.
 # The File menu (class pf-file-dd) always shows its placeholder, "File menu",
 # so the placeholder gets the normal text color.
 INDEX_STRING = '''<!DOCTYPE html>
@@ -74,13 +74,8 @@ INDEX_STRING = '''<!DOCTYPE html>
         <style>
             body { font-family: __FONT__; }
             button, input, select, textarea { font-family: inherit; }
-            .pf-field { display: none; }
-            .pf-dd .pf-menu { display: none; }
-            .pf-dd .pf-field { display: block; }
-            .pf-dd .pf-l1, .pf-dd .pf-l2 {
-                display: block; overflow: hidden; text-overflow: ellipsis; }
             .pf-dd .dash-dropdown-value {
-                white-space: nowrap; line-height: 1.15;
+                white-space: pre-line; line-height: 1.15;
                 justify-self: stretch; text-align: left; }
             .pf-dd .dash-dropdown-trigger { padding: 0 6px; gap: 4px; }
             .pf-dd .dash-dropdown-grid-container { grid-template-columns: 1fr auto; }

@@ -40,13 +40,14 @@ FIXED_IDS = {'date': 'f-date', 'time': 'f-time', 'source': 'f-source',
 NEW_FILE = '__new'
 OPEN_FILE = '__open'
 FOLDER_CHARS = 60   # a longer folder is shortened in the File menu
-# The headers the table shows on two lines, to keep columns narrow. Any other
-# header is one line.
+# The headers the table shows on two lines, to keep columns narrow: the
+# header is the first line, a space, and the second line, so a comma stays at
+# the end of the first line. Any other header is one line.
 TWO_LINES = {
-    **{f'{q}_{b}': (q.capitalize(), f'{b} ({u})')
+    **{f'{q}_{b}': (f'{q.capitalize()},', f'{b} ({u})')
        for q, u in (('depth', 'dB'), ('width', 'pm'))
        for b in ('max', 'avg', 'min', 'custom')},
-    'il_custom':   ('IL', 'custom (dB)'),
+    'il_custom':   ('IL,', 'custom (dB)'),
     'wl_start':    ('λ start', '(nm)'),
     'wl_stop':     ('λ stop', '(nm)'),
     'speed':       ('Sweep', 'speed (nm/s)'),
@@ -94,15 +95,15 @@ def _lines(key, header):
 
 
 def _label(text, first, second=''):
-    """A dropdown option's label: `text` on one line in the open list, and
-    `first` over `second` in the dropdown's own field, which is narrower.
-    plot.py's page template has the CSS that shows the field version in
-    dropdowns with className "pf-dd". The list opens outside the dropdown's
-    element, so it keeps the one-line version."""
-    lines = [html.Span(first, className='pf-l1')]
-    if second:
-        lines.append(html.Span(second, className='pf-l2'))
-    return html.Span([html.Span(text, className='pf-menu'), html.Span(lines, className='pf-field')])
+    """A dropdown option's label: `text` (`first`, a space, `second`) with a
+    line break in place of that space. The open list shows it on one line:
+    Dash's list doesn't wrap, so the break shows as a space. Dropdowns with
+    className "pf-dd" show it on two lines, narrower (plot.py's page
+    template). Plain text, not components: Dash 4.5 can draw an empty field
+    for a component label after the table is redrawn (#167)."""
+    if second and text == f'{first} {second}':
+        return f'{first}\n{second}'
+    return text
 
 
 def _column_option(option):
@@ -113,18 +114,16 @@ def _column_option(option):
 
 
 def _peak_option(option):
-    """A peak: "P2 (tested) (deepest)" in the list, and "P2" over "tested,
-    deepest" in the field. With two or more ranges, the list shows a heading
-    over each range's peaks (a disabled option, kept as it is), and the field
-    and the search text start with the range, its 'prefix': "R1-P2" in the
-    field, "R1-P2 (tested) (deepest)" to search, so typing "r1" finds Range 1."""
+    """A peak: "P2 (tested) (deepest)" in the list, and "P2" over "(tested)
+    (deepest)" in the field. With two or more ranges, the list shows a
+    heading over each range's peaks (a disabled option, kept as it is), and
+    the label starts with the range, its 'prefix': "R1-P2 (tested)", so
+    typing "r1" finds Range 1."""
     if option.get('disabled'):
         return option
-    prefix = option.get('prefix', '')
-    name, _, tags = option['label'].partition(' ')
-    tags = ', '.join(t.strip('()') for t in tags.split())
-    return {'label': _label(option['label'], prefix + name, tags), 'value': option['value'],
-            'search': prefix + option['label']}
+    text = option.get('prefix', '') + option['label']
+    name, _, tags = text.partition(' ')
+    return {'label': _label(text, name, tags), 'value': option['value'], 'search': text}
 
 
 COLUMN_OPTIONS = [_column_option(o) for o in pf.column_options()]
