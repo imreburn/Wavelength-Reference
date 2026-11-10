@@ -46,8 +46,8 @@ _peak_temperature = None
 RECENT_PEAK_FILES = data_path('recent_peak_files.txt', mkdir=False)
 # Also remembered across display_plot() calls: each table's columns and
 # decimals from its Customize dialog, and the peak numbers hidden in each
-# range tab's peak table, by tab key (by number, so P3 stays hidden in a
-# later sweep that finds a P3).
+# range tab's peak table, by tab key (by number, so the third peak stays
+# hidden in a later sweep that finds a third peak, whatever its wavelength).
 _table_views  = {t: pt.default_view(t) for t in pt.TABLES}
 _hidden_peaks = {}
 # Also remembered: the Show / hide items left unticked, by key (e.g. 'lbase'),
@@ -365,12 +365,16 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
     exam = exam_peak(pk, params, r)
     exam_out, exam_idx = exam['verdict'], exam['peak']
     if pk is not None:
-        # data[5..10] — peak annotation traces (Peaks, L/R bases, FWHM max/avg/min)
-        initial_fig.add_scatter(x=pk.x_nm, y=dbm[pk.x_idx], mode='markers+text', name='Peak', marker=dict(size=5, color='#E63946', symbol='circle', line=MARKER_BORDER), text=[f"P{i}" for i, _ in enumerate(pk.x_idx, start=1)], textposition='bottom center')
+        # data[5..10] — peak annotation traces (Peaks, L/R bases, FWHM max/avg/min).
+        # A peak is labeled with its name (pt.peak_name, its wavelength), and
+        # each base with its peak's name, its side and its power, like
+        # "1568.0:R(y:−2.257)", so a base two peaks share gets two labels.
+        names = [pt.peak_name(x) for x in pk.x_nm]
+        initial_fig.add_scatter(x=pk.x_nm, y=dbm[pk.x_idx], mode='markers+text', name='Peak', marker=dict(size=5, color='#E63946', symbol='circle', line=MARKER_BORDER), text=names, textposition='bottom center')
 
-        initial_fig.add_scatter(x=wl[pk.l_idx], y=dbm[pk.l_idx], mode='markers+text', name='Peak:Left base', marker=dict(size=8, color='#2A9D8F', symbol='triangle-up', line=MARKER_BORDER), text=[f"P{i}:L({e[0]:.3f}, {e[1]:.3f})" for i, e in enumerate(zip(wl[pk.l_idx], dbm[pk.l_idx]), start=1)], textposition='top right')
+        initial_fig.add_scatter(x=wl[pk.l_idx], y=dbm[pk.l_idx], mode='markers+text', name='Peak:Left base', marker=dict(size=8, color='#2A9D8F', symbol='triangle-up', line=MARKER_BORDER), text=[f"{n}:L(y:{pt.number_text(y, 3)})" for n, y in zip(names, dbm[pk.l_idx])], textposition='top right')
 
-        initial_fig.add_scatter(x=wl[pk.r_idx], y=dbm[pk.r_idx], mode='markers+text', name='Peak:Right base', marker=dict(size=8, color='#2A9D8F', symbol='triangle-down', line=MARKER_BORDER), text=[f"P{i}:R({e[0]:.3f}, {e[1]:.3f})" for i, e in enumerate(zip(wl[pk.r_idx], dbm[pk.r_idx]), start=1)], textposition='top left')
+        initial_fig.add_scatter(x=wl[pk.r_idx], y=dbm[pk.r_idx], mode='markers+text', name='Peak:Right base', marker=dict(size=8, color='#2A9D8F', symbol='triangle-down', line=MARKER_BORDER), text=[f"{n}:R(y:{pt.number_text(y, 3)})" for n, y in zip(names, dbm[pk.r_idx])], textposition='top left')
 
         initial_fig.add_scatter(x=np.concatenate([pk.max.l_nm, pk.max.r_nm]), y=np.concatenate([pk.max.w_y, pk.max.w_y]), mode='markers', name="Width (max base)", visible=True, marker=dict(size=8, color='#F4A261', symbol='square', line=MARKER_BORDER))
 
@@ -508,11 +512,11 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
     # ------------------------------------------------------------------
     # This tab's peaks for "Save peak info" (the window's dialog). A peak's
     # value names this tab: "<key>:peak:<number>", or "<key>:custom" for the
-    # Bandwidth markers. With two or more ranges, a peak's name starts with
-    # its range (R2-P1, R2-custom), and the list puts this tab's peaks under
-    # a heading.
+    # Bandwidth markers. Its label is its name (pt.peak_name, its wavelength)
+    # and its notes: "1568.0 (tested) (deepest)", or "1568.0 (custom)" for
+    # the custom peak, named by B1. With two or more ranges, the list puts
+    # this tab's peaks under a heading.
     # ------------------------------------------------------------------
-    name_prefix = f'R{key}-' if params.n_ranges > 1 else ''
     heading = f'——— Range {key} ({_nm(params.wl_start[r])}–{_nm(params.wl_stop[r])} nm) ———'
     if pk is not None:
         # The tested peak first, then the deepest (max Depth_max), then the rest.
@@ -524,12 +528,12 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
             ordered_peaks = [max_peak] + [int(p) for p in peak_df['Peak'] if int(p) != max_peak]
         peak_options = []
         for p in ordered_peaks:
-            label = f'P{p}'
+            label = pt.peak_name(pk.x_nm[p - 1])
             if exam_idx is not None and p == exam_idx:
                 label += " (tested)"
             if p == max_peak:
                 label += " (deepest)"
-            peak_options.append({'label': label, 'value': f'{key}:peak:{p}', 'prefix': name_prefix})
+            peak_options.append({'label': label, 'value': f'{key}:peak:{p}'})
     else:
         ordered_peaks, peak_options = [], []
 
@@ -542,9 +546,10 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
         return bool(m2 and m2.get('base'))
 
     def _peak_choices(m2):
-        """The peak dropdowns' options: the detected peaks, then "custom"."""
-        custom = {'label': 'custom', 'value': f'{key}:custom', 'prefix': name_prefix}
-        return peak_options + ([custom] if _has_custom(m2) else [])
+        """The peak dropdowns' options: the detected peaks, then the custom one."""
+        if not _has_custom(m2):
+            return peak_options
+        return peak_options + [{'label': f"{pt.peak_name(m2['x'])} (custom)", 'value': f'{key}:custom'}]
 
     def _default_peak(m2):
         """This tab's row in a new dialog: the tested peak, else the deepest,
@@ -553,11 +558,13 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
             return f'{key}:peak:{ordered_peaks[0]}'
         return f'{key}:custom' if _has_custom(m2) else None
 
-    def _peak_name(peak):
-        """A peak's name in messages: "P2" or "custom" (R1-P2 or R1-custom
-        with two or more ranges)."""
+    def _peak_name(peak, m2):
+        """A peak's name in messages: "1568.0 nm", or "1568.0 nm (custom)"
+        for the custom peak (just "custom" once the markers are gone)."""
         _, kind, *number = peak.split(':')
-        return name_prefix + ('custom' if kind == 'custom' else f'P{number[0]}')
+        if kind == 'custom':
+            return f"{pt.peak_name(m2['x'])} nm (custom)" if _has_custom(m2) else 'custom'
+        return f"{pt.peak_name(pk.x_nm[int(number[0]) - 1])} nm"
 
     def _row_values(peak, m2):
         """Item key -> value for a row with this peak; a value it doesn't have
@@ -843,7 +850,7 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
         prevent_initial_call=True,
     )
     def remember_hidden_peaks(shown):
-        # Keep remembered numbers this sweep doesn't have (e.g. P3 when it found
+        # Keep remembered numbers this sweep doesn't have (e.g. 3 when it found
         # two peaks), so they stay hidden in a later sweep that has them again.
         ids = {int(r['Peak']) for r in peak_rows}
         kept = {p for p in _hidden_peaks.get(key, []) if p not in ids}
@@ -1519,9 +1526,10 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         key = peak.split(':')[0]
         return tab_of[key].row_values(peak, m2_of[key])
 
-    def _peak_name(peak):
-        """A peak's name in messages, like "P2" or "R2-P1"."""
-        return tab_of[peak.split(':')[0]].peak_name(peak)
+    def _peak_name(peak, m2_of):
+        """A peak's name in messages, like "1568.0 nm" (_range_tab's peak_name)."""
+        key = peak.split(':')[0]
+        return tab_of[key].peak_name(peak, m2_of[key])
 
     def _peak_file_options():
         """The File menu, with the recent files that still exist."""
@@ -2356,7 +2364,8 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
             return dash.no_update, dash.no_update, ''
         label = (label or '').strip()
         m2_of = _m2_of(m2s)
-        trouble = pdlg.problem(state, label, lambda peak: _row_values(peak, m2_of), _peak_name,
+        trouble = pdlg.problem(state, label, lambda peak: _row_values(peak, m2_of),
+                               lambda peak: _peak_name(peak, m2_of),
                                temperature, request.get('temperature', ''))
         if trouble:
             return dash.no_update, dash.no_update, trouble
