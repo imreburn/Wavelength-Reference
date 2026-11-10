@@ -10,6 +10,7 @@
 - In "Save peak info", λ (nm) shows 1 decimal place by default instead of 4.
 - Peaks are named by their wavelength with 1 decimal place, like "1568.0", instead of P1, P2, … on the plot, in "Save peak info" and in the Customize dialog's Peaks list. A base's label shows its peak, its side and its power, like "1568.0:R(y:−2.257)". ([#138](https://github.com/imreburn/Wavelength-Reference/issues/138))
 - The Peak table no longer has an ID column, and the Custom peak table's ID column is now called Note.
+- The Peak test result shows its base in its title, like "Peak test result (Max base)", instead of in the table's top-left cell. ([#170](https://github.com/imreburn/Wavelength-Reference/issues/170))
 
 ### Fixed
 

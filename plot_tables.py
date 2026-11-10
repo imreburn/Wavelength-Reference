@@ -311,17 +311,15 @@ def passfail_table(exam, view):
     with the overall result ("Pass" in green or "Fail" in red, plus why no peak
     was tested, if so) in a last column that spans those three rows, set off
     by a white gap. Each criterion has two columns: min and max in the
-    Criteria row, and one cell across both in the other rows. The top-left
-    cell names the base the depth and width are measured from ("Max base");
-    the Measured row's λ shows which peak was tested. Its caption, with the
-    Customize link, is caption('passfail').
+    Criteria row, and one cell across both in the other rows. The Measured
+    row's λ shows which peak was tested. Its caption, which names the base
+    the depth and width are measured from ("Peak test result (Max base)") and
+    has the Customize link, is caption('passfail', key, base=exam['base']).
     `exam` is analyze_data.exam_peak's dict; call this only when the test is on."""
     checks = exam['checks']
     labels = TABLES['passfail']['labels']   # in exam_peak's check order
-    base = f"{exam['base'].capitalize()} base"
     final_edge = {'borderLeft': '8px solid white'}   # a white gap before the column
-    # In black rather than the headers' grey: it's information, not a header.
-    head = html.Tr([html.Th(base, style={**TH_STYLE, 'textAlign': 'left', 'color': 'black'})]
+    head = html.Tr([html.Th('', style=TH_STYLE)]
                    + [html.Th(labels[c][1], colSpan=2, style=TH_STYLE) for c in labels]
                    + [html.Th('Final result', style={**TH_STYLE, **final_edge})])
     rows = [
@@ -369,11 +367,13 @@ DIALOG_HIDDEN = {**DIALOG_OVERLAY, 'display': 'none'}
 DIALOG_SHOWN = {**DIALOG_OVERLAY, 'display': 'flex'}
 
 
-def caption(table, key, extra=()):
+def caption(table, key, extra=(), base=None):
     """A table's caption: its name, grey note if any, and "Customize..." link.
-    key: the range tab the table is in (plot.py's tab keys)."""
+    key: the range tab the table is in (plot.py's tab keys). base: the base
+    ('max', 'avg' or 'min') the table's numbers are measured from, named in
+    the title, e.g. "Peak test result (Max base)"; None for no base."""
     note = TABLES[table].get('note')
-    title = [TABLES[table]['title']]
+    title = [TABLES[table]['title'] + (f' ({base.capitalize()} base)' if base else '')]
     if note:
         title.append(html.Span(f' {note}', style={'fontWeight': 'normal', 'color': '#888'}))
     return html.Div([html.Span(title),

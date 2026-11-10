@@ -261,7 +261,9 @@ def _zoomed(relayout, view):
 # only item.
 SH_ALL = {
     'peak': [('peak', 'Peak'), ('lbase', 'Peak:Left base'), ('rbase', 'Peak:Right base'),
-             # The two tables in their on-screen order: the test result first.
+             # The two tables in their on-screen order: the test result first,
+             # without its caption's "(Max base)": this one item hides the table
+             # in every tab, and each range has its own base.
              ('passfail', 'Peak test result'),
              # Keeps "table" here, unlike the table's own caption ("Peak").
              ('table', 'Peak table')],
@@ -655,10 +657,12 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
     ], id=rid('panel'), style=PANEL_STYLE)
 
     # Pass/Fail result, shown just above the Peak table: a table of each check
-    # with the overall result in its last column, under a caption with a
-    # Customize link (the Measured row's decimals). render_passfail_table fills
-    # it in. Nothing when the test is off (every criterion 0).
-    exam_div = html.Div([pt.caption('passfail', key), html.Div(id=rid('passfail-table'))],
+    # with the overall result in its last column, under a caption that names
+    # this range's base ("Peak test result (Max base)") and has a Customize
+    # link (the Measured row's decimals). render_passfail_table fills it in.
+    # Nothing when the test is off (every criterion 0).
+    exam_div = html.Div([pt.caption('passfail', key, base=exam['base']),
+                         html.Div(id=rid('passfail-table'))],
                         style={'marginTop': '5px'}) if exam_out else None
 
     # The plot, and the tables under it.
