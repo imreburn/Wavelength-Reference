@@ -114,16 +114,15 @@ def _column_option(option):
 
 
 def _peak_option(option):
-    """A peak: "P2 (tested) (deepest)" in the list, and "P2" over "(tested)
-    (deepest)" in the field. With two or more ranges, the list shows a
-    heading over each range's peaks (a disabled option, kept as it is), and
-    the label starts with the range, its 'prefix': "R1-P2 (tested)", so
-    typing "r1" finds Range 1."""
+    """A peak, named by its wavelength (plot.py): "1568.0 (tested) (deepest)"
+    in the list, and "1568.0" over "(tested) (deepest)" in the field. With
+    two or more ranges, the list shows a heading over each range's peaks (a
+    disabled option, kept as it is)."""
     if option.get('disabled'):
         return option
-    text = option.get('prefix', '') + option['label']
-    name, _, tags = text.partition(' ')
-    return {'label': _label(text, name, tags), 'value': option['value'], 'search': text}
+    text = option['label']
+    name, _, notes = text.partition(' ')
+    return {'label': _label(text, name, notes), 'value': option['value'], 'search': text}
 
 
 COLUMN_OPTIONS = [_column_option(o) for o in pf.column_options()]
@@ -361,11 +360,11 @@ def update(state, changes, current):
 def problem(state, label, values_of, name_of, temperature=None, entry=''):
     """Why Save can't go ahead, worded for the dialog, or None.
     values_of(peak) -> item key -> value for that peak's row, as for table();
-    name_of(peak) -> its name, like "P2". temperature: the Temperature box's
-    number, or None. entry: the browser's verdict on the box: '' when it
-    took the text (or the box is empty), 'number' when the text isn't a
-    number, 'step' when it has more than one decimal place, 'range' for any
-    other reason."""
+    name_of(peak) -> its name, like "1568.0 nm". temperature: the
+    Temperature box's number, or None. entry: the browser's verdict on the
+    box: '' when it took the text (or the box is empty), 'number' when the
+    text isn't a number, 'step' when it has more than one decimal place,
+    'range' for any other reason."""
     if state.get('bad'):
         return state['msg']
     if not label:

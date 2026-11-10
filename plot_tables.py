@@ -12,6 +12,7 @@ import re
 
 from dash import dcc, html
 
+import peak_file as pf
 from constants import DATA_FONT, GRAPH_WINDOW_FONT
 
 
@@ -66,10 +67,11 @@ EMPTY = '—'        # a cell with no value (rather than a blank that looks brok
 # its columns in default order as id -> (group, header) (a group
 # puts one spanning header over its adjacent columns), the column that can't be
 # hidden, each numeric column's unit (which sets its default decimals; columns
-# without one, like Ch and the IDs, get no decimals control), any column whose
+# without one, like Ch and Note, get no decimals control), any column whose
 # default decimals differ from its unit's, and whether every other row is shaded.
 # A 'decimals_only' table's Customize dialog sets just its columns' decimals.
-_PEAK_LABELS = {'Ch': (None, 'Ch'), 'Peak': (None, 'ID'), 'Category': (None, 'Note'),
+# The peak tables have no ID column: λ (nm) names a peak, and can't be hidden.
+_PEAK_LABELS = {'Ch': (None, 'Ch'), 'Category': (None, 'Note'),
                 'x': ('Peak', 'λ (nm)'), 'y': ('Peak', 'P (dB|dBm)'),
                 # The sweep's insertion loss, the same on every row. Only a
                 # window with a reference has it; the others pass 'IL' as
@@ -82,8 +84,9 @@ for _b, _name in [('max', 'Max'), ('avg', 'Avg'), ('min', 'Min')]:
 TABLES = {
     'custom': {
         'title': 'Custom peak',
-        # The two Bandwidth markers: B1 is the peak, B2 the base.
-        'labels': {'Ch': (None, 'Ch'), 'Peak': (None, 'ID'),
+        # The two Bandwidth markers: B1 is the peak, B2 the base. Note says
+        # "custom", as the peak table's Note says "tested" or "deepest".
+        'labels': {'Ch': (None, 'Ch'), 'Note': (None, 'Note'),
                    'x': ('Peak (B1)', 'λ (nm)'),
                    'y': ('Peak (B1)', 'P (dB|dBm)'),
                    'Depth': ('Peak properties', 'Depth (dB)'),
@@ -92,7 +95,7 @@ TABLES = {
                    'Amplitude': ('Peak properties', 'Amplitude (dB)'),
                    'base_x': ('Base (B2)', 'λ (nm)'),
                    'base_y': ('Base (B2)', 'P (dB|dBm)')},
-        'locked': 'Peak',
+        'locked': 'x',
         'units': {'x': 'nm', 'y': 'dB|dBm', 'Depth': 'dB', 'Width': 'pm', 'Amplitude': 'dB',
                   'base_x': 'nm', 'base_y': 'dB|dBm'},
         # Amplitude: as fine as the Manual "Bandwidth amplitude (dB)" field's
@@ -117,7 +120,7 @@ TABLES = {
         'title': 'Peak',
         'note': '(auto-detected)',
         'labels': _PEAK_LABELS,
-        'locked': 'Peak',
+        'locked': 'x',
         'units': {'x': 'nm', 'y': 'dB|dBm', 'IL': 'dB', 'Depth_max': 'dB', 'FWHM_max': 'pm',
                   'Depth_avg': 'dB', 'FWHM_avg': 'pm', 'Depth_min': 'dB', 'FWHM_min': 'pm'},
         # Depth: as fine as the peak and base powers it comes from.
@@ -163,12 +166,33 @@ def number_text(v, dec):
     return s.replace('-', MINUS)
 
 
+# A peak is named by its wavelength (nm) with this many decimal places.
+PEAK_NAME_DECIMALS = 1
+
+
+def peak_name(wl):
+    """A peak's name: its wavelength with PEAK_NAME_DECIMALS decimals, like
+    "1536.7", on the plot, in Save peak info and in the Customize dialog's
+    Peaks list. Rounded like Save peak info's λ (nm) column, so the two
+    agree. Ranges can't overlap, so a name doesn't repeat across ranges."""
+    return pf.number_text(float(wl), PEAK_NAME_DECIMALS)
+
+
+# A peak's notes in the order Save peak info lists them: "(tested) (deepest)".
+NOTE_ORDER = {'tested': 0, 'deepest': 1}
+
+
+def peak_notes(category):
+    """The notes in a peak row's Category, in NOTE_ORDER:
+    "(deepest)(tested)" -> ['tested', 'deepest']."""
+    notes = re.findall(r'\((\w+)\)', category)
+    return sorted(notes, key=lambda n: NOTE_ORDER.get(n, len(NOTE_ORDER)))
+
+
 def _cell_text(table, col, row, dec):
-    if table == 'peak' and col == 'Peak':
-        return f"P{row['Peak']}"
     if table == 'peak' and col == 'Category':
-        # Why the row is highlighted: "(deepest)(tested)" -> "deepest, tested"
-        return ', '.join(re.findall(r'\((\w+)\)', row['Category']))
+        # Why the row is highlighted: "(deepest)(tested)" -> "tested, deepest"
+        return ', '.join(peak_notes(row['Category']))
     if col not in row:
         return EMPTY   # e.g. the first Delta marker's mid/Δ/slope, or a base not set yet
     v = row[col]
@@ -248,7 +272,7 @@ def delta_rows(markers):
 def custom_row(channel, m2):
     """The Custom peak table's row from the Bandwidth markers (m2): the peak is
     B1, the base is m2['base'] (B2). Without B2, base and depth stay empty."""
-    row = {'Ch': channel, 'Peak': 'custom', 'x': m2['x'], 'y': m2['y']}
+    row = {'Ch': channel, 'Note': 'custom', 'x': m2['x'], 'y': m2['y']}
     if m2.get('width_pm') is not None:
         row['Width'] = m2['width_pm']
         row['Amplitude'] = m2['amplitude_db']
@@ -288,18 +312,16 @@ def passfail_table(exam, view):
     was tested, if so) in a last column that spans those three rows, set off
     by a white gap. Each criterion has two columns: min and max in the
     Criteria row, and one cell across both in the other rows. The top-left
-    cell names what was tested: the peak and the base its depth and width are
-    measured from ("P2 / Max base", or just "Max base" when no peak was
-    tested). Its caption, with the Customize link, is caption('passfail').
+    cell names the base the depth and width are measured from ("Max base");
+    the Measured row's λ shows which peak was tested. Its caption, with the
+    Customize link, is caption('passfail').
     `exam` is analyze_data.exam_peak's dict; call this only when the test is on."""
     checks = exam['checks']
     labels = TABLES['passfail']['labels']   # in exam_peak's check order
-    tested = f"{exam['base'].capitalize()} base"
-    if exam['peak']:
-        tested = f"P{exam['peak']} / {tested}"
+    base = f"{exam['base'].capitalize()} base"
     final_edge = {'borderLeft': '8px solid white'}   # a white gap before the column
     # In black rather than the headers' grey: it's information, not a header.
-    head = html.Tr([html.Th(tested, style={**TH_STYLE, 'textAlign': 'left', 'color': 'black'})]
+    head = html.Tr([html.Th(base, style={**TH_STYLE, 'textAlign': 'left', 'color': 'black'})]
                    + [html.Th(labels[c][1], colSpan=2, style=TH_STYLE) for c in labels]
                    + [html.Th('Final result', style={**TH_STYLE, **final_edge})])
     rows = [
@@ -361,8 +383,9 @@ def caption(table, key, extra=()):
 
 
 def peak_label(row):
-    """A peak's label in the dialog's Peaks list, e.g. "P1 (deepest)"."""
-    return f"P{row['Peak']} {row['Category']}".rstrip()
+    """A peak's label in the dialog's Peaks list, as in Save peak info: its
+    name and notes, e.g. "1568.0 (tested) (deepest)"."""
+    return ' '.join([peak_name(row['x'])] + [f'({n})' for n in peak_notes(row['Category'])])
 
 
 def _peak_list(key, peak_rows, hidden_peaks, shown):
