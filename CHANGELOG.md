@@ -12,6 +12,7 @@
 ### Fixed
 
 - In "Save peak info", saving the same peak again sometimes didn't mark the earlier row "replaced". ([#135](https://github.com/imreburn/Wavelength-Reference/issues/135))
+- In "Save peak info", a peak or column field in the table sometimes went blank. ([#167](https://github.com/imreburn/Wavelength-Reference/issues/167))
 
 ## [3.0.1] - 2026-11-06
 
