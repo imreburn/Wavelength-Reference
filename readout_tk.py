@@ -44,14 +44,14 @@ class ReadoutSection:
         section_header(f, "Power Readout", 0, span=len(READOUT_COLUMNS) + 1)
         f.columnconfigure(len(READOUT_COLUMNS), weight=1)
 
-        # ---- controls: Laser on, the wavelength and power fields with what
+        # ---- controls: Laser On, the wavelength and power fields with what
         # the instruments currently report to their right, then Apply and
         # Reset Max side by side
         ctrl = tk.Frame(f)
         ctrl.grid(row=2, column=0, columnspan=5, sticky="w", pady=(0, 2))
         self.laser_var = tk.IntVar(value=int(readout.emission))
         # The config window binds the L key to this box.
-        self.laser_cb  = tk.Checkbutton(ctrl, text="Laser on (L)", variable=self.laser_var,
+        self.laser_cb  = tk.Checkbutton(ctrl, text="Laser On (L)", variable=self.laser_var,
                                         command=self.toggle_laser)
         self.laser_cb.grid(row=0, column=0, columnspan=2, sticky="w")
         tk.Label(ctrl, text="λ (nm)", anchor="e").grid(

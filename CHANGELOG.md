@@ -4,13 +4,13 @@
 
 ### Changed
 
-- "Save peak info" saves numbers as measured. The decimals buttons set only how many decimal places the dialog and the Excel file show. Temperature has them too, starting at 1 (23 shows as 23.0).
+- "Save peak info" saves numbers as measured. The decimals buttons set only how many decimal places the dialog and the Excel file show.
 - In "Save peak info" files, "replaced" in the Status column is red.
 - In "Save peak info", now Temperature is checked, and it must be between 18 and 29 °C with at most one decimal place, or empty. The box starts with the last saved Temperature until the program closes. ([#158](https://github.com/imreburn/Wavelength-Reference/issues/158))
 - In "Save peak info", λ (nm) shows 1 decimal place by default instead of 4.
-- Peaks are named by their wavelength with 1 decimal place, like "1568.0", instead of P1, P2, … on the plot, in "Save peak info" and in the Customize dialog's Peaks list. A base's label shows its peak, its side and its power, like "1568.0:R(y:−2.257)". ([#138](https://github.com/imreburn/Wavelength-Reference/issues/138))
-- The Peak table no longer has an ID column, and the Custom peak table's ID column is now called Note.
+- Peaks are named by their wavelength with 1 decimal place, like "1568.0", replacing IDs (P1, P2, ...). A base's label shows its peak, its side and its power, like "1568.0:R(y:−2.257)". ([#138](https://github.com/imreburn/Wavelength-Reference/issues/138))
 - The Peak test result shows its base in its title, like "Peak test result (Max base)", instead of in the table's top-left cell. ([#170](https://github.com/imreburn/Wavelength-Reference/issues/170))
+- "Label (SN)" is now "Label/SN".
 
 ### Fixed
 

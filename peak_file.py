@@ -33,7 +33,7 @@ from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
 SHEET = 'Peaks'
-# Two rows are the same peak when they have the same Label (SN) and a λ this
+# Two rows are the same peak when they have the same Label/SN and a λ this
 # close (nm), whatever their date, source or detector. Each Save marks the
 # earlier current rows of its peaks replaced, so the current row of a peak
 # is always the one saved last.
@@ -64,7 +64,7 @@ ITEMS = [
     Item('time',         'Time',               'Fixed'),
     Item('source',       'Source',             'Fixed'),
     Item('detector',     'Detector',           'Fixed'),
-    Item('label',        'Label (SN)',         'Fixed'),
+    Item('label',        'Label/SN',           'Fixed'),
     Item('wl',           'λ (nm)',             'Fixed', 1),
     Item('status',       'Status',             'Fixed'),
     Item('depth_max',    'Depth, max (dB)',    'Peak', 3),
@@ -90,7 +90,7 @@ ITEMS = [
 ]
 ITEM = {i.key: i for i in ITEMS}
 # A new file's columns always start with the fixed items. An existing file
-# only needs the ones the app relies on: Label (SN) and λ, to find the rows
+# only needs the ones the app relies on: Label/SN and λ, to find the rows
 # a new one replaces (see find_same), and Status, to mark them.
 FIXED = [i.key for i in ITEMS if i.group == 'Fixed']
 REQUIRED = ['label', 'wl', 'status']
@@ -105,7 +105,12 @@ def norm(header):
     return ' '.join(unicodedata.normalize('NFKC', str(header)).casefold().split())
 
 
+# Headers an item had before it was renamed, so files saved with them keep
+# working. Their header in the file stays as it is.
+OLD_HEADERS = {'Label (SN)': 'label'}   # renamed after 3.0.1
+
 _KEY_BY_HEADER = {norm(i.header): i.key for i in ITEMS}
+_KEY_BY_HEADER.update({norm(h): key for h, key in OLD_HEADERS.items()})
 
 
 def column_options():

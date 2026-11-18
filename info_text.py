@@ -47,9 +47,9 @@ PARAMETERS_INFO="""
 REFERENCE_INFO="""
 **Using a reference**
 
-- The most recent measurement taken without a reference can be used as the reference for later measurements. Check "Use reference" to use it.
+- The most recent measurement taken without a reference can be used as the reference for later measurements. Check "Use Reference" to use it.
 
-- Unchecking "Use reference" stops using the reference but doesn't delete it. Check the box again to use it again. A new measurement taken while the box is unchecked replaces it.
+- Unchecking "Use Reference" stops using the reference but doesn't delete it. Check the box again to use it again. A new measurement taken while the box is unchecked replaces it.
 
 - Press R to check or uncheck the box. This doesn't work while you're typing in a field.
 
@@ -60,11 +60,11 @@ REFERENCE_INFO="""
 
 The lines under the checkbox show whether there is data to use as a reference, and when it was measured.
 
-- **No data:** No data is available to use as a reference. This appears right after the program starts and after "Change" is clicked. The "Use reference" checkbox is disabled.
+- **No Data:** No data is available to use as a reference. This appears right after the program starts and after "Change" is clicked. The "Use Reference" checkbox is disabled.
 
-- **Data ready:** Measured data is available but isn't being used as the reference. Check "Use reference" to use it.
+- **Data Ready:** Measured data is available but isn't being used as the reference. Check "Use Reference" to use it.
 
-- **In use:** The reference is in use.
+- **In Use:** The reference is in use.
 
 - The date and time after **Measured** are when the reference measurement started, when Run was clicked. Its raw data file names use the same time, written as YYYY-MM-DD_hh-mm-ss.
 """
@@ -118,7 +118,9 @@ The fields in this section don't lock after Save, so you can change them without
 
 **Label**
 
-- Check "Add label (SN)" to give each sweep a label: **a prefix followed by a counter.** For example, in SN007, SN is the prefix and 007 is the counter. The label is previewed next to the checkbox.
+- Check "Add Label/SN" to give each sweep a label: **a prefix followed by a counter.** For example, in SN007, SN is the prefix and 007 is the counter. The label is previewed next to the checkbox.
+
+- Press A to check or uncheck the box. This doesn't work while you're typing in a field.
 
 - **You can leave out either the prefix or the counter, but not both.** The prefix can be any text, even just numbers, but it can't contain \\ / : * ? " < > | or end with a space or a dot, because the label can become part of a file name.
 
@@ -133,9 +135,9 @@ The fields in this section don't lock after Save, so you can change them without
 - **If you change only the counter there, the counter here continues from it.** For example, change SN05 to SN04, and the next label is SN05. Any other change is for that sweep only: "Close & Repeat" then stops here with a message, so you can check the label before you click Run.
 
 
-**Auto-save raw data**
+**Autosave Raw Data**
 
-- If "Auto-save raw data" is checked, the raw data is saved to the Raw Data folder after each sweep. The file is the same as the one "Save raw data..." saves in the graph window.
+- If "Autosave Raw Data" is checked, the raw data is saved to the Raw Data folder after each sweep. The file is the same as the one "Save raw data..." saves in the graph window.
 
 - The graph window shows a status message with the file name, or an error if the save failed.
 

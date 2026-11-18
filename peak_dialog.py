@@ -10,7 +10,7 @@ The state lives in a dcc.Store ('pf-state') as a plain dict:
   path   for a file: its full path. '' for a new file, which gets its name
          when Save asks for it
   cols   the columns. For a new file, the ones after the fixed columns
-         (Date, Time, Source, Detector, Label (SN), λ (nm), Status); for a
+         (Date, Time, Source, Detector, Label/SN, λ (nm), Status); for a
          file, all of them in its order. Each is {'id': n, 'item': key}, or
          {'id': n, 'text': header} for a text column.
   dec    item key -> decimals
@@ -162,7 +162,7 @@ def file_options(paths):
 
 def modal(hidden_style):
     """The dialog, hidden until "Save peak info" opens it. The File menu
-    comes first, then the Label (SN) and Temperature boxes that every row
+    comes first, then the Label/SN and Temperature boxes that every row
     shares, then the table. Temperature is saved only when its column is in
     the table, but its box is always there. Its -/+ buttons step by 0.1, so
     the browser won't take a second decimal place either. Dash sends what the
@@ -180,7 +180,7 @@ def modal(hidden_style):
                                   placeholder='File menu', clearable=False, searchable=False,
                                   maxHeight=480, className='pf-file-dd',
                                   style={'width': '280px'})),
-            html.Div([html.Label('Label (SN)', style=LABEL_STYLE),
+            html.Div([html.Label('Label/SN', style=LABEL_STYLE),
                       dcc.Input(id='peak-label', type='text', placeholder='Required',
                                 debounce=False, style=FIELD_STYLE)]),
             html.Div([
@@ -368,7 +368,7 @@ def problem(state, label, values_of, name_of, temperature=None, entry=''):
     if state.get('bad'):
         return state['msg']
     if not label:
-        return 'Enter a Label (SN).'
+        return 'Enter a Label/SN.'
     if entry == 'number':
         return 'Temperature must be a number, like 23.5.'
     if entry == 'step':

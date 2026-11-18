@@ -35,7 +35,7 @@ import peak_file as pf
 # "Save peak info" dialog: the file saved to last (a full path), where the
 # dialog starts, and a new file's columns ([{'item': key} or {'text': name}]
 # after the fixed ones) and decimals (item key -> decimals), and the
-# Temperature box at the last Save (None when it was empty). Label (SN) isn't.
+# Temperature box at the last Save (None when it was empty). Label/SN isn't.
 _last_peak_file = ''
 _peak_columns   = []
 _peak_decimals  = {}
@@ -594,7 +594,7 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
 
     # ------------------------------------------------------------------
     # This tab's part of the right sidebar: Plot sampling and Click mode,
-    # each under a bold title. The window puts the Label (SN) above them.
+    # each under a bold title. The window puts the Label/SN above them.
     # ------------------------------------------------------------------
     panel = html.Div([
         _plot_sampling(rid('max-display-input')),
@@ -1404,7 +1404,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     for t in every_tab:
         t.panel.style = PANEL_STYLE if t is every_tab[0] else PANEL_HIDDEN
 
-    # Three sections, top to bottom: Label (SN), then the tab's Plot sampling
+    # Three sections, top to bottom: Label/SN, then the tab's Plot sampling
     # and Click mode (its panel), each under a bold title. Show / hide lives
     # in its own popup (menu bar, H).
     right_sidebar = html.Div([
@@ -1413,7 +1413,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         # lines tall, even when empty, so the sections below never move. A
         # longer message (a long label) is cut with "…" at the end of line 2.
         html.Div([
-            html.Label("Label (SN)", style=HEADING_STYLE),
+            html.Label("Label/SN", style=HEADING_STYLE),
             dcc.Input(id='label-input', type='text', value=params.label or '',
                       placeholder='No label', debounce=False, style=INPUT_STYLE),
             html.Div(id='label-status',
@@ -2232,7 +2232,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         prevent_initial_call=True,
     )
     def open_peak_modal(n_clicks, *m2s):
-        # Label (SN) starts with the sweep's label, and Temperature with the
+        # Label/SN starts with the sweep's label, and Temperature with the
         # one saved last.
         return (MODAL_SHOWN, _peak_file_options(), _fresh_peak_state(_first_peak_file(), _m2_of(m2s)),
                 params.label or '', _peak_temperature, '')

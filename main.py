@@ -120,7 +120,7 @@ try:
         # The sweep finished, so its label is used: move the counter on.
         advance_label()
 
-        # The reference is kept per range. "Use reference" needs the same
+        # The reference is kept per range. "Use Reference" needs the same
         # parameters (Change deletes it), so it has the same ranges.
         if params.reference:
             for raw_w, ref in zip(datasets, ref_data):
