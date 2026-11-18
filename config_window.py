@@ -44,7 +44,7 @@ ENTRY_WIDTH = 7
 RANGE_PADX = (0, 6)
 SPEED_LABEL, STEP_LABEL = FIELD_LABELS[2], FIELD_LABELS[3]
 
-# A checkbox's letter key (R, L, A) counts only after this many seconds with no
+# A checkbox's letter key (R, L, A, P) counts only after this many seconds with no
 # press of that key. A held key repeats, and each repeat would toggle the box
 # (L switches the real laser). Longer than Windows' default delay (~0.5 s)
 # before a held key starts repeating.
@@ -374,6 +374,13 @@ def get_inputs(readout=None, auto_run=False, source=None):
         # Take the keyboard focus away from whichever field had it (the readout
         # fields swallow Enter), so Enter now reaches the Run binding.
         root.focus_set()
+        # The Power Readout's λ can follow Range 1's λ Start - λ Padding. Its
+        # message, if any, shows after Save's (or a loaded preset's), so that
+        # one doesn't replace it.
+        if readout_section:
+            readout_msg = readout_section.sweep_saved(params)
+            if readout_msg:
+                root.after_idle(lambda: show_status(readout_msg, "red"))
         return None
 
     # Set while set_preset_name() writes a name, so on_preset_change leaves
@@ -1033,6 +1040,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     if readout is not None:
         readout_section = ReadoutSection(right_col, readout, show_status)
         readout_section.frame.pack(anchor="w", fill="x", pady=(16, 0))
+        _bind_checkbox_key(root, "p", readout_section.enable_cb)
         _bind_checkbox_key(root, "l", readout_section.laser_cb)
 
     save_frame = tk.Frame(frame)

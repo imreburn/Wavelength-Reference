@@ -11,6 +11,12 @@ Lifecycle per panel: start() when it appears, read() on every tick, stop()
 when it goes away. The sweep never overlaps a read: the config window stops
 the readout before Run tears the window down, and the plot stops it when its
 modal closes and again after the pywebview window has gone.
+
+Three session settings live here too, so both panels show the same thing:
+`enabled` ("Use Power Readout": off means the panels never call start() or
+read(), so the readout sends the instruments nothing), `channels` (the
+channels shown and queried) and `follow_start` ("Use Range 1's (λ Start -
+λ Padding)": the wavelength follows the sweep's first wavelength).
 """
 import logging
 import math
@@ -18,6 +24,7 @@ import threading
 
 from config_helper import eng_format
 from inst_helper import check_inst
+from inst_run import padded_range
 
 log = logging.getLogger(__name__)
 
@@ -66,6 +73,12 @@ class PowerReadout:
         # went out, and a laser keeps tuning for a moment after :WAVE. None
         # until the first read; the laser entries stay None without a laser.
         self.actual   = {"pm_wl_nm": None, "laser_wl_nm": None, "laser_dbm": None}
+        self.enabled  = True          # "Use Power Readout": on when the app starts
+        self.channels = {1}           # the channels shown and queried, out of 1-4
+        self.follow_start = True      # "Use Range 1's (λ Start - λ Padding)"
+        # Range 1's λ Start - λ Padding at the last Save, clamped to the
+        # source's range. None before the first Save; kept through Change.
+        self.start_nm = None
         self._lock    = threading.Lock()
         self._active  = False
         self._ranges  = None
@@ -81,7 +94,9 @@ class PowerReadout:
     def start(self):
         """Meter into continuous auto-range mode, then re-apply the readout's
         own wavelength, power and emission state. After a sweep the laser is
-        still where run_sweep left it, so this is what makes the fields true."""
+        still where run_sweep left it, so this is what makes the fields true.
+        Sets up all four channels, checked or not: it runs once per panel
+        open, not on every read, and a channel checked later is then ready."""
         with self._lock:
             check_inst(self.pm, self.laser)
             if self.laser:
@@ -110,7 +125,9 @@ class PowerReadout:
     # ---- one sample; the caller owns the timer --------------------------
 
     def read(self, wait=True):
-        """One sample: [(range_dbm, watt), ...] for channels 1-4, updating max_w. watt is None when the reading is missing or not a finite number. Dark or overloaded readings come back as they are, for format_row to label, and don't count toward max_w.
+        """One sample: one entry per channel 1-4, (range_dbm, watt) for a checked channel and None for an unchecked one, updating max_w. watt is None when the reading is missing or not a finite number. Dark or overloaded readings come back as they are, for format_row to label, and don't count toward max_w.
+
+        One :FETCH:POW:ALL:CSV? per read returns all four channels; only the checked ones are used. The per-channel queries every RANGE_EVERY reads go to the checked channels only. With no channel checked the meter isn't queried at all, and only the laser's read-back runs.
 
         wait=False returns None instead of blocking when another thread is mid-query (Dash ticks). Returns None when not active.
         """
@@ -119,13 +136,18 @@ class PowerReadout:
         try:
             if not self._active:
                 return None
-            powers = self.pm.query(":FETCH:POW:ALL:CSV?").strip().split(',')
+            channels = sorted(self.channels)
+            powers = self.pm.query(":FETCH:POW:ALL:CSV?").strip().split(',') if channels else []
             if self._ranges is None or self._reads % RANGE_EVERY == 0:
-                self._ranges = [float(self.pm.query(f":SENSE{i}:POW:RANGE?")) for i in range(1, 5)]
+                ranges = {i: float(self.pm.query(f":SENSE{i}:POW:RANGE?")) for i in channels}
+                self._ranges = [ranges.get(i) for i in range(1, 5)]
                 self._read_actual()
             self._reads += 1
             rows = []
             for i in range(4):
+                if i + 1 not in channels:
+                    rows.append(None)
+                    continue
                 try:
                     w = float(powers[i])
                 except (ValueError, IndexError):
@@ -142,42 +164,84 @@ class PowerReadout:
 
     # ---- the controls behind the fields and buttons ---------------------
 
-    def set_wavelength(self, text):
-        """Apply a wavelength to the meter (all channels) and, if present, the laser. Returns an error message, or None when applied."""
-        try:
-            wl = float(text)
-        except (TypeError, ValueError):
-            return "Wavelength must be a number."
-        lo, hi = self.spec["wl_min"], self.spec["wl_max"]
-        if not (lo <= wl <= hi):
-            return f"Wavelength must be between {lo:g} and {hi:g} nm."
+    def apply(self, wl_text, dbm_text):
+        """Apply: check both fields first, the TLS power against the source's
+        power rule at the new wavelength, and only then send them, in this
+        order: the wavelength to the meter (all channels) and the laser, then
+        the power. Returns an error message, and then nothing was sent, or
+        None when applied. Without a laser only the wavelength goes out.
+        Refused while the readout is off (the panels disable Apply then)."""
+        if not self.enabled:
+            return "Use Power Readout is off."
+        wl, error = self._parse_wavelength(wl_text)
+        if error:
+            return error
+        dbm = None
+        if self.laser:
+            try:
+                dbm = float(dbm_text)
+            except (TypeError, ValueError):
+                return "TLS power must be a number."
+            error = self._power_error(dbm, wl)
+            if error:
+                return error
         with self._lock:
             self._write_wavelength(wl)
+            if self.laser:
+                self.laser.write(f":SOURCE0:POWER {dbm} DBM")
         self.wl_nm = wl
+        if self.laser:
+            self.dbm = dbm
         return None
 
-    def set_power(self, text):
-        """Apply a TLS power (dBm). Checked against the source's power rule for
-        the current wavelength. Returns an error message, or None when applied.
-        No-op without a laser."""
-        if not self.laser:
-            return None
-        try:
-            dbm = float(text)
-        except (TypeError, ValueError):
-            return "TLS power must be a number."
-        rule = self._power_rule(self.wl_nm)
-        if rule and dbm > rule[2]:
-            lo, hi, lim = rule
-            return f"TLS power exceeds the maximum ({lim:g} dBm) in {lo:g}-{hi:g} nm."
+    def set_channels(self, channels):
+        """The channels to show and query. Sends nothing: start() set up all
+        four, so a newly checked channel is ready. One that's newly checked
+        starts a fresh max, and the next read fetches its range at once."""
+        channels = {int(c) for c in channels} & {1, 2, 3, 4}
         with self._lock:
-            self.laser.write(f":SOURCE0:POWER {dbm} DBM")
-        self.dbm = dbm
+            added = channels - self.channels
+            for i in added:
+                self.max_w[i - 1] = None
+            if added:
+                self._ranges = None
+            if not channels:
+                self.actual["pm_wl_nm"] = None
+            self.channels = channels
+
+    def set_sweep_start(self, params):
+        """Save's hook: remember Range 1's λ Start - λ Padding, where the sweep
+        sends the laser first (inst_run.padded_range), clamped to the source's
+        range. Then follow it, if the box is checked. Returns follow()'s error
+        message, or None."""
+        lo, hi = self.spec["wl_min"], self.spec["wl_max"]
+        self.start_nm = min(max(padded_range(params, 0)[0], lo), hi)
+        return self.follow()
+
+    def follow(self):
+        """With "Use Range 1's (λ Start - λ Padding)" checked and a Save behind
+        it, move the readout's wavelength to start_nm: Apply's wavelength
+        commands after the same power check, and only when start_nm differs
+        from the current wavelength. While the readout isn't running, only the
+        setting changes, and the next start() sends it. Returns an error
+        message (nothing changed), or None."""
+        if not self.follow_start or self.start_nm is None or self.start_nm == self.wl_nm:
+            return None
+        wl = self.start_nm
+        if self.laser:
+            error = self._power_error(self.dbm, wl)
+            if error:
+                return error
+        with self._lock:
+            if self._active:
+                self._write_wavelength(wl)
+            self.wl_nm = wl
         return None
 
     def set_emission(self, on):
-        """Laser emission on/off. No-op without a laser."""
-        if not self.laser:
+        """Laser emission on/off. No-op without a laser, or while the readout
+        is off (the panels disable Laser On then)."""
+        if not self.laser or not self.enabled:
             return
         with self._lock:
             self.laser.write(f":SOURCE0:POW:STATE {1 if on else 0}")
@@ -195,8 +259,12 @@ class PowerReadout:
         """Refresh `actual` from the instruments. Both report metres; the
         laser's power comes back in the unit start() selected (dBm). Also
         syncs `emission` with the laser, since its front-panel button can
-        switch emission without going through set_emission()."""
-        self.actual["pm_wl_nm"] = float(self.pm.query(":SENSE1:POW:WAV?")) * 1e9
+        switch emission without going through set_emission(). The meter's
+        wavelength comes from the lowest checked channel: every channel gets
+        the same wavelength, so it speaks for the others."""
+        channels = sorted(self.channels)
+        self.actual["pm_wl_nm"] = (float(self.pm.query(f":SENSE{channels[0]}:POW:WAV?")) * 1e9
+                                   if channels else None)
         if self.laser:
             self.actual["laser_wl_nm"] = float(self.laser.query(":SOURCE0:WAV?")) * 1e9
             self.actual["laser_dbm"]   = float(self.laser.query(":SOURCE0:POW?"))
@@ -217,6 +285,26 @@ class PowerReadout:
         validate_inputs). None when no band applies or the list is empty."""
         applicable = [rule for rule in self.spec["power_rules"] if rule[0] <= wl <= rule[1]]
         return max(applicable, key=lambda rule: rule[2]) if applicable else None
+
+    def _parse_wavelength(self, text):
+        """(wavelength, None), or (None, error message) for a field that isn't
+        a number inside the source's range."""
+        try:
+            wl = float(text)
+        except (TypeError, ValueError):
+            return None, "Wavelength must be a number."
+        lo, hi = self.spec["wl_min"], self.spec["wl_max"]
+        if not (lo <= wl <= hi):
+            return None, f"Wavelength must be between {lo:g} and {hi:g} nm."
+        return wl, None
+
+    def _power_error(self, dbm, wl):
+        """The error message when TLS power `dbm` is over the limit at `wl`, or None."""
+        rule = self._power_rule(wl)
+        if rule and dbm > rule[2]:
+            lo, hi, lim = rule
+            return f"TLS power exceeds the maximum ({lim:g} dBm) in {lo:g}-{hi:g} nm."
+        return None
 
 
 def format_wl(wl_nm):

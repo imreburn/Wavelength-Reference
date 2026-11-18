@@ -130,14 +130,14 @@ The fields in this section don't lock after Save, so you can change them without
 
 - **The counter automatically increases by 1 after each sweep finishes. Numbers in the prefix never change.** After a cancelled or failed sweep, the counter stays the same, so you can try again with the same label. Once the last value is used (99 with 2 digits), the window shows an error, and Run won't start until you change "Digits" or "Starting from".
 
-- The label is shown in the graph window's right panel, where you can change it. "Save raw data" and "Save peak info" use the changed label.
+- The label is shown in the graph window's right panel, where you can change it. "Save Raw Data" and "Save Peak Info" use the changed label.
 
 - **If you change only the counter there, the counter here continues from it.** For example, change SN05 to SN04, and the next label is SN05. Any other change is for that sweep only: "Close & Repeat" then stops here with a message, so you can check the label before you click Run.
 
 
 **Autosave Raw Data**
 
-- If "Autosave Raw Data" is checked, the raw data is saved to the Raw Data folder after each sweep. The file is the same as the one "Save raw data..." saves in the graph window.
+- If "Autosave Raw Data" is checked, the raw data is saved to the Raw Data folder after each sweep. The file is the same as the one "Save Raw Data..." saves in the graph window.
 
 - The graph window shows a status message with the file name, or an error if the save failed.
 

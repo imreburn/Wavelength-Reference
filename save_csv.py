@@ -60,7 +60,7 @@ def save_csv_raw(datasets: list[Dataset], params: Params, file_path=None):
         root.withdraw()
         file_path = filedialog.asksaveasfilename(
             initialdir=initial_dir,
-            title="Save raw data as",
+            title="Save Raw Data As",
             defaultextension=".csv",
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
         )

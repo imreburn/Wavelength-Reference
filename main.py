@@ -130,7 +130,7 @@ try:
             mark_ref_available(params.time)
 
         # Auto-save after the reference is attached, so the file matches what
-        # "Save raw data..." would write. A failure is shown on the plot rather
+        # "Save Raw Data..." would write. A failure is shown on the plot rather
         # than ending the session; the button is still there as a fallback.
         autosaved_to, autosave_error = None, None
         if params.save_raw:

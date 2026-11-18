@@ -1,5 +1,5 @@
 """
-peak_file.py - The "Save peak info" Excel file: the columns a saved row can
+peak_file.py - The "Save Peak Info" Excel file: the columns a saved row can
 have, reading and writing the .xlsx files, and the list of the files saved
 to lately.
 

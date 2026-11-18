@@ -15,6 +15,9 @@ log = logging.getLogger(__name__)
 
 # Label widths (chars) for the four value columns: range, dBm, W, max W.
 VALUE_WIDTHS = (7, 11, 11, 11)
+# The text color of a row that shows nothing: an unchecked channel, or every
+# channel while the readout is off. Its values read "—".
+IDLE_FG = "gray60"
 
 # The section's messages. They show in the config window's Status section,
 # so each starts with where it comes from. The errors from the λ and power
@@ -44,16 +47,23 @@ class ReadoutSection:
         section_header(f, "Power Readout", 0, span=len(READOUT_COLUMNS) + 1)
         f.columnconfigure(len(READOUT_COLUMNS), weight=1)
 
-        # ---- controls: Laser On, the wavelength and power fields with what
-        # the instruments currently report to their right, then Apply and
-        # Reset Max side by side
+        # ---- controls: Use Power Readout and Laser On side by side; the
+        # wavelength field, with "Use Range 1's (λ Start - λ Padding)" under
+        # it; the power field; what the instruments currently report to the
+        # right of each field; then Apply and Reset Max side by side
         ctrl = tk.Frame(f)
         ctrl.grid(row=2, column=0, columnspan=5, sticky="w", pady=(0, 2))
+        toggles = tk.Frame(ctrl)
+        toggles.grid(row=0, column=0, columnspan=3, sticky="w")
+        # The config window binds the P key to this box and L to the next.
+        self.enable_var = tk.IntVar(value=int(readout.enabled))
+        self.enable_cb  = tk.Checkbutton(toggles, text="Use Power Readout (P)",
+                                         variable=self.enable_var, command=self.toggle_enabled)
+        self.enable_cb.pack(side="left")
         self.laser_var = tk.IntVar(value=int(readout.emission))
-        # The config window binds the L key to this box.
-        self.laser_cb  = tk.Checkbutton(ctrl, text="Laser On (L)", variable=self.laser_var,
+        self.laser_cb  = tk.Checkbutton(toggles, text="Laser On (L)", variable=self.laser_var,
                                         command=self.toggle_laser)
-        self.laser_cb.grid(row=0, column=0, columnspan=2, sticky="w")
+        self.laser_cb.pack(side="left", padx=(12, 0))
         tk.Label(ctrl, text="λ (nm)", anchor="e").grid(
             row=1, column=0, sticky="e", padx=(0, 6), pady=2)
         self.wl_entry = tk.Entry(ctrl, width=9)
@@ -62,49 +72,73 @@ class ReadoutSection:
         self.wl_actual = tk.StringVar()
         tk.Label(ctrl, textvariable=self.wl_actual, fg="gray30").grid(
             row=1, column=2, sticky="w", padx=(10, 0))
+        # Under the λ field, reaching under the read-back so its long text
+        # doesn't widen the field's column. No padding, like the channel boxes,
+        # so the section grows as little as it can.
+        self.follow_var = tk.IntVar(value=int(readout.follow_start))
+        self.follow_cb  = tk.Checkbutton(ctrl, text="Use Range 1's (λ Start - λ Padding)",
+                                         variable=self.follow_var, command=self.toggle_follow,
+                                         pady=0, highlightthickness=0)
+        self.follow_cb.grid(row=2, column=1, columnspan=2, sticky="w")
         tk.Label(ctrl, text="TLS Power (dBm)", anchor="e").grid(
-            row=2, column=0, sticky="e", padx=(0, 6), pady=2)
+            row=3, column=0, sticky="e", padx=(0, 6), pady=2)
         self.dbm_entry = tk.Entry(ctrl, width=9)
         self.dbm_entry.insert(0, f"{readout.dbm:g}")
-        self.dbm_entry.grid(row=2, column=1, sticky="w", pady=2)
+        self.dbm_entry.grid(row=3, column=1, sticky="w", pady=2)
         self.dbm_actual = tk.StringVar()
         tk.Label(ctrl, textvariable=self.dbm_actual, fg="gray30").grid(
-            row=2, column=2, sticky="w", padx=(10, 0))
-        self._show_actual()
+            row=3, column=2, sticky="w", padx=(10, 0))
         for e in (self.wl_entry, self.dbm_entry):
             e.bind("<Return>",   self._on_return)
             e.bind("<KP_Enter>", self._on_return)
         btns = tk.Frame(ctrl)
-        btns.grid(row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
-        tk.Button(btns, text="Apply", command=self._on_apply_click, width=7).pack(side="left")
-        tk.Button(btns, text="Reset Max", command=self.reset_max).pack(side="left", padx=(8, 0))
-        if not readout.has_laser:
-            # External source: the wavelength still goes to the meter (its
-            # calibration), but there is no power or emission to set.
-            self.dbm_entry.config(state="disabled")
-            self.laser_cb.config(state="disabled")
+        btns.grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.apply_btn = tk.Button(btns, text="Apply", command=self._on_apply_click, width=7)
+        self.apply_btn.pack(side="left")
+        self.reset_btn = tk.Button(btns, text="Reset Max", command=self.reset_max)
+        self.reset_btn.pack(side="left", padx=(8, 0))
 
-        # ---- the table: header row, then one row per channel. It sits right
-        # under the buttons, as close as the fields above them sit to each
-        # other: the messages are in the Status section.
+        # ---- the table: header row, then one row per channel, its checkbox
+        # in the Ch. column. It sits right under the buttons, as close as the
+        # fields above them sit to each other: the messages are in the Status
+        # section.
         value_font, header_font = ui_font(11), ui_font(10, "bold")
         for col, text in enumerate(READOUT_COLUMNS):
             tk.Label(f, text=text, font=header_font).grid(
-                row=3, column=col, padx=3, pady=(4, 1), sticky="e")
-        self.vars = []    # per channel: (range, dBm, W, max W) StringVars
+                row=3, column=col, padx=3, pady=(4, 1), sticky="w" if col == 0 else "e")
+        self.ch_vars  = []    # per channel: its checkbox's IntVar
+        self.ch_cbs   = []
+        self.rows     = []    # per channel: ((StringVar, Label), ...) for range, dBm, W, max W
+        self._row_fg  = [None] * 4
         for i in range(4):
-            tk.Label(f, text=str(i + 1), font=value_font).grid(row=4 + i, column=0, padx=3)
-            row_vars = tuple(tk.StringVar(value="—") for _ in VALUE_WIDTHS)
-            for col, (var, width) in enumerate(zip(row_vars, VALUE_WIDTHS), start=1):
-                tk.Label(f, textvariable=var, anchor="e", width=width, font=value_font).grid(
-                    row=4 + i, column=col, padx=3, sticky="e")
-            self.vars.append(row_vars)
+            var = tk.IntVar(value=int(i + 1 in readout.channels))
+            # No padding, so a row is no taller than its value labels.
+            cb = tk.Checkbutton(f, text=str(i + 1), variable=var, font=value_font,
+                                pady=0, highlightthickness=0, command=self.channels_changed)
+            cb.grid(row=4 + i, column=0, padx=(0, 3), sticky="w")
+            self.ch_vars.append(var)
+            self.ch_cbs.append(cb)
+            cells = []
+            for col, width in enumerate(VALUE_WIDTHS, start=1):
+                var_ = tk.StringVar(value="—")
+                label = tk.Label(f, textvariable=var_, anchor="e", width=width, font=value_font)
+                label.grid(row=4 + i, column=col, padx=3, sticky="e")
+                cells.append((var_, label))
+            self.rows.append(tuple(cells))
+        self._value_fg = self.rows[0][0][1].cget("fg")
+
+        self._set_states()
+        self._show_rows(None)
+        self._show_actual()
 
     # ---- lifecycle -------------------------------------------------------
 
     def start(self):
         """Start on the next event-loop pass, so the window paints before the
-        instrument check (which sleeps) runs."""
+        instrument check (which sleeps) runs. Does nothing while Use Power
+        Readout is off, or once started."""
+        if not self.readout.enabled or self._started or self._job is not None:
+            return
         self._job = self.frame.after(0, self._begin)
 
     def _begin(self):
@@ -130,9 +164,7 @@ class ReadoutSection:
             self.show_message(MSG_STOPPED, "red")
             return
         if rows is not None:
-            for (rng, w), row_vars, max_w in zip(rows, self.vars, self.readout.max_w):
-                for var, text in zip(row_vars, format_row(rng, w, max_w)):
-                    var.set(text)
+            self._show_rows(rows)
             self._show_actual()
             # Follow the laser if its front-panel button changed emission.
             # set() does not fire the Checkbutton's command, so this sends
@@ -154,19 +186,105 @@ class ReadoutSection:
             self._started = False
             self.readout.stop()
 
+    # ---- what the section shows ------------------------------------------
+
+    def _set_states(self):
+        """Enable the controls to match the settings. While the readout is off,
+        only Use Power Readout stays enabled. The λ field is disabled while it
+        follows the sweep's start; an external source has no power or Laser On."""
+        on = self.readout.enabled
+        state = "normal" if on else "disabled"
+        laser_state = state if self.readout.has_laser else "disabled"
+        self.laser_cb.config(state=laser_state)
+        self.dbm_entry.config(state=laser_state)
+        self.wl_entry.config(state=state if not self.readout.follow_start else "disabled")
+        for w in (self.follow_cb, self.apply_btn, self.reset_btn, *self.ch_cbs):
+            w.config(state=state)
+
+    def _set_wl_field(self, text):
+        """Write the λ field, even while it's disabled."""
+        state = self.wl_entry.cget("state")
+        self.wl_entry.config(state="normal")
+        self.wl_entry.delete(0, tk.END)
+        self.wl_entry.insert(0, text)
+        self.wl_entry.config(state=state)
+
+    def _show_rows(self, rows):
+        """Fill the table from read()'s rows. None (not read yet, or the
+        readout is off) leaves dashes. A row with nothing to show (unchecked,
+        or the readout off) is gray."""
+        for i, cells in enumerate(self.rows):
+            row = rows[i] if rows is not None else None
+            if row is None:
+                texts = ("—",) * len(VALUE_WIDTHS)
+                live = rows is None and self.readout.enabled and i + 1 in self.readout.channels
+            else:
+                texts = format_row(*row, self.readout.max_w[i])
+                live = True
+            for (var, _), text in zip(cells, texts):
+                var.set(text)
+            fg = self._value_fg if live else IDLE_FG
+            if fg != self._row_fg[i]:
+                self._row_fg[i] = fg
+                for _, label in cells:
+                    label.config(fg=fg)
+
     def _show_actual(self):
-        """The read-back labels: what the meter and laser report right now."""
-        pm_s, lwl_s, ldbm_s = format_actual(self.readout.actual, self.readout.has_laser)
+        """The read-back labels: what the meter and laser report right now,
+        or dashes while the readout is off."""
+        actual = self.readout.actual if self.readout.enabled else dict.fromkeys(self.readout.actual)
+        pm_s, lwl_s, ldbm_s = format_actual(actual, self.readout.has_laser)
         self.wl_actual.set(f"PM {pm_s}, Laser {lwl_s}")
         self.dbm_actual.set(f"Laser {ldbm_s}")
 
     # ---- controls --------------------------------------------------------
 
+    def toggle_enabled(self):
+        """Use Power Readout. On runs the readout's start() (the instrument
+        check, then its setup); off stops the tick and sends nothing, so both
+        instruments stay as they are."""
+        on = bool(self.enable_var.get())
+        if not on:
+            self.stop()
+        self.readout.enabled = on
+        self._set_states()
+        self._show_rows(None)
+        self._show_actual()
+        if on:
+            self.start()
+
+    def toggle_follow(self):
+        """Use Range 1's (λ Start - λ Padding). Checking it moves the readout to
+        the sweep's start from the last Save, if there is one; unchecking
+        leaves the λ field to edit, and sends nothing."""
+        self.readout.follow_start = bool(self.follow_var.get())
+        if self.readout.follow_start:
+            error = self.readout.follow()
+            if error:
+                self.show_message(MSG_PREFIX + error, "red")
+        self._set_wl_field(format_wl(self.readout.wl_nm))
+        self._set_states()
+
+    def sweep_saved(self, params):
+        """Save's hook: Range 1's λ Start or the padding may have changed.
+        Returns the message to show, or None."""
+        error = self.readout.set_sweep_start(params)
+        if self.readout.follow_start:
+            self._set_wl_field(format_wl(self.readout.wl_nm))
+        return None if error is None else MSG_PREFIX + error
+
+    def channels_changed(self):
+        self.readout.set_channels(i + 1 for i, var in enumerate(self.ch_vars) if var.get())
+        if not self._started:
+            self._show_rows(None)     # no tick to show it
+        else:
+            self._show_actual()
+
     def apply(self):
         """Apply both fields. Returns True when they were accepted."""
-        err = self.readout.set_wavelength(self.wl_entry.get())
-        if err is None and self.readout.has_laser:
-            err = self.readout.set_power(self.dbm_entry.get())
+        if not self.readout.enabled:
+            return False
+        err = self.readout.apply(self.wl_entry.get(), self.dbm_entry.get())
         if err:
             self.show_message(MSG_PREFIX + err, "red")
         else:

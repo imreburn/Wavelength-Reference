@@ -32,7 +32,7 @@ import peak_dialog as pdlg
 import peak_file as pf
 
 # Remembered across display_plot() calls (i.e. across loop iterations) for the
-# "Save peak info" dialog: the file saved to last (a full path), where the
+# "Save Peak Info" dialog: the file saved to last (a full path), where the
 # dialog starts, and a new file's columns ([{'item': key} or {'text': name}]
 # after the fixed ones) and decimals (item key -> decimals), and the
 # Temperature box at the last Save (None when it was empty). Label/SN isn't.
@@ -40,7 +40,7 @@ _last_peak_file = ''
 _peak_columns   = []
 _peak_decimals  = {}
 _peak_temperature = None
-# The files "Save peak info" opened or saved to lately, kept across runs:
+# The files "Save Peak Info" opened or saved to lately, kept across runs:
 # newest first, one path per line (see peak_file.remember). The File menu
 # lists them under "Recent files".
 RECENT_PEAK_FILES = data_path('recent_peak_files.txt', mkdir=False)
@@ -216,7 +216,7 @@ def _style_figure(fig):
 def _plot_sampling(input_id):
     """The sidebar's Plot sampling section, with its Max points field."""
     return html.Div([
-        html.Label("Plot sampling", style=HEADING_STYLE),
+        html.Label("Plot Sampling", style=HEADING_STYLE),
         html.Label("Max points per curve (x1000)",
                    style={**NOTE_STYLE, 'marginBottom': '4px'}),
         dcc.Input(
@@ -253,7 +253,7 @@ def _zoomed(relayout, view):
         return False
     return True
 
-# Everything the "Show / hide" popup can list, as (value, label) per group,
+# Everything the "Show / Hide" popup can list, as (value, label) per group,
 # in its order. A window lists an item only when one of its tabs has it (see
 # _range_tab's sh_keys): peaks found, peak test criteria set (the table
 # exam_div shows), a reference (the insertion loss marker). The Peak test
@@ -471,7 +471,7 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
 
     # ------------------------------------------------------------------
     # Smoothed (filtered) channel-1 trace. Added LAST so every fixed trace
-    # index above stays put. Starts empty/hidden; the "Apply filter" modal
+    # index above stays put. Starts empty/hidden; the "Apply Filter" modal
     # fills it in. `_smooth['y']` holds the full-resolution filtered array
     # so the zoom/max-points resampler can downsample it like the others.
     # ------------------------------------------------------------------
@@ -495,7 +495,7 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
 
     _style_figure(initial_fig)
 
-    # The plot trace behind each "Show / hide" item: data[5] the peaks,
+    # The plot trace behind each "Show / Hide" item: data[5] the peaks,
     # [6]/[7] their left/right bases, [8..10] the max/avg/min-base widths
     # (fixed indices). The items this tab has (sh_keys) are those, the Peak
     # table with them, and the Peak test result when the test is on.
@@ -512,7 +512,7 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
             initial_fig.data[i].visible = 'legendonly'
 
     # ------------------------------------------------------------------
-    # This tab's peaks for "Save peak info" (the window's dialog). A peak's
+    # This tab's peaks for "Save Peak Info" (the window's dialog). A peak's
     # value names this tab: "<key>:peak:<number>", or "<key>:custom" for the
     # Bandwidth markers. Its label is its name (pt.peak_name, its wavelength)
     # and its notes: "1568.0 (tested) (deepest)", or "1568.0 (custom)" for
@@ -599,7 +599,7 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
     panel = html.Div([
         _plot_sampling(rid('max-display-input')),
         html.Div([
-            html.Label("Click mode", style=HEADING_STYLE),
+            html.Label("Click Mode", style=HEADING_STYLE),
             dcc.RadioItems(
                 id=rid('click-mode'),
                 options=[{'label': 'Delta', 'value': 1}, {'label': 'Bandwidth', 'value': 2}],
@@ -608,7 +608,7 @@ def _range_tab(app, key, raw_w: Dataset, params: Params, r):
                 labelStyle={'display': 'inline-block', 'marginRight': '16px'},
                 style={'display': 'inline-block'},
             ),
-            html.Button('Clear all', id=rid('clear-btn'), n_clicks=0, style=CLEAR_BTN_STYLE),
+            html.Button('Clear all (C)', id=rid('clear-btn'), n_clicks=0, style=CLEAR_BTN_STYLE),
             # The width at the Bandwidth markers' peak, B1. Bandwidth mode picks
             # how its level is set: Automatic measures at a % of the depth
             # from B1 up to B2 (the base), searching as far out as B2 is;
@@ -1233,11 +1233,11 @@ def _overview_tab(app, tabs):
     panel = html.Div([
         _plot_sampling(rid('max-display-input')),
         html.Div([
-            html.Label("Click mode", style=HEADING_STYLE),
+            html.Label("Click Mode", style=HEADING_STYLE),
             html.Div("Delta"),
             html.Div("Bandwidth markers are in the range tabs.",
                      style={**NOTE_STYLE, 'marginTop': '2px'}),
-            html.Button('Clear all', id=rid('clear-btn'), n_clicks=0, style=CLEAR_BTN_STYLE),
+            html.Button('Clear all (C)', id=rid('clear-btn'), n_clicks=0, style=CLEAR_BTN_STYLE),
         ]),
     ], id=rid('panel'), style=PANEL_STYLE)
 
@@ -1443,7 +1443,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     # (switch_tab): a filter across a gap would mix two ranges.
     range_open = overview is None
 
-    # What the "Show / hide" popup lists, as (value, label) per group: the
+    # What the "Show / Hide" popup lists, as (value, label) per group: the
     # items of SH_ALL that some tab has.
     SH_ITEMS = {group: [(value, label) for value, label in items
                         if any(value in t.sh_keys for t in tabs)]
@@ -1452,20 +1452,20 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     has_show_hide = any(SH_KEYS.values())
 
     top_navbar = html.Nav([
-        html.Button('Save raw data...(S)', id='save-raw-btn', n_clicks=0, style=NAV_BTN_STYLE),
-        html.Button(['Save peak info...(P)'], id='save-peak-btn', n_clicks=0, style=NAV_BTN_STYLE),
-        html.Button('Apply filter...(F)', id='apply-filter-btn', n_clicks=0, disabled=not range_open,
+        html.Button('Save Raw Data...(S)', id='save-raw-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        html.Button(['Save Peak Info...(K)'], id='save-peak-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        html.Button('Apply Filter...(F)', id='apply-filter-btn', n_clicks=0, disabled=not range_open,
                     style=NAV_BTN_STYLE if range_open else NAV_OFF_STYLE),
         # Disabled when there's nothing to show or hide (no peaks, criteria or reference).
-        html.Button('Show / hide...(H)', id='show-hide-btn', n_clicks=0,
+        html.Button('Show / Hide...(H)', id='show-hide-btn', n_clicks=0,
                     disabled=not has_show_hide,
                     style=NAV_BTN_STYLE if has_show_hide else NAV_OFF_STYLE),
         html.Button('Plot in Watt...', id='plot-watt-btn', n_clicks=0, style=NAV_BTN_STYLE),
         html.Div(id='plot-watt-dummy', style={'display': 'none'}),
-        html.Button('Sweep info...(I)', id='sweep-info-btn', n_clicks=0, style=NAV_BTN_STYLE),
+        html.Button('Sweep Info...(I)', id='sweep-info-btn', n_clicks=0, style=NAV_BTN_STYLE),
         # Power Readout: live meter values in a modal (readout.PowerReadout).
         # Disabled when there is no readout, e.g. plotting a saved CSV.
-        html.Button('Power readout...(R)', id='readout-btn', n_clicks=0,
+        html.Button('Power Readout...(P)', id='readout-btn', n_clicks=0,
                     disabled=readout is None,
                     style=NAV_BTN_STYLE if readout is not None else NAV_OFF_STYLE),
 
@@ -1477,7 +1477,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         html.Div(id='repeat-keybind-dummy', style={'display': 'none'}),
                 # Close Window: just close this plot window (same as the window's close
         # button). marginLeft: auto pushes it and the Repeat button to the right edge.
-        html.Button('Close window (W)', id='close-btn', n_clicks=0,
+        html.Button('Close Window (W)', id='close-btn', n_clicks=0,
                     style={**NAV_BTN_STYLE}),
         html.Div(id='close-dummy', style={'display': 'none'}),
         # No visible button: the X shortcut clicks this to reset the plot's
@@ -1491,9 +1491,9 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     # last. Fixed height so the graph doesn't shift as messages come and go.
     # Opens with the auto-save result, if main.py auto-saved this sweep.
     if autosave_error:
-        initial_status = _status("Auto-save failed; use Save raw data.", error=True)
+        initial_status = _status("Autosave failed; use Save Raw Data.", error=True)
     elif autosaved_to:
-        initial_status = _status(f"Auto-saved: {os.path.basename(autosaved_to)}")
+        initial_status = _status(f"Autosaved: {os.path.basename(autosaved_to)}")
     else:
         initial_status = ""
     nav_status = html.Div(initial_status, id='nav-status', style={
@@ -1502,7 +1502,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         'backgroundColor': '#ecf0f1', 'overflow': 'hidden', 'whiteSpace': 'nowrap'})
 
     # ------------------------------------------------------------------
-    # "Save peak info" dialog (peak_dialog.py): pick a peak file, then the
+    # "Save Peak Info" dialog (peak_dialog.py): pick a peak file, then the
     # columns and the peaks in a table that previews the rows to save. The
     # peaks and their values come from every range tab (_range_tab), whose
     # Bandwidth markers (M2_STATES, one per tab) make its "custom" peak.
@@ -1572,7 +1572,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     peak_modal = pdlg.modal(MODAL_HIDDEN)
 
     # ------------------------------------------------------------------
-    # "Apply filter" modal — pick a smoothing filter and its parameters,
+    # "Apply Filter" modal — pick a smoothing filter and its parameters,
     # then draw the filtered channel-1 signal as the "Smoothed" trace, or
     # pick "Off" (last in the list) to remove it.
     # Each filter's parameter controls live in their own block; the dropdown
@@ -1652,7 +1652,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         id='sweep-info-modal',
         style=MODAL_HIDDEN,
         children=html.Div([
-            html.H4('Sweep info', style={'marginTop': 0}),
+            html.H4('Sweep Info', style={'marginTop': 0}),
             html.Table(_sweep_info_rows(), id='sweep-info-table',
                        style={'borderCollapse': 'collapse', 'fontSize': '13px'}),
             html.Div(html.Button('Close (Esc)', id='sweep-info-close', n_clicks=0),
@@ -1665,7 +1665,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     )
 
     # ------------------------------------------------------------------
-    # "Show / hide" popup (menu bar, H): what the plot and the tables show.
+    # "Show / Hide" popup (menu bar, H): what the plot and the tables show.
     # Centered over a light backdrop like the Customize dialog, so the plot
     # stays in view while boxes are ticked. "All" and each group's "(all)" box
     # tick or clear their items (sync_show_hide). The boxes start from the
@@ -1690,7 +1690,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
                              style={'marginLeft': '20px'} if indent else {'marginTop': '6px'})
 
     show_hide_modal = html.Div(id='show-hide-modal', style=pt.DIALOG_HIDDEN, children=html.Div([
-        html.Div('Show / hide', style={'fontWeight': 'bold', 'fontSize': '16px', 'marginBottom': '6px'}),
+        html.Div('Show / Hide', style={'fontWeight': 'bold', 'fontSize': '16px', 'marginBottom': '6px'}),
         _sh_box('sh-all', 'All', all(sh_full.values())),
         _sh_box('sh-peak-all', 'Peak (all)', sh_full['peak'], bool(SH_ITEMS['peak'])),
         _sh_items('peak'),
@@ -1711,8 +1711,9 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     # ------------------------------------------------------------------
     # "Power Readout" modal — the live meter readout (readout.PowerReadout),
     # polled by a dcc.Interval only while the modal is open. Opening starts
-    # the readout, closing stops it. Without a readout (plotting a saved CSV)
-    # the button is disabled and none of this runs.
+    # the readout, unless its Use Power Readout box is off; closing stops it.
+    # Without a readout (plotting a saved CSV) the button is disabled and none
+    # of this runs.
     # ------------------------------------------------------------------
     _ro_has_laser = readout is not None and readout.has_laser
     # The emission state the Laser on box last showed. refresh_readout pushes
@@ -1734,59 +1735,111 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     # The read-back beside each field: what the meter and laser report now.
     _ro_actual = {'fontSize': '13px', 'color': '#555', 'marginLeft': '10px', 'whiteSpace': 'nowrap'}
 
+    # A row with nothing to show (an unchecked channel, or every channel while
+    # the readout is off): its dashes, and its channel's number, in gray.
+    _ro_idle_row = {'color': '#aaa'}
+    _ro_follow_text = " Use Range 1's (λ Start - λ Padding)"
+
     def _readout_actual():
-        """Text for the two read-back spans (wavelength row, power row)."""
+        """Text for the two read-back spans (wavelength row, power row);
+        dashes while the readout is off."""
         if readout is None:
             return '', ''
-        pm_s, lwl_s, ldbm_s = format_actual(readout.actual, readout.has_laser)
-        return f"pm {pm_s}, laser {lwl_s}", f"laser {ldbm_s}"
+        actual = readout.actual if readout.enabled else dict.fromkeys(readout.actual)
+        pm_s, lwl_s, ldbm_s = format_actual(actual, readout.has_laser)
+        return f"PM {pm_s}, Laser {lwl_s}", f"Laser {ldbm_s}"
 
-    def _readout_rows(rows):
-        """One <tr> per channel from read()'s output; None -> placeholders."""
-        trs = []
+    def _readout_cells(rows):
+        """The 16 value cells' text (channel 1's four first) and the 4 rows'
+        styles, from read()'s output. None (not read yet, or the readout off)
+        leaves dashes. A row with nothing to show is gray."""
+        texts, styles = [], []
         for i in range(4):
-            if rows is None:
-                cells = ('—',) * 4
+            row = rows[i] if rows is not None else None
+            if row is None:
+                texts += ['—'] * 4
+                live = (rows is None and readout is not None and readout.enabled
+                        and i + 1 in readout.channels)
             else:
-                rng, w = rows[i]
-                cells = format_row(rng, w, readout.max_w[i])
-            trs.append(html.Tr([html.Td(str(i + 1), style=_ro_cell)]
-                               + [html.Td(c, style=_ro_cell) for c in cells]))
-        return trs
+                texts += list(format_row(*row, readout.max_w[i]))
+                live = True
+            styles.append({} if live else _ro_idle_row)
+        return texts, styles
 
+    def _readout_disabled():
+        """What's disabled now: everything but Use Power Readout while the
+        readout is off; the λ field also while it follows the sweep's start;
+        the power field and Laser On without a laser."""
+        on = readout is not None and readout.enabled
+        return {'laser': not (on and _ro_has_laser),
+                'wl':    not on or readout.follow_start,
+                'other': not on}     # the follow box, Apply, Reset Max, the channel boxes
+
+    def _readout_options(dis):
+        """The options of Laser On, the follow box and the four channel boxes,
+        with their disabled flags from _readout_disabled()."""
+        return ([{'label': ' Laser On', 'value': 'on', 'disabled': dis['laser']}],
+                [{'label': _ro_follow_text, 'value': 'on', 'disabled': dis['other']}],
+                [[{'label': f' {i}', 'value': i, 'disabled': dis['other']}] for i in range(1, 5)])
+
+    _ro_dis = _readout_disabled()
+    _ro_laser_opts, _ro_follow_opts, _ro_ch_opts = _readout_options(_ro_dis)
+    _ro_texts, _ro_styles = _readout_cells(None)
     readout_modal = html.Div(
         id='readout-modal',
         style=MODAL_HIDDEN,
         children=html.Div([
-            html.H4('Power readout', style={'marginTop': 0}),
-            # Same order as the config window's section: Laser on, the two
-            # fields, then Apply / Reset Max.
-            dcc.Checklist(
-                id='readout-laser',
-                options=[{'label': ' Laser on', 'value': 'on', 'disabled': not _ro_has_laser}],
-                value=['on'] if (readout is not None and readout.emission) else [],
-                style={'fontSize': '13px', 'marginBottom': '6px'}),
+            html.H4('Power Readout', style={'marginTop': 0}),
+            # Same order as the config window's section: Use Power Readout and
+            # Laser On side by side, the λ field with the follow box under it,
+            # the power field, then Apply / Reset Max.
+            html.Div([
+                dcc.Checklist(
+                    id='readout-enable',
+                    options=[{'label': ' Use Power Readout (P)', 'value': 'on'}],
+                    value=['on'] if (readout is not None and readout.enabled) else []),
+                dcc.Checklist(
+                    id='readout-laser', options=_ro_laser_opts,
+                    value=['on'] if (readout is not None and readout.emission) else []),
+            ], style={'display': 'flex', 'gap': '16px', 'fontSize': '13px', 'marginBottom': '6px'}),
             html.Div([
                 html.Label('λ (nm)', style=_ro_label),
-                dcc.Input(id='readout-wl', type='text', style=_ro_input,
+                dcc.Input(id='readout-wl', type='text', style=_ro_input, disabled=_ro_dis['wl'],
                           value=format_wl(readout.wl_nm) if readout is not None else ''),
                 html.Span(_readout_actual()[0], id='readout-wl-actual', style=_ro_actual),
             ], style=_ro_row),
+            # Under the λ field, lined up with it.
+            dcc.Checklist(
+                id='readout-follow', options=_ro_follow_opts,
+                value=['on'] if (readout is not None and readout.follow_start) else [],
+                style={'fontSize': '13px', 'marginLeft': _ro_label['width'], 'marginBottom': '4px'}),
             html.Div([
                 html.Label('TLS Power (dBm)', style=_ro_label),
-                dcc.Input(id='readout-dbm', type='text', style=_ro_input, disabled=not _ro_has_laser,
+                dcc.Input(id='readout-dbm', type='text', style=_ro_input, disabled=_ro_dis['laser'],
                           value=f"{readout.dbm:g}" if readout is not None else ''),
                 html.Span(_readout_actual()[1], id='readout-dbm-actual', style=_ro_actual),
             ], style=_ro_row),
             html.Div([
-                html.Button('Apply', id='readout-apply', n_clicks=0),
-                html.Button('Reset Max', id='readout-reset', n_clicks=0, style={'marginLeft': '8px'}),
+                html.Button('Apply', id='readout-apply', n_clicks=0, disabled=_ro_dis['other']),
+                html.Button('Reset Max', id='readout-reset', n_clicks=0, disabled=_ro_dis['other'],
+                            style={'marginLeft': '8px'}),
             ], style={'marginTop': '6px'}),
             html.Div(id='readout-msg', style={'minHeight': '18px', 'fontSize': '13px', 'marginTop': '4px'}),
+            # The rows stay put and only their cells' text changes, so the
+            # channel boxes in the Ch. column keep their state between ticks.
             html.Table([
-                html.Thead(html.Tr([html.Th(c, style=_ro_head if i < 2 else _ro_head_fixed)
+                html.Thead(html.Tr([html.Th(c, style={**_ro_head, 'textAlign': 'left'} if i == 0
+                                            else _ro_head if i < 2 else _ro_head_fixed)
                                     for i, c in enumerate(READOUT_COLUMNS)])),
-                html.Tbody(id='readout-rows', children=_readout_rows(None)),
+                html.Tbody([
+                    html.Tr([html.Td(dcc.Checklist(
+                                id={'type': 'readout-ch', 'ch': ch}, options=_ro_ch_opts[ch - 1],
+                                value=[ch] if (readout is not None and ch in readout.channels) else []),
+                                style={**_ro_cell, 'textAlign': 'left'})]
+                            + [html.Td(_ro_texts[(ch - 1) * 4 + k], id=f'readout-c{ch}-{k}', style=_ro_cell)
+                               for k in range(4)],
+                            id=f'readout-row-{ch}', style=_ro_styles[ch - 1])
+                    for ch in range(1, 5)]),
             ], style={'borderCollapse': 'collapse', 'marginTop': '6px'}),
             # Close & Repeat here does the same as the menu bar's button (and
             # Enter): close the window and auto-Run the next sweep.
@@ -2077,18 +2130,25 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     # suffix clicks that button. Same focus guard as Enter (skipped while typing
     # in a text/number field or in a dropdown), ignored when a modifier is held
     # so e.g. Cmd/Ctrl+P (print) still works, and ignored while any modal is
-    # open so a second one can't stack on top. One document-level keydown
-    # listener serves every entry; add a key here and a "(X)" to the button
-    # label to bind a new one.
+    # open so a second one can't stack on top. The one exception is P in the
+    # Power Readout modal: it clicks the modal's Use Power Readout (P) box.
+    # One document-level keydown listener serves every entry; add a key here
+    # and a "(X)" to the button label to bind a new one.
     KEY_SHORTCUTS = {
         's': 'save-raw-btn',
-        'p': 'save-peak-btn',
+        'k': 'save-peak-btn',
         'f': 'apply-filter-btn',
         'h': 'show-hide-btn',
         'i': 'sweep-info-btn',
-        'r': 'readout-btn',
+        'p': 'readout-btn',
         'w': 'close-btn',
         'x': 'reset-zoom-btn',   # hidden; the callback after this listener resets the zoom
+    }
+    # The same for a button every tab has (id = name-<tab key>): the key
+    # clicks the open tab's one, the only one on screen (the other tabs'
+    # panels are display: none, so their offsetParent is null).
+    TAB_KEY_SHORTCUTS = {
+        'c': 'clear-btn',
     }
     app.clientside_callback(
         """
@@ -2096,27 +2156,52 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
             if (!window._menuKeysBound) {
                 window._menuKeysBound = true;
                 var keys = __KEYS__;
+                var tabKeys = __TAB_KEYS__;
                 var modals = __MODALS__;
+                var lastP = 0;
                 document.addEventListener('keydown', function(e) {
-                    var id = keys[(e.key || '').toLowerCase()];
-                    if (!id) return;
+                    var key = (e.key || '').toLowerCase();
+                    var id = keys[key], tabName = tabKeys[key];
+                    if (!id && !tabName) return;
                     if (e.metaKey || e.ctrlKey || e.altKey) return;
                     var t = e.target;
                     var tag = t && t.tagName ? t.tagName.toUpperCase() : '';
                     if (tag === 'TEXTAREA' || tag === 'SELECT') return;
                     if (tag === 'INPUT' && !/^(checkbox|radio)$/i.test(t.type)) return;
                     if (t && t.closest && t.closest('.dash-dropdown, .dash-dropdown-content')) return;
+                    if (key === 'p') {
+                        // P opens Power Readout, and inside it turns the readout
+                        // on and off. As with the config window's checkbox keys,
+                        // a held P, or a P within a second of the last one, does
+                        // nothing, and each press restarts that second, so a
+                        // double press can't open the window and then turn the
+                        // readout off.
+                        var now = Date.now(), quiet = e.repeat || now - lastP < 1000;
+                        lastP = now;
+                        if (quiet) return;
+                        var ro = document.getElementById('readout-modal');
+                        if (ro && ro.style.display !== 'none') {
+                            var box = document.querySelector('#readout-enable input[type=checkbox]');
+                            if (box && !box.disabled) box.click();
+                            return;
+                        }
+                    }
                     for (var i = 0; i < modals.length; i++) {
                         var m = document.getElementById(modals[i]);
                         if (m && m.style.display !== 'none') return;
                     }
-                    var btn = document.getElementById(id);
+                    var btn = id ? document.getElementById(id)
+                        : Array.prototype.find.call(
+                              document.querySelectorAll('[id^="' + tabName + '-"]'),
+                              function(b) { return b.offsetParent !== null; });
                     if (btn) btn.click();
                 });
             }
             return '';
         }
-        """.replace('__KEYS__', json.dumps(KEY_SHORTCUTS)).replace('__MODALS__', json.dumps(MODAL_IDS)),
+        """.replace('__KEYS__', json.dumps(KEY_SHORTCUTS))
+           .replace('__TAB_KEYS__', json.dumps(TAB_KEY_SHORTCUTS))
+           .replace('__MODALS__', json.dumps(MODAL_IDS)),
         Output('save-peak-btn', 'title'),
         Input('save-peak-btn', 'n_clicks'),
     )
@@ -2512,8 +2597,10 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
             return f"Back to the original label: {text}"
         return f"Label updated: {text}"
 
-    # Power-readout modal. Opening starts the readout and enables its poll;
-    # closing stops both. start() blocks for the instrument check (~1 s).
+    # Power-readout modal. Opening starts the readout (unless Use Power Readout
+    # is off) and enables the poll, which runs while the modal is open, also
+    # to show the off state; closing stops both. start() blocks for the
+    # instrument check (~1 s).
     @app.callback(
         Output('readout-modal', 'style'),
         Output('readout-tick', 'disabled'),
@@ -2527,16 +2614,18 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         if 'readout-close' in callback_context.triggered[0]['prop_id']:
             readout.stop()
             return MODAL_HIDDEN, True
-        try:
-            readout.start()
-        except Exception:
-            # check_inst now raises; a Dash callback would swallow it silently
-            # and the modal would open with no rows and no explanation.
-            log.exception("Power readout failed to start")
+        if readout.enabled:
+            try:
+                readout.start()
+            except Exception:
+                # check_inst now raises; a Dash callback would swallow it silently
+                # and the modal would open with no rows and no explanation.
+                log.exception("Power readout failed to start")
         return MODAL_SHOWN, False
 
     @app.callback(
-        Output('readout-rows', 'children'),
+        *[Output(f'readout-c{ch}-{k}', 'children') for ch in range(1, 5) for k in range(4)],
+        *[Output(f'readout-row-{ch}', 'style') for ch in range(1, 5)],
         Output('readout-wl-actual', 'children'),
         Output('readout-dbm-actual', 'children'),
         Output('readout-laser', 'value'),
@@ -2544,16 +2633,84 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         prevent_initial_call=True,
     )
     def refresh_readout(_n):
+        skip = (dash.no_update,) * (16 + 4 + 3)
+        if readout is None:
+            return skip
+        if not readout.enabled:
+            # Off: nothing is read, so the table shows dashes, all gray.
+            texts, styles = _readout_cells(None)
+            return (*texts, *styles, *_readout_actual(), dash.no_update)
         # wait=False: skip this tick rather than queue behind a worker thread
         # still mid-query (Dash runs callbacks on a pool, so ticks can overlap).
-        rows = readout.read(wait=False) if readout is not None else None
+        rows = readout.read(wait=False)
         if rows is None:
-            return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+            return skip
         laser = dash.no_update
         if readout.emission != _ro_shown['emission']:
             _ro_shown['emission'] = readout.emission
             laser = ['on'] if readout.emission else []
-        return (_readout_rows(rows), *_readout_actual(), laser)
+        texts, styles = _readout_cells(rows)
+        return (*texts, *styles, *_readout_actual(), laser)
+
+    # Use Power Readout and Use Range 1's (λ Start - λ Padding): session
+    # settings on the readout, shared with the config window. Turning the
+    # readout on runs start() (the instrument check, then its setup); off
+    # sends nothing, so both instruments stay as they are. Checking the
+    # follow box moves the readout to the sweep's start (readout.follow()).
+    @app.callback(
+        Output('readout-laser', 'options'),
+        Output('readout-wl', 'disabled'),
+        Output('readout-wl', 'value'),
+        Output('readout-dbm', 'disabled'),
+        Output('readout-follow', 'options'),
+        Output('readout-apply', 'disabled'),
+        Output('readout-reset', 'disabled'),
+        Output({'type': 'readout-ch', 'ch': ALL}, 'options'),
+        Output('readout-msg', 'children', allow_duplicate=True),
+        Input('readout-enable', 'value'),
+        Input('readout-follow', 'value'),
+        prevent_initial_call=True,
+    )
+    def readout_settings(enable_value, follow_value):
+        if readout is None:
+            return (dash.no_update,) * 9
+        msg = ''
+        if callback_context.triggered_id == 'readout-enable':
+            on = 'on' in (enable_value or [])
+            if on and not readout.enabled:
+                readout.enabled = True
+                try:
+                    readout.start()
+                except Exception:
+                    log.exception("Power readout failed to start")
+                    msg = html.Span('Unavailable. See the log.', style={'color': 'red'})
+            elif not on and readout.enabled:
+                readout.stop()
+                readout.enabled = False
+        else:
+            readout.follow_start = 'on' in (follow_value or [])
+            if readout.follow_start:
+                error = readout.follow()
+                if error:
+                    msg = html.Span(error, style={'color': 'red'})
+        dis = _readout_disabled()
+        laser_opts, follow_opts, ch_opts = _readout_options(dis)
+        return (laser_opts, dis['wl'], format_wl(readout.wl_nm), dis['laser'], follow_opts,
+                dis['other'], dis['other'], ch_opts, msg)
+
+    # The channel boxes: which channels are shown and queried. Sends nothing
+    # (readout.set_channels); the next tick fills the rows.
+    @app.callback(
+        *[Output(f'readout-row-{ch}', 'style', allow_duplicate=True) for ch in range(1, 5)],
+        Input({'type': 'readout-ch', 'ch': ALL}, 'value'),
+        prevent_initial_call=True,
+    )
+    def readout_channels(values):
+        if readout is None:
+            return (dash.no_update,) * 4
+        readout.set_channels(ch for picked in values for ch in (picked or []))
+        return tuple({} if (readout.enabled and ch in readout.channels) else _ro_idle_row
+                     for ch in range(1, 5))
 
     @app.callback(
         Output('readout-msg', 'children'),
@@ -2565,7 +2722,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         prevent_initial_call=True,
     )
     def readout_controls(_apply, laser_value, _reset, wl_text, dbm_text):
-        if readout is None:
+        if readout is None or not readout.enabled:
             return dash.no_update
         triggered = callback_context.triggered[0]['prop_id']
         if 'readout-laser' in triggered:
@@ -2580,9 +2737,8 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         if 'readout-reset' in triggered:
             readout.reset_max()
             return ''
-        err = readout.set_wavelength(wl_text)
-        if err is None and readout.has_laser:
-            err = readout.set_power(dbm_text)
+        # Both fields are checked before anything is sent (readout.apply).
+        err = readout.apply(wl_text, dbm_text)
         return html.Span(err or 'Applied.', style={'color': 'red' if err else 'blue'})
 
     # ------------------------------------------------------------------

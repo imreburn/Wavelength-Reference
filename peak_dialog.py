@@ -1,5 +1,5 @@
 """
-peak_dialog.py - The "Save peak info" dialog: its layout, the table that
+peak_dialog.py - The "Save Peak Info" dialog: its layout, the table that
 previews the rows it saves, and how the table's controls change the dialog's
 state. plot.py owns the callbacks, the peak values, and what's remembered
 across plot windows. peak_file.py reads and writes the files.
@@ -161,7 +161,7 @@ def file_options(paths):
 
 
 def modal(hidden_style):
-    """The dialog, hidden until "Save peak info" opens it. The File menu
+    """The dialog, hidden until "Save Peak Info" opens it. The File menu
     comes first, then the Label/SN and Temperature boxes that every row
     shares, then the table. Temperature is saved only when its column is in
     the table, but its box is always there. Its -/+ buttons step by 0.1, so
@@ -169,7 +169,7 @@ def modal(hidden_style):
     browser won't take as None, the same as an empty box, so Save first asks
     the page which it is (plot.py), and problem() checks both."""
     return html.Div(id='peak-modal', style=hidden_style, children=html.Div([
-        html.H4('Save peak info', style={'marginTop': 0}),
+        html.H4('Save Peak Info', style={'marginTop': 0}),
         html.Div([
             # The File menu: a pick acts, and then the value goes back to
             # None, so the field always shows its placeholder, "File menu"
