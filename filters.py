@@ -1,4 +1,4 @@
-"""Smoothing filters for the spectrum plot's "Apply filter" modal.
+"""Smoothing filters for the spectrum plot's "Apply Filter" modal.
 
 Pure signal-processing logic, kept out of the Dash callback so display_plot()
 stays readable as more filters are added. Every filter takes at most two

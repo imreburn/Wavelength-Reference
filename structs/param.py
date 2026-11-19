@@ -56,7 +56,7 @@ class Params:
     crit_base : List[str]       = _p(label='Base',                group='Peak test criteria')
 
     label     : str             = _p(label='Label',               group='Run')
-    save_raw  : bool            = _p(label='Auto-save raw data',  group='Run')
+    save_raw  : bool            = _p(label='Autosave raw data',   group='Run')
     source    : str             = _p(label='Source',              group='Run')
     detector  : str             = _p(label='Detector',            group='Run')
     time      : str             = _p(label='Time',                group='Run')

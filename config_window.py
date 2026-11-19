@@ -44,7 +44,7 @@ ENTRY_WIDTH = 7
 RANGE_PADX = (0, 6)
 SPEED_LABEL, STEP_LABEL = FIELD_LABELS[2], FIELD_LABELS[3]
 
-# A checkbox's letter key (R, L) counts only after this many seconds with no
+# A checkbox's letter key (R, L, A, P) counts only after this many seconds with no
 # press of that key. A held key repeats, and each repeat would toggle the box
 # (L switches the real laser). Longer than Windows' default delay (~0.5 s)
 # before a held key starts repeating.
@@ -88,7 +88,7 @@ MSG_LABEL_NOTICE   = ("The new label from the graph window doesn't fit the prefi
 
 # Persists across get_inputs() calls (the window is recreated each loop):
 #   ref_available — a sweep without a reference has finished since startup or
-#                   the last Change, so "Use reference" has data to use
+#                   the last Change, so "Use Reference" has data to use
 #   ref_time      — when that sweep was Run, as the Reference section shows it
 #                   (REF_TIME_FORMAT); None without data
 #   reference     — current reference status (True/False)
@@ -103,7 +103,7 @@ _state = {"ref_available": False, "ref_time": None, "reference": False, "label_n
 
 
 def mark_ref_available(sweep_time):
-    """Mark the last sweep's data as usable for "Use reference". main.py calls
+    """Mark the last sweep's data as usable for "Use Reference". main.py calls
     this once a sweep without a reference has finished, with that sweep's
     params.time (TIME_FORMAT), which the Reference section then shows. A
     cancelled or failed sweep never gets here, so it can't leave stale or
@@ -126,7 +126,7 @@ def relabel(run_label, label):
     calls this once the window has closed, with the label Run gave the sweep
     and the one it ended with.
 
-    With "Add label" off, a change is for that sweep only. A change that keeps
+    With "Add Label/SN" off, a change is for that sweep only. A change that keeps
     the prefix and only changes the counter (the same number of digits) moves
     the counter on from it: SN05 changed to SN04 makes the next label SN05. Any
     other change is discarded. Then the next window shows why, and this
@@ -278,6 +278,11 @@ def get_inputs(readout=None, auto_run=False, source=None):
         if not locked:
             step_note.config(text="")   # it's about the value Save locked in
         _pin_padding()
+        # The Power Readout's λ field follows the saved Parameters only, so it
+        # opens for editing while they're unlocked. Save locks them again and
+        # then calls sweep_saved (on_save).
+        if readout_section and not locked:
+            readout_section.params_unlocked()
 
     def on_save():
         """Check every field and, if they all pass, lock them for Run. Returns
@@ -374,6 +379,13 @@ def get_inputs(readout=None, auto_run=False, source=None):
         # Take the keyboard focus away from whichever field had it (the readout
         # fields swallow Enter), so Enter now reaches the Run binding.
         root.focus_set()
+        # The Power Readout's λ can follow Range 1's λ Start - λ Padding. Its
+        # message, if any, shows after Save's (or a loaded preset's), so that
+        # one doesn't replace it.
+        if readout_section:
+            readout_msg = readout_section.sweep_saved(params)
+            if readout_msg:
+                root.after_idle(lambda: show_status(readout_msg, "red"))
         return None
 
     # Set while set_preset_name() writes a name, so on_preset_change leaves
@@ -667,14 +679,14 @@ def get_inputs(readout=None, auto_run=False, source=None):
         # With data, the line under the state shows when its sweep was Run.
         ref_var.set(1 if _state["reference"] else 0)
         if _state["reference"]:
-            status_value.config(text="In use", fg="red")
+            status_value.config(text="In Use", fg="red")
             # A reference in use can always be turned off.
             ref_check.config(state="normal")
         elif _state["ref_available"]:
-            status_value.config(text="Data ready", fg="blue")
+            status_value.config(text="Data Ready", fg="blue")
             ref_check.config(state="normal")
         else:
-            status_value.config(text="No data", fg="black")
+            status_value.config(text="No Data", fg="black")
             ref_check.config(state="disabled")
         ref_time_value.config(text=f"Measured: {_state['ref_time']}" if _state["ref_time"] else "")
 
@@ -721,7 +733,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # Each column is a frame of its own, at the top of the window, so one
     # column's height never stretches another's rows: the Parameters section
     # (`frame`); Reference, Instruments and Status; then Peak Test Criteria,
-    # Label & Auto-Save and the Power Readout. Every section in the second and
+    # Label & Autosave and the Power Readout. Every section in the second and
     # third columns has its own frame, too. Created in this order, so Tab
     # moves through the columns from left to right.
     body = tk.Frame(root, padx=20, pady=15)
@@ -870,7 +882,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     for r, var in enumerate(duration):
         tk.Label(frame, textvariable=var, anchor="w").grid(row=DURATION_ROW, column=1 + r, sticky="w", pady=4, padx=RANGE_PADX)
 
-    # ---- Right column: Peak Test Criteria, Label & Auto-Save, Power Readout
+    # ---- Right column: Peak Test Criteria, Label & Autosave, Power Readout
     # Each section fills the column's width and hands the spare width to a
     # grid column whose widgets stay put, so every header line runs the full
     # width of the column, however wide its widest section makes it. Each
@@ -939,8 +951,8 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # validates it. Not bound to on_entry_change, so edits keep the saved state.
     info_container = tk.Frame(right_col)
     info_container.pack(anchor="w", fill="x", pady=(16, 0))
-    section_header(info_container, "Label & Auto-Save (Optional)", 0, info=AUTOSAVE_INFO)
-    # Column 0 fits its widest item, the "Add label (SN)" checkbox. Column 1
+    section_header(info_container, "Label & Autosave (Optional)", 0, info=AUTOSAVE_INFO)
+    # Column 0 fits its widest item, the "Add Label/SN (A)" checkbox. Column 1
     # takes the spare width, so the fields stay next to their labels and the
     # filename preview (which spans both) gets the column's full width.
     info_container.columnconfigure(1, weight=1)
@@ -952,8 +964,9 @@ def get_inputs(readout=None, auto_run=False, source=None):
     start_var     = tk.StringVar(value=init_info.get("start", LABEL_START_DEFAULT))
     save_raw_var  = tk.IntVar(value=init_info.get("save_raw", 0))
 
-    add_label_cb = tk.Checkbutton(info_container, text="Add label (SN)", variable=add_label_var)
+    add_label_cb = tk.Checkbutton(info_container, text="Add Label/SN (A)", variable=add_label_var)
     add_label_cb.grid(row=2, column=0, pady=4, sticky="w")
+    _bind_checkbox_key(root, "a", add_label_cb)
     # Fixed width so the row doesn't shift as the preview text changes. Bold,
     # at the other labels' size.
     label_preview = tk.Label(info_container, text="", anchor="w", width=20,
@@ -980,7 +993,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
 
     # Spans both columns so its long text doesn't widen column 0 (which would
     # push the Prefix/Digits fields to the right).
-    tk.Checkbutton(info_container, text="Auto-save raw data", variable=save_raw_var).grid(
+    tk.Checkbutton(info_container, text="Autosave Raw Data", variable=save_raw_var).grid(
         row=5, column=0, columnspan=2, pady=4, sticky="w")
     # The name the file will get, on its own line under the checkbox's text.
     # The time part is only stamped at Run, so it stands in as its format (see
@@ -1032,6 +1045,10 @@ def get_inputs(readout=None, auto_run=False, source=None):
     if readout is not None:
         readout_section = ReadoutSection(right_col, readout, show_status)
         readout_section.frame.pack(anchor="w", fill="x", pady=(16, 0))
+        # A new window's Parameters start unlocked. When it reopens with a
+        # previous Run's values, the auto-Save below locks them again.
+        readout_section.params_unlocked()
+        _bind_checkbox_key(root, "p", readout_section.enable_cb)
         _bind_checkbox_key(root, "l", readout_section.laser_cb)
 
     save_frame = tk.Frame(frame)
@@ -1060,12 +1077,12 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # row stays while there's no data, so a change of text moves nothing.
     ref_sec = column_section("Reference", info=REFERENCE_INFO, first=True)
     ref_var = tk.IntVar(value=0)
-    ref_check = tk.Checkbutton(ref_sec, text="Use reference (R)", variable=ref_var,
+    ref_check = tk.Checkbutton(ref_sec, text="Use Reference (R)", variable=ref_var,
                                command=on_toggle_ref, state="disabled")
     ref_check.grid(row=2, column=0, sticky="w")
     _bind_checkbox_key(root, "r", ref_check)
     # Bold, at the other labels' size.
-    status_value = tk.Label(ref_sec, text="No data", fg="black", font=ui_font(None, "bold"), anchor="w")
+    status_value = tk.Label(ref_sec, text="No Data", fg="black", font=ui_font(None, "bold"), anchor="w")
     status_value.grid(row=3, column=0, sticky="w", padx=(CHECKBOX_TEXT_INDENT, 0), pady=(2, 0))
     # The dark gray of the Power Readout's PM and Laser values.
     ref_time_value = tk.Label(ref_sec, text="", fg="gray30", anchor="w")

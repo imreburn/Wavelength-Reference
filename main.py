@@ -120,7 +120,7 @@ try:
         # The sweep finished, so its label is used: move the counter on.
         advance_label()
 
-        # The reference is kept per range. "Use reference" needs the same
+        # The reference is kept per range. "Use Reference" needs the same
         # parameters (Change deletes it), so it has the same ranges.
         if params.reference:
             for raw_w, ref in zip(datasets, ref_data):
@@ -130,7 +130,7 @@ try:
             mark_ref_available(params.time)
 
         # Auto-save after the reference is attached, so the file matches what
-        # "Save raw data..." would write. A failure is shown on the plot rather
+        # "Save Raw Data..." would write. A failure is shown on the plot rather
         # than ending the session; the button is still there as a fallback.
         autosaved_to, autosave_error = None, None
         if params.save_raw:
