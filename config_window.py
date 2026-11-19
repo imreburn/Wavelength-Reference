@@ -278,6 +278,11 @@ def get_inputs(readout=None, auto_run=False, source=None):
         if not locked:
             step_note.config(text="")   # it's about the value Save locked in
         _pin_padding()
+        # The Power Readout's λ field follows the saved Parameters only, so it
+        # opens for editing while they're unlocked. Save locks them again and
+        # then calls sweep_saved (on_save).
+        if readout_section and not locked:
+            readout_section.params_unlocked()
 
     def on_save():
         """Check every field and, if they all pass, lock them for Run. Returns
@@ -1040,6 +1045,9 @@ def get_inputs(readout=None, auto_run=False, source=None):
     if readout is not None:
         readout_section = ReadoutSection(right_col, readout, show_status)
         readout_section.frame.pack(anchor="w", fill="x", pady=(16, 0))
+        # A new window's Parameters start unlocked. When it reopens with a
+        # previous Run's values, the auto-Save below locks them again.
+        readout_section.params_unlocked()
         _bind_checkbox_key(root, "p", readout_section.enable_cb)
         _bind_checkbox_key(root, "l", readout_section.laser_cb)
 

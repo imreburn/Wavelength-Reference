@@ -1768,11 +1768,12 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
 
     def _readout_disabled():
         """What's disabled now: everything but Use Power Readout while the
-        readout is off; the λ field also while it follows the sweep's start;
-        the power field and Laser On without a laser."""
+        readout is off; the λ field also while it follows the sweep's start
+        (readout.following, which needs saved Parameters: after a Run they
+        always are); the power field and Laser On without a laser."""
         on = readout is not None and readout.enabled
         return {'laser': not (on and _ro_has_laser),
-                'wl':    not on or readout.follow_start,
+                'wl':    not on or readout.following,
                 'other': not on}     # the follow box, Apply, Reset Max, the channel boxes
 
     def _readout_options(dis):
@@ -1790,9 +1791,9 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         style=MODAL_HIDDEN,
         children=html.Div([
             html.H4('Power Readout', style={'marginTop': 0}),
-            # Same order as the config window's section: Use Power Readout and
-            # Laser On side by side, the λ field with the follow box under it,
-            # the power field, then Apply / Reset Max.
+            # Same order as the config window's section: Use Power Readout with
+            # Laser On under it, the λ field with the follow box under it, the
+            # power field, then Apply / Reset Max.
             html.Div([
                 dcc.Checklist(
                     id='readout-enable',
@@ -1801,7 +1802,8 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
                 dcc.Checklist(
                     id='readout-laser', options=_ro_laser_opts,
                     value=['on'] if (readout is not None and readout.emission) else []),
-            ], style={'display': 'flex', 'gap': '16px', 'fontSize': '13px', 'marginBottom': '6px'}),
+            ], style={'display': 'flex', 'flexDirection': 'column', 'gap': '4px',
+                      'fontSize': '13px', 'marginBottom': '6px'}),
             html.Div([
                 html.Label('λ (nm)', style=_ro_label),
                 dcc.Input(id='readout-wl', type='text', style=_ro_input, disabled=_ro_dis['wl'],
@@ -2653,12 +2655,15 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         return (*texts, *styles, *_readout_actual(), laser)
 
     # Use Power Readout and Use Range 1's (λ Start - λ Padding): session
-    # settings on the readout, shared with the config window. Turning the
-    # readout on runs start() (the instrument check, then its setup); off
-    # sends nothing, so both instruments stay as they are. Checking the
-    # follow box moves the readout to the sweep's start (readout.follow()).
+    # settings on the readout, shared with the config window. Laser On
+    # follows Use Power Readout (readout.set_enabled): turning the readout on
+    # checks Laser On and runs start() (the instrument check, then its setup,
+    # which turns the laser on); off turns the laser off and sends nothing
+    # else. Checking the follow box moves the readout to the sweep's start
+    # (readout.follow()).
     @app.callback(
         Output('readout-laser', 'options'),
+        Output('readout-laser', 'value', allow_duplicate=True),
         Output('readout-wl', 'disabled'),
         Output('readout-wl', 'value'),
         Output('readout-dbm', 'disabled'),
@@ -2673,20 +2678,29 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     )
     def readout_settings(enable_value, follow_value):
         if readout is None:
-            return (dash.no_update,) * 9
+            return (dash.no_update,) * 10
         msg = ''
+        laser = dash.no_update
         if callback_context.triggered_id == 'readout-enable':
             on = 'on' in (enable_value or [])
             if on and not readout.enabled:
-                readout.enabled = True
+                readout.set_enabled(True)
                 try:
                     readout.start()
                 except Exception:
                     log.exception("Power readout failed to start")
                     msg = html.Span('Unavailable. See the log.', style={'color': 'red'})
             elif not on and readout.enabled:
-                readout.stop()
-                readout.enabled = False
+                try:
+                    readout.set_enabled(False)
+                except Exception:
+                    log.exception("Power readout: the laser didn't turn off")
+                    msg = html.Span("Couldn't turn the laser off. See the log.", style={'color': 'red'})
+            # Laser On shows what set_enabled made of it. Recorded first, so
+            # refresh_readout doesn't push the box again; readout_controls,
+            # which this box's new value fires, finds nothing to send.
+            _ro_shown['emission'] = readout.emission
+            laser = ['on'] if readout.emission else []
         else:
             readout.follow_start = 'on' in (follow_value or [])
             if readout.follow_start:
@@ -2695,7 +2709,10 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
                     msg = html.Span(error, style={'color': 'red'})
         dis = _readout_disabled()
         laser_opts, follow_opts, ch_opts = _readout_options(dis)
-        return (laser_opts, dis['wl'], format_wl(readout.wl_nm), dis['laser'], follow_opts,
+        # The λ field shows the setting while it follows (grayed). Otherwise it
+        # keeps what was typed, as in the config window.
+        wl_value = format_wl(readout.wl_nm) if readout.following else dash.no_update
+        return (laser_opts, laser, dis['wl'], wl_value, dis['laser'], follow_opts,
                 dis['other'], dis['other'], ch_opts, msg)
 
     # The channel boxes: which channels are shown and queried. Sends nothing
@@ -2727,7 +2744,8 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         triggered = callback_context.triggered[0]['prop_id']
         if 'readout-laser' in triggered:
             on = 'on' in (laser_value or [])
-            # Equal when refresh_readout pushed the box itself: nothing to send.
+            # Equal when refresh_readout or readout_settings pushed the box
+            # itself: nothing to send.
             # Update _ro_shown only after set_emission, so a tick in between
             # can't push the old state back over this click.
             if on != readout.emission:

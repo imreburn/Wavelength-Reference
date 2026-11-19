@@ -13,10 +13,11 @@ the readout before Run tears the window down, and the plot stops it when its
 modal closes and again after the pywebview window has gone.
 
 Three session settings live here too, so both panels show the same thing:
-`enabled` ("Use Power Readout": off means the panels never call start() or
-read(), so the readout sends the instruments nothing), `channels` (the
-channels shown and queried) and `follow_start` ("Use Range 1's (λ Start -
-λ Padding)": the wavelength follows the sweep's first wavelength).
+`enabled` ("Use Power Readout", off when the app starts: while it's off the
+panels never call start() or read(), and Laser On follows it, see
+set_enabled()), `channels` (the channels shown and queried) and
+`follow_start` ("Use Range 1's (λ Start - λ Padding)": the wavelength
+follows the sweep's first wavelength while the Parameters are saved).
 """
 import logging
 import math
@@ -73,11 +74,12 @@ class PowerReadout:
         # went out, and a laser keeps tuning for a moment after :WAVE. None
         # until the first read; the laser entries stay None without a laser.
         self.actual   = {"pm_wl_nm": None, "laser_wl_nm": None, "laser_dbm": None}
-        self.enabled  = True          # "Use Power Readout": on when the app starts
+        self.enabled  = False         # "Use Power Readout": off when the app starts
         self.channels = {1}           # the channels shown and queried, out of 1-4
         self.follow_start = True      # "Use Range 1's (λ Start - λ Padding)"
-        # Range 1's λ Start - λ Padding at the last Save, clamped to the
-        # source's range. None before the first Save; kept through Change.
+        # Range 1's λ Start - λ Padding of the saved Parameters, clamped to the
+        # source's range. None while there are none: before the first Save,
+        # and while the config window's Parameters are unlocked.
         self.start_nm = None
         self._lock    = threading.Lock()
         self._active  = False
@@ -88,6 +90,14 @@ class PowerReadout:
     def has_laser(self):
         """False for an external source: the power field and On/Off are disabled."""
         return self.laser is not None
+
+    @property
+    def following(self):
+        """True while the wavelength follows Range 1's λ Start - λ Padding: the
+        box is checked and the Parameters are saved (start_nm). The panels
+        gray the λ field only then, so it stays editable while the Parameters
+        are unlocked."""
+        return self.follow_start and self.start_nm is not None
 
     # ---- lifecycle: one call per panel open / close ---------------------
 
@@ -164,6 +174,34 @@ class PowerReadout:
 
     # ---- the controls behind the fields and buttons ---------------------
 
+    def set_enabled(self, on):
+        """Use Power Readout. Laser On follows it, and can still be changed by
+        hand afterward. On: Laser On is checked, so the panel's start() turns
+        the laser on with the rest of its setup. Off: the readings stop and the
+        laser goes off (:SOURCE0:POW:STATE 0), the only command this sends.
+        The readout is off even if that command fails; the error is raised for
+        the panel to report. Without a laser, only the setting changes."""
+        if on:
+            self.enabled = True
+            if self.laser:
+                self.emission = True
+            return
+        try:
+            with self._lock:
+                self._active = False
+                if self.laser:
+                    self.laser.write(":SOURCE0:POW:STATE 0")
+                    self.emission = False
+        finally:
+            self.enabled = False
+        log.info("[READOUT] turned off%s", ", laser off" if self.laser else "")
+
+    def params_unlocked(self):
+        """The config window's Parameters were unlocked (a new window, Change
+        or an edit): there's no saved λ Start to follow until the next Save,
+        so the λ field opens for editing. Sends nothing."""
+        self.start_nm = None
+
     def apply(self, wl_text, dbm_text):
         """Apply: check both fields first, the TLS power against the source's
         power rule at the new wavelength, and only then send them, in this
@@ -219,8 +257,8 @@ class PowerReadout:
         return self.follow()
 
     def follow(self):
-        """With "Use Range 1's (λ Start - λ Padding)" checked and a Save behind
-        it, move the readout's wavelength to start_nm: Apply's wavelength
+        """With "Use Range 1's (λ Start - λ Padding)" checked and the Parameters
+        saved, move the readout's wavelength to start_nm: Apply's wavelength
         commands after the same power check, and only when start_nm differs
         from the current wavelength. While the readout isn't running, only the
         setting changes, and the next start() sends it. Returns an error

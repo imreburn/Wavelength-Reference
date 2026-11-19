@@ -4,7 +4,7 @@
 
 ### Added
 
-- "Use Power Readout (P)" turns the Power Readout on and off. When it's off, the readout leaves the instruments alone. ([#149](https://github.com/imreburn/Wavelength-Reference/issues/149))
+- "Use Power Readout (P)" turns the Power Readout on and off. It's off when the program starts, and turning it on or off also turns the laser on or off. ([#149](https://github.com/imreburn/Wavelength-Reference/issues/149))
 - The Power Readout shows only the channels checked in its Ch. column, channel 1 by default. ([#147](https://github.com/imreburn/Wavelength-Reference/issues/147))
 - "Use Range 1's (λ Start - λ Padding)" keeps the Power Readout at the sweep's start wavelength, so the laser doesn't move before a sweep.
 
