@@ -197,6 +197,19 @@ def _takes_text(widget):
         return False
 
 
+def _set_tab_order(widgets):
+    """Make Tab visit `widgets`, siblings in one frame, in this order (#136).
+
+    Tk's Tab goes through a frame's widgets in their stacking order, not by
+    where they sit on screen. That order is the order they were created in,
+    until a widget is raised: raising each one just above the one before it
+    puts them in this order. Nothing moves on screen, since grid cells don't
+    overlap. Shift+Tab goes back the same way.
+    """
+    for prev, widget in zip(widgets, widgets[1:]):
+        widget.lift(prev)
+
+
 def _bind_checkbox_key(root, letter, checkbox):
     """Let `letter` (either case) click `checkbox` anywhere in root's window.
 
@@ -843,6 +856,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     init_fields = _last.get("fields", default_fields)
     range_entries = {label: [] for label in RANGE_LABELS}   # label -> an Entry per range
     shared_fields = {}      # Sweep Speed's StringVar, Step Size's and TLS Power's Entry
+    param_widgets = {}      # label -> the widget of each field outside the range columns
     entry_widgets = []      # flat list for lock/unlock
     for label in FIELD_LABELS:
         row = PARAM_ROWS[label]
@@ -862,6 +876,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
             menu.grid(row=row, column=1, columnspan=MAX_RANGES, pady=4, sticky="w")
             sv.trace_add("write", on_entry_change)
             shared_fields[label] = sv
+            param_widgets[label] = menu
             entry_widgets.append(menu)
         else:
             e = ttk.Entry(frame, width=ENTRY_WIDTH)
@@ -870,6 +885,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
             e.grid(row=row, column=1, columnspan=span, pady=4, padx=RANGE_PADX, sticky="w")
             e.bind("<Key>", on_entry_change)
             shared_fields[label] = e
+            param_widgets[label] = e
             entry_widgets.append(e)
     step_entry = shared_fields[STEP_LABEL]
     # "Adjusted" while Save's adjusted step size is locked in (on_save, set_locked).
@@ -896,6 +912,11 @@ def get_inputs(readout=None, auto_run=False, source=None):
     extra_vars, extra_menus = make_extra_widgets(frame, PARAM_ROWS, init_extras, on_entry_change,
                                                  span=MAX_RANGES, width=ENTRY_WIDTH)
     _pin_padding()
+    param_widgets.update(extra_menus)
+    # Tab goes down each range's λ Start and λ Stop before the next range, then
+    # down the column in screen order: λ Padding, Sweep Speed, and so on.
+    _set_tab_order([range_entries[label][r] for r in range(MAX_RANGES) for label in RANGE_LABELS]
+                   + [param_widgets[label] for label in PARAM_ORDER[2:]])
 
     # Save fills these in: Log Count and Duration per range (NO_VALUE for an
     # unused one), Averaging Time for all.
@@ -970,13 +991,20 @@ def get_inputs(readout=None, auto_run=False, source=None):
         row=base_row, column=0, pady=4, padx=(0, 8), sticky="e")
     init_bases = _last.get("peak_base", range_texts(PEAK_BASE_DEFAULT, PEAK_BASE_DEFAULT))
     base_vars = []
+    base_menus = []
     for r in range(MAX_RANGES):
         var = tk.StringVar(value=init_bases[r])
         base_menu = Dropdown(pf_container, var, PEAK_BASE_OPTIONS, width=ENTRY_WIDTH)
         base_menu.grid(row=base_row, column=1 + 2 * r, columnspan=2, pady=4, sticky="w")
         var.trace_add("write", on_entry_change)
         base_vars.append(var)
+        base_menus.append(base_menu)
         passfail_widgets.append(base_menu)
+    # Tab goes through one range at a time: each criterion's min and max, row
+    # by row, then the range's Base, then the next range.
+    _set_tab_order([w for r in range(MAX_RANGES)
+                    for w in [e for label in PASSFAIL_LABELS for e in passfail_entries[label][r]]
+                    + [base_menus[r]]])
 
     # More Info: an optional label (prefix + zero-padded counter) and auto-save.
     # Session-only (kept in _last, not presets) and never locked by Save; Run
