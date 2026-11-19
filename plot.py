@@ -1716,7 +1716,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     # of this runs.
     # ------------------------------------------------------------------
     _ro_has_laser = readout is not None and readout.has_laser
-    # The emission state the Laser on box last showed. refresh_readout pushes
+    # The emission state the Laser On box last showed. refresh_readout pushes
     # the box only when readout.emission moves away from this (front-panel
     # button). Pushing it every tick could undo a click still in flight.
     _ro_shown = {'emission': readout is not None and readout.emission}
@@ -1779,7 +1779,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     def _readout_options(dis):
         """The options of Laser On, the follow box and the four channel boxes,
         with their disabled flags from _readout_disabled()."""
-        return ([{'label': ' Laser On', 'value': 'on', 'disabled': dis['laser']}],
+        return ([{'label': ' Laser On (L)', 'value': 'on', 'disabled': dis['laser']}],
                 [{'label': _ro_follow_text, 'value': 'on', 'disabled': dis['other']}],
                 [[{'label': f' {i}', 'value': i, 'disabled': dis['other']}] for i in range(1, 5)])
 
@@ -2132,8 +2132,9 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     # suffix clicks that button. Same focus guard as Enter (skipped while typing
     # in a text/number field or in a dropdown), ignored when a modifier is held
     # so e.g. Cmd/Ctrl+P (print) still works, and ignored while any modal is
-    # open so a second one can't stack on top. The one exception is P in the
-    # Power Readout modal: it clicks the modal's Use Power Readout (P) box.
+    # open so a second one can't stack on top. The exceptions are in the Power
+    # Readout modal: P clicks its Use Power Readout (P) box, and L its Laser
+    # On (L) box (L does nothing anywhere else).
     # One document-level keydown listener serves every entry; add a key here
     # and a "(X)" to the button label to bind a new one.
     KEY_SHORTCUTS = {
@@ -2160,17 +2161,34 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
                 var keys = __KEYS__;
                 var tabKeys = __TAB_KEYS__;
                 var modals = __MODALS__;
-                var lastP = 0;
+                var lastP = 0, lastL = 0;
                 document.addEventListener('keydown', function(e) {
                     var key = (e.key || '').toLowerCase();
                     var id = keys[key], tabName = tabKeys[key];
-                    if (!id && !tabName) return;
+                    if (!id && !tabName && key !== 'l') return;
                     if (e.metaKey || e.ctrlKey || e.altKey) return;
                     var t = e.target;
                     var tag = t && t.tagName ? t.tagName.toUpperCase() : '';
                     if (tag === 'TEXTAREA' || tag === 'SELECT') return;
                     if (tag === 'INPUT' && !/^(checkbox|radio)$/i.test(t.type)) return;
                     if (t && t.closest && t.closest('.dash-dropdown, .dash-dropdown-content')) return;
+                    var ro = document.getElementById('readout-modal');
+                    var roOpen = !!ro && ro.style.display !== 'none';
+                    if (key === 'l') {
+                        // L clicks Laser On (L), and only while Power Readout
+                        // is open (the box is disabled while the readout is
+                        // off). Like P below, but timed on its own: a held L,
+                        // or an L within a second of the last one, does
+                        // nothing, so a double press can't turn the laser on
+                        // and back off.
+                        if (!roOpen) return;
+                        var nowL = Date.now(), quietL = e.repeat || nowL - lastL < 1000;
+                        lastL = nowL;
+                        if (quietL) return;
+                        var laser = document.querySelector('#readout-laser input[type=checkbox]');
+                        if (laser && !laser.disabled) laser.click();
+                        return;
+                    }
                     if (key === 'p') {
                         // P opens Power Readout, and inside it turns the readout
                         // on and off. As with the config window's checkbox keys,
@@ -2181,8 +2199,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
                         var now = Date.now(), quiet = e.repeat || now - lastP < 1000;
                         lastP = now;
                         if (quiet) return;
-                        var ro = document.getElementById('readout-modal');
-                        if (ro && ro.style.display !== 'none') {
+                        if (roOpen) {
                             var box = document.querySelector('#readout-enable input[type=checkbox]');
                             if (box && !box.disabled) box.click();
                             return;

@@ -17,7 +17,7 @@
 - Peaks are named by their wavelength with 1 decimal place, like "1568.0", replacing IDs (P1, P2, ...). A base's label shows its peak, its side and its power, like "1568.0:R(y:−2.257)". ([#138](https://github.com/imreburn/Wavelength-Reference/issues/138))
 - The Peak test result shows its base in its title, like "Peak test result (Max base)", instead of in the table's top-left cell. ([#170](https://github.com/imreburn/Wavelength-Reference/issues/170))
 - "Label (SN)" is now "Label/SN".
-- In the graph window, P opens Power Readout (was R), K opens Save Peak Info (was P), and C is the new shortcut for "Clear all".
+- In the graph window, P opens Power Readout (was R), K opens Save Peak Info (was P), C is the new shortcut for "Clear all", and L is the new shortcut for "Laser On" in Power Readout.
 
 ### Fixed
 
