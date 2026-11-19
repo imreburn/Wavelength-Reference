@@ -1,6 +1,7 @@
 from datetime import datetime
 import time
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk
 import logging
 
@@ -22,7 +23,7 @@ from config_helper import (
     PASSFAIL_LABELS, PASSFAIL_KEYS, PASSFAIL_BOUNDS, PASSFAIL_DEFAULT, PASSFAIL_COLUMNS, passfail_col, label_text,
     PEAK_BASE_LABEL,
     preset_path, load_presets, save_preset, delete_preset, convert_csv_presets,
-    section_header, make_extra_widgets,
+    section_header, make_extra_widgets, Dropdown,
     use_ui_font, ui_font,
     validate_inputs, validate_extras, validate_passfail, validation_error,
     LABEL_DIGIT_OPTIONS, LABEL_DIGIT_DEFAULT, LABEL_START_DEFAULT, validate_label, label_counter,
@@ -38,8 +39,15 @@ _last = {}  # persists raw field values within one execution
 WINDOW_POS = (0, 0)
 
 # The parameter fields' width, in characters: enough for "XXXX.XX" (Tk counts
-# "0" widths, and a dot is narrower). A longer value scrolls in its field.
+# "0" widths, and a dot is narrower). A longer value scrolls in its field. The
+# Parameters' and Peak Test Criteria's dropdowns get the same width.
 ENTRY_WIDTH = 7
+# Load Preset's dropdown fits the longest preset name, at least as wide as
+# the other dropdowns and up to this many characters, so a long name can't
+# widen the Parameters section. Manage Presets' dropdowns go up to
+# PRESET_DIALOG_WIDTH, and its name field is as wide as they can get.
+PRESET_MAX_WIDTH = 28
+PRESET_DIALOG_WIDTH = 30
 # The gap after each range column's fields.
 RANGE_PADX = (0, 6)
 SPEED_LABEL, STEP_LABEL = FIELD_LABELS[2], FIELD_LABELS[3]
@@ -58,8 +66,10 @@ STATUS_CHARS = 40
 STATUS_LINES = 6
 
 # The color of a step size that Save adjusted: the field's text, and the
-# "Adjusted" note next to it.
+# "Adjusted" note next to it. The field gets it through its ttk style, while
+# it's locked (disabled).
 ADJUSTED_FG = "#cc7a00"
+ADJUSTED_STYLE = "Adjusted.TEntry"
 
 # How the Reference section shows the time of the sweep its data came from.
 REF_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -157,30 +167,49 @@ def _is_disabled(widget):
         return False
 
 
-def _wrap_to_width(label):
-    """Make `label` wrap its text at whatever width the layout gives it.
+def _fixed_text_box(parent, chars, lines, name, **label_options):
+    """A label that holds `lines` lines of text in a box at least `chars`
+    characters wide ("0" widths), so no message ever resizes the window
+    (#145, #154). Returns (box, label): place the box; it can stretch wider
+    with its grid column, and the label wraps its text at the box's width.
 
-    The label's requested size must come from its width and height options
-    (characters and lines), not from its text. Then a new wraplength can't
-    resize it and set off another <Configure>. Its border and padding sit
-    inside that width, so the text gets what's left.
+    A ttk label has no height in lines, so the box is a ttk frame of that
+    size, and the label fills it. Its text can't resize the box, so a new
+    wraplength can't set off another <Configure>.
     """
-    inset = 2 * sum(int(label.cget(o)) for o in ("borderwidth", "padx", "highlightthickness"))
-    label.bind("<Configure>", lambda e: label.config(wraplength=e.width - inset))
+    font = tkfont.nametofont("TkDefaultFont")
+    box = ttk.Frame(parent, width=chars * font.measure("0"),
+                    height=lines * font.metrics("linespace"))
+    label = ttk.Label(box, name=name, text="", justify="left", anchor="nw", padding=0,
+                      **label_options)
+    label.place(x=0, y=0, relwidth=1, relheight=1)
+    label.bind("<Configure>", lambda e: label.config(wraplength=e.width))
+    return box, label
+
+
+def _takes_text(widget):
+    """True if `widget` is a field that takes typing: an Entry in state
+    "normal". A locked (disabled) field doesn't, and neither does a dropdown,
+    a readonly Combobox, which is an Entry too."""
+    try:
+        return isinstance(widget, tk.Entry) and str(widget.cget("state")) == "normal"
+    except tk.TclError:
+        return False
 
 
 def _bind_checkbox_key(root, letter, checkbox):
     """Let `letter` (either case) click `checkbox` anywhere in root's window.
 
     A key typed into a field reaches root's bindings too, so the letter is left
-    to fields that take text. Locked (disabled) fields don't, so it works there.
-    invoke() does nothing while the checkbox is disabled. Holding the key clicks
-    once: its repeats keep restarting the KEY_QUIET_S wait.
+    to fields that take text. Locked (disabled) fields and dropdowns don't, so
+    it works there. invoke() does nothing while the checkbox is disabled.
+    Holding the key clicks once: its repeats keep restarting the KEY_QUIET_S
+    wait.
     """
     last = {"t": float("-inf")}
 
     def on_key(event):
-        if isinstance(event.widget, tk.Entry) and not _is_disabled(event.widget):
+        if _takes_text(event.widget):
             return
         now, prev = time.monotonic(), last["t"]
         last["t"] = now
@@ -357,11 +386,11 @@ def get_inputs(readout=None, auto_run=False, source=None):
         if params.step_pm != entered_step:
             step_entry.delete(0, tk.END)
             step_entry.insert(0, f"{params.step_pm:.4f}")
-            step_entry.config(disabledforeground=ADJUSTED_FG)
+            step_entry.config(style=ADJUSTED_STYLE)
             step_note.config(text="Adjusted")
         else:
             # Clear any orange left over from a previous adjustment.
-            step_entry.config(fg="black", disabledforeground=default_disabledfg)
+            step_entry.config(style="TEntry")
 
         # Blank fields become 0 and a 0 max becomes inf, so show what was actually saved.
         for r, pf_range in enumerate(pf_values):
@@ -372,12 +401,12 @@ def get_inputs(readout=None, auto_run=False, source=None):
                         entry.delete(0, tk.END)
                         entry.insert(0, text)
 
-        result_label.config(text=MSG_SAVED, fg="blue")
+        result_label.config(text=MSG_SAVED, foreground="blue")
 
         saved["ok"] = True
         set_locked(True)
-        # Take the keyboard focus away from whichever field had it (the readout
-        # fields swallow Enter), so Enter now reaches the Run binding.
+        # Take the keyboard focus away from whichever field had it (Enter does
+        # nothing in a field that takes text), so Enter now starts Run.
         root.focus_set()
         # The Power Readout's λ can follow Range 1's λ Start - λ Padding. Its
         # message, if any, shows after Save's (or a loaded preset's), so that
@@ -422,12 +451,12 @@ def get_inputs(readout=None, auto_run=False, source=None):
         _state["ref_time"] = None
         params.reference = False
         update_ref_ui()
-        result_label.config(text=MSG_UNLOCKED, fg="red")
+        result_label.config(text=MSG_UNLOCKED, foreground="red")
 
     def on_entry_change(*args):
-        # Enter doesn't modify the field — let it trigger Run instead of
-        # invalidating the saved state. (Called from bind with an event, from
-        # trace_add with 3 args, and directly with none.)
+        # Enter doesn't modify the field, so it leaves the saved state alone.
+        # (Called from bind with an event, from trace_add with 3 args, and
+        # directly with none.)
         event = args[0] if args else None
         if getattr(event, "keysym", "") in ("Return", "KP_Enter"):
             return
@@ -436,12 +465,11 @@ def get_inputs(readout=None, auto_run=False, source=None):
         # otherwise look like an edit and unlock the saved state.
         if _is_disabled(getattr(event, "widget", None)):
             return
-        step_entry.config(fg="black")
         # Invalidate save whenever any field is edited
         if saved["ok"]:
             saved["ok"] = False
             set_locked(False)
-            result_label.config(text=MSG_INPUTS_CHANGED, fg="red")
+            result_label.config(text=MSG_INPUTS_CHANGED, foreground="red")
 
     def on_preset_change(*_):
         if _keep_fields["on"]:
@@ -493,12 +521,12 @@ def get_inputs(readout=None, auto_run=False, source=None):
         # The messages leave the name out: the Load Preset dropdown shows it.
         error = on_save()
         if error is None:
-            result_label.config(text=MSG_PRESET_LOADED, fg="blue")
+            result_label.config(text=MSG_PRESET_LOADED, foreground="blue")
         else:
             # Invalid preset: keep its values in the fields for the fix, but
             # drop the name so the fixed-up values aren't saved under it.
             clear_preset_name()
-            result_label.config(text=MSG_PRESET_ERROR.format(error=error), fg="red")
+            result_label.config(text=MSG_PRESET_ERROR.format(error=error), foreground="red")
 
     def on_run():
         if not saved["ok"]:
@@ -509,7 +537,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
         if add_label_var.get():
             label, label_n, error = validate_label(prefix_var.get(), digits_var.get(), start_var.get())
             if error:
-                result_label.config(text=f"Error: {error}", fg="red")
+                result_label.config(text=f"Error: {error}", foreground="red")
                 return
         params.label    = label
         params.save_raw = bool(save_raw_var.get())
@@ -547,7 +575,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
         if readout_section:
             readout_section.stop()
         _cancel_idle()
-        result_label.config(text=MSG_RUNNING, fg="black")
+        result_label.config(text=MSG_RUNNING, foreground="black")
         root.after(200, root.destroy)
 
     def on_save_preset():
@@ -566,7 +594,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
 
         existing, error = load_presets(preset_file)
         if error:
-            result_label.config(text=f"Error: {error}", fg="red")
+            result_label.config(text=f"Error: {error}", foreground="red")
             return
         names = preset_names(existing)
 
@@ -575,33 +603,37 @@ def get_inputs(readout=None, auto_run=False, source=None):
         top.resizable(False, False)
         top.transient(root)
         top.grab_set()
+        # Everything sits on a ttk frame that fills the dialog, so the
+        # window's own (Tk) background never shows.
+        dlg = ttk.Frame(top)
+        dlg.pack(fill="both", expand=True)
 
         mode = tk.StringVar(value="replace" if names else "new")
 
-        tk.Radiobutton(top, text="Replace a preset", variable=mode, value="replace",
-                       state="normal" if names else "disabled").grid(row=0, column=0, sticky="w", padx=10, pady=(10, 0))
+        ttk.Radiobutton(dlg, text="Replace a preset", variable=mode, value="replace",
+                        state="normal" if names else "disabled").grid(row=0, column=0, sticky="w", padx=10, pady=(10, 0))
         replace_var = tk.StringVar(value=names[0] if names else "")
-        replace_menu = tk.OptionMenu(top, replace_var, *(names or [""]))
+        replace_menu = Dropdown(dlg, replace_var, names or [""], max_width=PRESET_DIALOG_WIDTH)
         replace_menu.grid(row=1, column=0, sticky="w", padx=34, pady=(0, 4))
 
-        tk.Radiobutton(top, text="Create a new preset — enter a name\n(overwrites any existing preset of the same name)",
-                       variable=mode, value="new", justify="left").grid(row=2, column=0, sticky="w", padx=10, pady=(6, 0))
+        # Its two lines are left-aligned: ttk's default (Tk 8.6's ttk radio
+        # button has no justify option).
+        ttk.Radiobutton(dlg, text="Create a new preset — enter a name\n(overwrites any existing preset of the same name)",
+                        variable=mode, value="new").grid(row=2, column=0, sticky="w", padx=10, pady=(6, 0))
         new_var = tk.StringVar()
-        new_entry = tk.Entry(top, textvariable=new_var, width=32)
+        new_entry = ttk.Entry(dlg, textvariable=new_var, width=PRESET_DIALOG_WIDTH + 2)
         new_entry.grid(row=3, column=0, sticky="w", padx=34, pady=(0, 4))
 
-        tk.Radiobutton(top, text="Delete a preset", variable=mode, value="delete",
-                       state="normal" if names else "disabled").grid(row=4, column=0, sticky="w", padx=10, pady=(6, 0))
+        ttk.Radiobutton(dlg, text="Delete a preset", variable=mode, value="delete",
+                        state="normal" if names else "disabled").grid(row=4, column=0, sticky="w", padx=10, pady=(6, 0))
         delete_var = tk.StringVar(value=names[0] if names else "")
-        delete_menu = tk.OptionMenu(top, delete_var, *(names or [""]))
+        delete_menu = Dropdown(dlg, delete_var, names or [""], max_width=PRESET_DIALOG_WIDTH)
         delete_menu.grid(row=5, column=0, sticky="w", padx=34, pady=(0, 4))
 
         # A fixed box, two lines tall and as wide as the dialog, so a message
         # never resizes it. Every message here fits on one line.
-        msg = tk.Label(top, name="message", text="", fg="red", width=1, height=2,
-                       justify="left", anchor="nw")
-        msg.grid(row=6, column=0, padx=10, sticky="ew")
-        _wrap_to_width(msg)
+        msg_box, msg = _fixed_text_box(dlg, 1, 2, "message", foreground="red")
+        msg_box.grid(row=6, column=0, padx=10, sticky="ew")
 
         def sync_mode(*_):
             replace_menu.config(state="normal" if (mode.get() == "replace" and names) else "disabled")
@@ -612,11 +644,8 @@ def get_inputs(readout=None, auto_run=False, source=None):
         sync_mode()
 
         def remove_from_main_menu(name):
-            menu = preset_menu["menu"]
-            try:
-                menu.delete(menu.index(name))
-            except (tk.TclError, TypeError):
-                pass
+            presets.pop(name, None)   # keep the in-memory copy in sync with disk
+            refresh_preset_menu()
             if preset_var.get() == name:
                 clear_preset_name()
 
@@ -631,9 +660,8 @@ def get_inputs(readout=None, auto_run=False, source=None):
                     msg.config(text=error)
                     return
                 remove_from_main_menu(name)
-                presets.pop(name, None)   # keep the in-memory copy in sync with disk
                 top.destroy()
-                result_label.config(text=MSG_PRESET_DELETED, fg="black")
+                result_label.config(text=MSG_PRESET_DELETED, foreground="black")
                 return
 
             if mode.get() == "replace":
@@ -656,20 +684,19 @@ def get_inputs(readout=None, auto_run=False, source=None):
             presets[name] = dict(preset_vals)
 
             # Surface a freshly added name in the main preset dropdown too, at its
-            # alphabetical position (+1 for the "none" entry the menu opens with).
+            # alphabetical position.
             if name not in names:
-                index = preset_names(presets).index(name) + 1
-                preset_menu["menu"].insert_command(index, label=name, command=tk._setit(preset_var, name))
+                refresh_preset_menu()
             # The on-screen values are now exactly this preset, so show its name
             # (and run under it) without reloading the fields.
             set_preset_name(name)
             top.destroy()
-            result_label.config(text=MSG_PRESET_SAVED, fg="black")
+            result_label.config(text=MSG_PRESET_SAVED, foreground="black")
 
-        btn_frame = tk.Frame(top)
+        btn_frame = ttk.Frame(dlg)
         btn_frame.grid(row=7, column=0, pady=10)
-        tk.Button(btn_frame, text="Save/Delete", command=do_action, width=12).pack(side="left", padx=5)
-        tk.Button(btn_frame, text="Cancel (Esc)", command=top.destroy, width=12).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Save/Delete", command=do_action, width=12).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Cancel (Esc)", command=top.destroy, width=12).pack(side="left", padx=5)
         top.bind("<Escape>", lambda _e: top.destroy())
 
         new_entry.focus_set()
@@ -679,14 +706,14 @@ def get_inputs(readout=None, auto_run=False, source=None):
         # With data, the line under the state shows when its sweep was Run.
         ref_var.set(1 if _state["reference"] else 0)
         if _state["reference"]:
-            status_value.config(text="In Use", fg="red")
+            status_value.config(text="In Use", foreground="red")
             # A reference in use can always be turned off.
             ref_check.config(state="normal")
         elif _state["ref_available"]:
-            status_value.config(text="Data Ready", fg="blue")
+            status_value.config(text="Data Ready", foreground="blue")
             ref_check.config(state="normal")
         else:
-            status_value.config(text="No Data", fg="black")
+            status_value.config(text="No Data", foreground="black")
             ref_check.config(state="disabled")
         ref_time_value.config(text=f"Measured: {_state['ref_time']}" if _state["ref_time"] else "")
 
@@ -698,7 +725,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     def show_status(text, color):
         """Show a message in the Status section. The Power Readout section
         shows its messages through this."""
-        result_label.config(text=text, fg=color)
+        result_label.config(text=text, foreground=color)
 
     root = tk.Tk()
     use_ui_font(root)   # constants.CONFIG_WINDOW_FONT; None keeps the system font
@@ -736,13 +763,13 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # Label & Autosave and the Power Readout. Every section in the second and
     # third columns has its own frame, too. Created in this order, so Tab
     # moves through the columns from left to right.
-    body = tk.Frame(root, padx=20, pady=15)
+    body = ttk.Frame(root, padding=(20, 15))
     body.pack()
-    frame = tk.Frame(body)
+    frame = ttk.Frame(body)
     frame.grid(row=0, column=0, sticky="n")
-    mid_col = tk.Frame(body)
+    mid_col = ttk.Frame(body)
     mid_col.grid(row=0, column=1, sticky="n", padx=(40, 0))
-    right_col = tk.Frame(body)
+    right_col = ttk.Frame(body)
     right_col.grid(row=0, column=2, sticky="n", padx=(40, 0))
 
     # ---- The Parameters section's grid rows --------------------------------
@@ -775,38 +802,43 @@ def get_inputs(readout=None, auto_run=False, source=None):
     source_text = f"{source}  ({source_spec['wl_min']}-{source_spec['wl_max']} nm)"
     if source_spec["external"]:
         source_text += ", external"
-    tk.Label(frame, text="Source", anchor="e").grid(row=SOURCE_ROW, column=0, pady=4, padx=(0, 8), sticky="e")
-    tk.Label(frame, text=source_text, anchor="w").grid(row=SOURCE_ROW, column=1, columnspan=MAX_RANGES, pady=4, sticky="w")
+    ttk.Label(frame, text="Source", anchor="e").grid(row=SOURCE_ROW, column=0, pady=4, padx=(0, 8), sticky="e")
+    ttk.Label(frame, text=source_text, anchor="w").grid(row=SOURCE_ROW, column=1, columnspan=MAX_RANGES, pady=4, sticky="w")
     # The power meter: the same with every source, so display only too.
-    tk.Label(frame, text="Detector", anchor="e").grid(row=DETECTOR_ROW, column=0, pady=4, padx=(0, 8), sticky="e")
-    tk.Label(frame, text=DETECTOR, anchor="w").grid(row=DETECTOR_ROW, column=1, columnspan=MAX_RANGES, pady=4, sticky="w")
+    ttk.Label(frame, text="Detector", anchor="e").grid(row=DETECTOR_ROW, column=0, pady=4, padx=(0, 8), sticky="e")
+    ttk.Label(frame, text=DETECTOR, anchor="w").grid(row=DETECTOR_ROW, column=1, columnspan=MAX_RANGES, pady=4, sticky="w")
 
     presets, load_error = load_presets(preset_file)
     preset_error = preset_error or load_error
     # Sorted for display only; the preset file keeps its own order.
     preset_options = ["none"] + preset_names(presets)
     preset_var = tk.StringVar(value=_last.get("preset", "none"))
-    tk.Label(frame, text="Load Preset", anchor="e").grid(row=FIELDS_START, column=0, pady=4, padx=(0, 8), sticky="e")
-    preset_menu = tk.OptionMenu(frame, preset_var, *preset_options)
+    ttk.Label(frame, text="Load Preset", anchor="e").grid(row=FIELDS_START, column=0, pady=4, padx=(0, 8), sticky="e")
+    preset_menu = Dropdown(frame, preset_var, preset_options,
+                           min_width=ENTRY_WIDTH, max_width=PRESET_MAX_WIDTH)
     preset_menu.grid(row=FIELDS_START, column=1, columnspan=MAX_RANGES, pady=4, sticky="w")
     preset_var.trace_add("write", on_preset_change)
+
+    def refresh_preset_menu():
+        """Show the in-memory presets (Manage Presets changes them) in the dropdown."""
+        preset_menu.set_values(["none"] + preset_names(presets))
 
     # Channel checkboxes (1–4). Default to channel 1; at least one is required.
     init_channels = parse_channels(_last.get("channels", CHANNEL_DEFAULT))
     channel_vars = {ch: tk.IntVar(value=1 if ch in init_channels else 0) for ch in CHANNEL_OPTIONS}
-    tk.Label(frame, text=CHANNEL_LABEL, anchor="e").grid(row=CHANNEL_ROW, column=0, pady=4, padx=(0, 8), sticky="e")
-    channel_frame = tk.Frame(frame)
+    ttk.Label(frame, text=CHANNEL_LABEL, anchor="e").grid(row=CHANNEL_ROW, column=0, pady=4, padx=(0, 8), sticky="e")
+    channel_frame = ttk.Frame(frame)
     channel_frame.grid(row=CHANNEL_ROW, column=1, columnspan=MAX_RANGES, pady=4, sticky="w")
     channel_checks = []
     for ch in CHANNEL_OPTIONS:
-        cb = tk.Checkbutton(channel_frame, text=str(ch), variable=channel_vars[ch], command=on_entry_change)
+        cb = ttk.Checkbutton(channel_frame, text=str(ch), variable=channel_vars[ch], command=on_entry_change)
         cb.pack(side="left")
         channel_checks.append(cb)
 
     # The range columns' headers. An unused range leaves its λ Start and λ
     # Stop blank; the used ranges come first.
     for r in range(MAX_RANGES):
-        tk.Label(frame, text=f"Range {r + 1}").grid(row=RANGES_ROW, column=1 + r, padx=RANGE_PADX)
+        ttk.Label(frame, text=f"Range {r + 1}").grid(row=RANGES_ROW, column=1 + r, padx=RANGE_PADX)
 
     init_fields = _last.get("fields", default_fields)
     range_entries = {label: [] for label in RANGE_LABELS}   # label -> an Entry per range
@@ -814,10 +846,10 @@ def get_inputs(readout=None, auto_run=False, source=None):
     entry_widgets = []      # flat list for lock/unlock
     for label in FIELD_LABELS:
         row = PARAM_ROWS[label]
-        tk.Label(frame, text=label_text(label), anchor="e").grid(row=row, column=0, pady=4, padx=(0, 8), sticky="e")
+        ttk.Label(frame, text=label_text(label), anchor="e").grid(row=row, column=0, pady=4, padx=(0, 8), sticky="e")
         if label in RANGE_LABELS:
             for r, text in enumerate(init_fields[label]):
-                e = tk.Entry(frame, width=ENTRY_WIDTH)
+                e = ttk.Entry(frame, width=ENTRY_WIDTH)
                 e.insert(0, text)
                 e.grid(row=row, column=1 + r, pady=4, padx=RANGE_PADX, sticky="w")
                 e.bind("<Key>", on_entry_change)
@@ -826,13 +858,13 @@ def get_inputs(readout=None, auto_run=False, source=None):
         elif label == SPEED_LABEL:  # dropdown
             default = init_fields[label]
             sv = tk.StringVar(value=default if default in SWEEP_SPEED_OPTIONS else SWEEP_SPEED_OPTIONS[0])
-            menu = tk.OptionMenu(frame, sv, *SWEEP_SPEED_OPTIONS)
+            menu = Dropdown(frame, sv, SWEEP_SPEED_OPTIONS, width=ENTRY_WIDTH)
             menu.grid(row=row, column=1, columnspan=MAX_RANGES, pady=4, sticky="w")
             sv.trace_add("write", on_entry_change)
             shared_fields[label] = sv
             entry_widgets.append(menu)
         else:
-            e = tk.Entry(frame, width=ENTRY_WIDTH)
+            e = ttk.Entry(frame, width=ENTRY_WIDTH)
             e.insert(0, init_fields[label])
             span = 1 if label == STEP_LABEL else MAX_RANGES
             e.grid(row=row, column=1, columnspan=span, pady=4, padx=RANGE_PADX, sticky="w")
@@ -843,7 +875,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # "Adjusted" while Save's adjusted step size is locked in (on_save, set_locked).
     # It starts at Range 2's column, which with the ones after it is far wider
     # than the note, so the note never widens a column.
-    step_note = tk.Label(frame, text="", fg=ADJUSTED_FG)
+    step_note = ttk.Label(frame, text="", foreground=ADJUSTED_FG)
     step_note.grid(row=PARAM_ROWS[STEP_LABEL], column=2, columnspan=MAX_RANGES - 1, pady=4, sticky="w")
 
     def field_texts():
@@ -853,8 +885,8 @@ def get_inputs(readout=None, auto_run=False, source=None):
         texts.update({label: field.get() for label, field in shared_fields.items()})
         return texts
 
-    # Platform's native disabled text color, restored when the step field isn't adjusted.
-    default_disabledfg = step_entry.cget("disabledforeground")
+    # The orange of an adjusted step size: only while it's locked in (disabled).
+    ttk.Style(root).map(ADJUSTED_STYLE, foreground=[("disabled", ADJUSTED_FG)])
 
     init_extras = _last.get("extras", EXTRA_DEFAULTS)
     if source_spec["external"]:
@@ -862,7 +894,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
         # during build would fire on_entry_change before result_label exists.
         init_extras = {**init_extras, PADDING_LABEL: "0"}
     extra_vars, extra_menus = make_extra_widgets(frame, PARAM_ROWS, init_extras, on_entry_change,
-                                                 span=MAX_RANGES)
+                                                 span=MAX_RANGES, width=ENTRY_WIDTH)
     _pin_padding()
 
     # Save fills these in: Log Count and Duration per range (NO_VALUE for an
@@ -871,16 +903,16 @@ def get_inputs(readout=None, auto_run=False, source=None):
     avg_time = tk.StringVar(value="0")
     duration = [tk.StringVar(value=NO_VALUE) for _ in range(MAX_RANGES)]
 
-    tk.Label(frame, text="Log Count / Sweep", anchor="e").grid(row=LOGCOUNT_ROW, column=0, sticky="e", pady=4, padx=(0, 8))
+    ttk.Label(frame, text="Log Count / Sweep", anchor="e").grid(row=LOGCOUNT_ROW, column=0, sticky="e", pady=4, padx=(0, 8))
     for r, var in enumerate(num_data):
-        tk.Label(frame, textvariable=var, anchor="w").grid(row=LOGCOUNT_ROW, column=1 + r, sticky="w", pady=4, padx=RANGE_PADX)
+        ttk.Label(frame, textvariable=var, anchor="w").grid(row=LOGCOUNT_ROW, column=1 + r, sticky="w", pady=4, padx=RANGE_PADX)
 
-    tk.Label(frame, text="Averaging Time (μs)", anchor="e").grid(row=AVGTIME_ROW, column=0, sticky="e", pady=4, padx=(0, 8))
-    tk.Label(frame, textvariable=avg_time, anchor="w").grid(row=AVGTIME_ROW, column=1, columnspan=MAX_RANGES, sticky="w", pady=4)
+    ttk.Label(frame, text="Averaging Time (μs)", anchor="e").grid(row=AVGTIME_ROW, column=0, sticky="e", pady=4, padx=(0, 8))
+    ttk.Label(frame, textvariable=avg_time, anchor="w").grid(row=AVGTIME_ROW, column=1, columnspan=MAX_RANGES, sticky="w", pady=4)
 
-    tk.Label(frame, text="Duration / Sweep (s)", anchor="e").grid(row=DURATION_ROW, column=0, sticky="e", pady=4, padx=(0, 8))
+    ttk.Label(frame, text="Duration / Sweep (s)", anchor="e").grid(row=DURATION_ROW, column=0, sticky="e", pady=4, padx=(0, 8))
     for r, var in enumerate(duration):
-        tk.Label(frame, textvariable=var, anchor="w").grid(row=DURATION_ROW, column=1 + r, sticky="w", pady=4, padx=RANGE_PADX)
+        ttk.Label(frame, textvariable=var, anchor="w").grid(row=DURATION_ROW, column=1 + r, sticky="w", pady=4, padx=RANGE_PADX)
 
     # ---- Right column: Peak Test Criteria, Label & Autosave, Power Readout
     # Each section fills the column's width and hands the spare width to a
@@ -894,7 +926,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # criterion, then a Base dropdown per range. The values are validated and
     # saved (and stored in presets) alongside the parameters; an unused range's
     # are ignored.
-    pf_container = tk.Frame(right_col)
+    pf_container = ttk.Frame(right_col)
     pf_container.pack(anchor="w", fill="x")
     # Columns: criterion, then min and max per range (range r's min in column
     # 1 + 2r), and an empty one that takes the spare width, so the min and max
@@ -905,23 +937,23 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # A small gap between a range's min and max, and a wider one between ranges.
     bound_padx = {"min": (0, 4), "max": (0, 12)}
     for r in range(MAX_RANGES):
-        tk.Label(pf_container, text=f"Range {r + 1}").grid(row=2, column=1 + 2 * r, columnspan=2,
+        ttk.Label(pf_container, text=f"Range {r + 1}").grid(row=2, column=1 + 2 * r, columnspan=2,
                                                           padx=(0, 12))
         for b, bound in enumerate(PASSFAIL_BOUNDS):
-            tk.Label(pf_container, text=bound).grid(row=3, column=1 + 2 * r + b, padx=bound_padx[bound])
+            ttk.Label(pf_container, text=bound).grid(row=3, column=1 + 2 * r + b, padx=bound_padx[bound])
     init_passfail = _last.get("passfail", {})
     passfail_entries = {}   # label -> [(min_entry, max_entry) per range]
     passfail_widgets = []   # flat list for lock/unlock
     for j, label in enumerate(PASSFAIL_LABELS):
         row = j + 4
-        tk.Label(pf_container, text=label_text(label), anchor="e").grid(
+        ttk.Label(pf_container, text=label_text(label), anchor="e").grid(
             row=row, column=0, pady=4, padx=(0, 8), sticky="e")
         inits = init_passfail.get(label, [(PASSFAIL_DEFAULT, PASSFAIL_DEFAULT)] * MAX_RANGES)
         cols = []
         for r in range(MAX_RANGES):
             pair = []
             for b, (bound, init) in enumerate(zip(PASSFAIL_BOUNDS, inits[r])):
-                e = tk.Entry(pf_container, width=ENTRY_WIDTH)
+                e = ttk.Entry(pf_container, width=ENTRY_WIDTH)
                 e.insert(0, init)
                 e.grid(row=row, column=1 + 2 * r + b, pady=4, padx=bound_padx[bound], sticky="w")
                 e.bind("<Key>", on_entry_change)
@@ -934,13 +966,13 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # (PASSFAIL_INFO). Each spans its range's min and max columns, so it can't
     # widen the min column.
     base_row = len(PASSFAIL_LABELS) + 4
-    tk.Label(pf_container, text=PEAK_BASE_LABEL, anchor="e").grid(
+    ttk.Label(pf_container, text=PEAK_BASE_LABEL, anchor="e").grid(
         row=base_row, column=0, pady=4, padx=(0, 8), sticky="e")
     init_bases = _last.get("peak_base", range_texts(PEAK_BASE_DEFAULT, PEAK_BASE_DEFAULT))
     base_vars = []
     for r in range(MAX_RANGES):
         var = tk.StringVar(value=init_bases[r])
-        base_menu = tk.OptionMenu(pf_container, var, *PEAK_BASE_OPTIONS)
+        base_menu = Dropdown(pf_container, var, PEAK_BASE_OPTIONS, width=ENTRY_WIDTH)
         base_menu.grid(row=base_row, column=1 + 2 * r, columnspan=2, pady=4, sticky="w")
         var.trace_add("write", on_entry_change)
         base_vars.append(var)
@@ -949,7 +981,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # More Info: an optional label (prefix + zero-padded counter) and auto-save.
     # Session-only (kept in _last, not presets) and never locked by Save; Run
     # validates it. Not bound to on_entry_change, so edits keep the saved state.
-    info_container = tk.Frame(right_col)
+    info_container = ttk.Frame(right_col)
     info_container.pack(anchor="w", fill="x", pady=(16, 0))
     section_header(info_container, "Label & Autosave (Optional)", 0, info=AUTOSAVE_INFO)
     # Column 0 fits its widest item, the "Add Label/SN (A)" checkbox. Column 1
@@ -964,36 +996,36 @@ def get_inputs(readout=None, auto_run=False, source=None):
     start_var     = tk.StringVar(value=init_info.get("start", LABEL_START_DEFAULT))
     save_raw_var  = tk.IntVar(value=init_info.get("save_raw", 0))
 
-    add_label_cb = tk.Checkbutton(info_container, text="Add Label/SN (A)", variable=add_label_var)
+    add_label_cb = ttk.Checkbutton(info_container, text="Add Label/SN (A)", variable=add_label_var)
     add_label_cb.grid(row=2, column=0, pady=4, sticky="w")
     _bind_checkbox_key(root, "a", add_label_cb)
     # Fixed width so the row doesn't shift as the preview text changes. Bold,
     # at the other labels' size.
-    label_preview = tk.Label(info_container, text="", anchor="w", width=20,
+    label_preview = ttk.Label(info_container, text="", anchor="w", width=20,
                              font=ui_font(None, "bold"))
     label_preview.grid(row=2, column=1, pady=4, sticky="w")
 
     # Right-aligned next to its field, like the labels in the other sections.
-    tk.Label(info_container, text="Prefix", anchor="e").grid(
+    ttk.Label(info_container, text="Prefix", anchor="e").grid(
         row=3, column=0, pady=4, padx=(0, 8), sticky="e")
-    prefix_entry = tk.Entry(info_container, textvariable=prefix_var, width=20)
+    prefix_entry = ttk.Entry(info_container, textvariable=prefix_var, width=20)
     prefix_entry.grid(row=3, column=1, pady=4, sticky="w")
 
     # The counter row: its two fields each carry their own name, like Starting from.
-    tk.Label(info_container, text="Counter", anchor="e").grid(
+    ttk.Label(info_container, text="Counter", anchor="e").grid(
         row=4, column=0, pady=4, padx=(0, 8), sticky="e")
-    digits_frame = tk.Frame(info_container)
+    digits_frame = ttk.Frame(info_container)
     digits_frame.grid(row=4, column=1, pady=4, sticky="w")
-    tk.Label(digits_frame, text="Digits").pack(side="left", padx=(0, 2))
-    digits_menu = tk.OptionMenu(digits_frame, digits_var, *LABEL_DIGIT_OPTIONS)
+    ttk.Label(digits_frame, text="Digits").pack(side="left", padx=(0, 2))
+    digits_menu = Dropdown(digits_frame, digits_var, LABEL_DIGIT_OPTIONS)
     digits_menu.pack(side="left")
-    tk.Label(digits_frame, text="Starting from").pack(side="left", padx=(12, 2))
-    start_entry = tk.Entry(digits_frame, textvariable=start_var, width=6)
+    ttk.Label(digits_frame, text="Starting from").pack(side="left", padx=(12, 2))
+    start_entry = ttk.Entry(digits_frame, textvariable=start_var, width=6)
     start_entry.pack(side="left")
 
     # Spans both columns so its long text doesn't widen column 0 (which would
     # push the Prefix/Digits fields to the right).
-    tk.Checkbutton(info_container, text="Autosave Raw Data", variable=save_raw_var).grid(
+    ttk.Checkbutton(info_container, text="Autosave Raw Data", variable=save_raw_var).grid(
         row=5, column=0, columnspan=2, pady=4, sticky="w")
     # The name the file will get, on its own line under the checkbox's text.
     # The time part is only stamped at Run, so it stands in as its format (see
@@ -1003,7 +1035,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # the text shifted a little on every keystroke), and a name too long for
     # the column is cut off instead of widening the window. The row stays
     # while auto-save is off, so the window's height doesn't change either.
-    save_note = tk.Label(info_container, text="", fg="gray", anchor="w", width=1)
+    save_note = ttk.Label(info_container, text="", foreground="gray", anchor="w", width=1)
     save_note.grid(row=6, column=0, columnspan=2, padx=(CHECKBOX_TEXT_INDENT, 0), pady=(0, 4),
                    sticky="ew")
 
@@ -1020,9 +1052,9 @@ def get_inputs(readout=None, auto_run=False, source=None):
             start  = start_var.get().strip()
             over   = digits in LABEL_DIGIT_OPTIONS[1:] and start.isascii() and start.isdigit() and int(start) >= 10 ** int(digits)
             label_preview.config(text=f"over {10 ** int(digits) - 1}" if over else "invalid",
-                                 fg="red" if on else "gray")
+                                 foreground="red" if on else "gray")
         else:
-            label_preview.config(text=label, fg="black" if on else "gray")
+            label_preview.config(text=label, foreground="black" if on else "gray")
 
         # Filename preview: shown only while auto-save is on, and the label is
         # included only when there is a valid one.
@@ -1051,13 +1083,13 @@ def get_inputs(readout=None, auto_run=False, source=None):
         _bind_checkbox_key(root, "p", readout_section.enable_cb)
         _bind_checkbox_key(root, "l", readout_section.laser_cb)
 
-    save_frame = tk.Frame(frame)
+    save_frame = ttk.Frame(frame)
     save_frame.grid(row=SAVEBTN_ROW, column=0, columnspan=COLS, pady=10)
-    save_btn = tk.Button(save_frame, text="Save", command=on_save, width=10)
+    save_btn = ttk.Button(save_frame, text="Save", command=on_save, width=10)
     save_btn.pack(side="left", padx=5)
-    change_btn = tk.Button(save_frame, text="Change", command=on_change_params, width=10, state="disabled")
+    change_btn = ttk.Button(save_frame, text="Change", command=on_change_params, width=10, state="disabled")
     change_btn.pack(side="left", padx=5)
-    preset_save_btn = tk.Button(save_frame, text="Manage Presets...", command=on_save_preset, state="disabled")
+    preset_save_btn = ttk.Button(save_frame, text="Manage Presets...", command=on_save_preset, state="disabled")
     preset_save_btn.pack(side="left", padx=5)
 
     # ---- Middle column: Reference, Instruments, then Status ----------------
@@ -1065,7 +1097,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # line across the column's full width. The column is as wide as the Status
     # box, unless a section needs more.
     def column_section(title, info=None, first=False):
-        sec = tk.Frame(mid_col)
+        sec = ttk.Frame(mid_col)
         sec.pack(anchor="w", fill="x", pady=(0 if first else 16, 0))
         sec.columnconfigure(0, weight=1)
         section_header(sec, title, 0, info=info, span=1)
@@ -1077,25 +1109,38 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # row stays while there's no data, so a change of text moves nothing.
     ref_sec = column_section("Reference", info=REFERENCE_INFO, first=True)
     ref_var = tk.IntVar(value=0)
-    ref_check = tk.Checkbutton(ref_sec, text="Use Reference (R)", variable=ref_var,
-                               command=on_toggle_ref, state="disabled")
+    ref_check = ttk.Checkbutton(ref_sec, text="Use Reference (R)", variable=ref_var,
+                                command=on_toggle_ref, state="disabled")
     ref_check.grid(row=2, column=0, sticky="w")
     _bind_checkbox_key(root, "r", ref_check)
     # Bold, at the other labels' size.
-    status_value = tk.Label(ref_sec, text="No Data", fg="black", font=ui_font(None, "bold"), anchor="w")
+    status_value = ttk.Label(ref_sec, text="No Data", foreground="black", font=ui_font(None, "bold"), anchor="w")
     status_value.grid(row=3, column=0, sticky="w", padx=(CHECKBOX_TEXT_INDENT, 0), pady=(2, 0))
     # The dark gray of the Power Readout's PM and Laser values.
-    ref_time_value = tk.Label(ref_sec, text="", fg="gray30", anchor="w")
+    ref_time_value = ttk.Label(ref_sec, text="", foreground="gray30", anchor="w")
     ref_time_value.grid(row=4, column=0, sticky="w", padx=(CHECKBOX_TEXT_INDENT, 0))
 
     # ---- Instruments -------------------------------------------------------
     inst_sec = column_section("Instruments")
-    run_btn = tk.Button(inst_sec, text="Run (Enter)", command=on_run, width=10, state="disabled")
+    run_btn = ttk.Button(inst_sec, text="Run (Enter)", command=on_run, width=10, state="disabled")
     run_btn.grid(row=2, column=0, sticky="w", pady=(2, 0))
 
-    # Enter triggers Run when it's enabled (on_run is a no-op until saved).
-    root.bind("<Return>", lambda _e: on_run())
-    root.bind("<KP_Enter>", lambda _e: on_run())
+    # Enter starts Run when it's enabled (on_run is a no-op until saved), but
+    # does nothing while the focus is in a field that takes text, so typing a
+    # label or a wavelength can't start a sweep (#141). Esc takes the focus
+    # out of such a field, to the window, so Enter and the letter keys work
+    # again. The dialogs keep their own Esc, which closes them.
+    def on_enter(event):
+        if not _takes_text(event.widget):
+            on_run()
+
+    def on_escape(event):
+        if _takes_text(event.widget):
+            root.focus_set()
+
+    root.bind("<Return>", on_enter)
+    root.bind("<KP_Enter>", on_enter)
+    root.bind("<Escape>", on_escape)
 
     # ---- Status ------------------------------------------------------------
     # Every message, the Power Readout's too. A fixed box, so no message ever
@@ -1103,10 +1148,8 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # If a section makes the column wider, the box stretches with it, and the
     # text wraps at whatever width it gets. The text starts at the top left.
     status_sec = column_section("Status")
-    result_label = tk.Label(status_sec, name="status", text="", width=STATUS_CHARS,
-                            height=STATUS_LINES, justify="left", anchor="nw")
-    result_label.grid(row=2, column=0, sticky="ew")
-    _wrap_to_width(result_label)
+    status_box, result_label = _fixed_text_box(status_sec, STATUS_CHARS, STATUS_LINES, "status")
+    status_box.grid(row=2, column=0, sticky="ew")
 
     update_ref_ui()
 
@@ -1117,17 +1160,17 @@ def get_inputs(readout=None, auto_run=False, source=None):
         on_save()
 
     if preset_error:
-        result_label.config(text=MSG_PRESETS_OFF.format(error=preset_error), fg="red")
+        result_label.config(text=MSG_PRESETS_OFF.format(error=preset_error), foreground="red")
 
     # The previous sweep may have pushed the label counter past its digit limit.
     # Say so now rather than only when Run is pressed (or a Repeat stalls).
     if add_label_var.get():
         _, _, label_error = validate_label(prefix_var.get(), digits_var.get(), start_var.get())
         if label_error:
-            result_label.config(text=f"Error: {label_error}", fg="red")
+            result_label.config(text=f"Error: {label_error}", foreground="red")
     # The last graph window's label change that couldn't be carried over.
     if _state["notice"]:
-        result_label.config(text=_state["notice"], fg="red")
+        result_label.config(text=_state["notice"], foreground="red")
         _state["notice"] = None
 
     # Repeat from the plot window: the values are already saved (above), so just
