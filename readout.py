@@ -16,8 +16,9 @@ Three session settings live here too, so both panels show the same thing:
 `enabled` ("Use Power Readout", off when the app starts: while it's off the
 panels never call start() or read(), and Laser On follows it, see
 set_enabled()), `channels` (the channels shown and queried) and
-`follow_start` ("Use Range 1's (λ Start - λ Padding)": the wavelength
-follows the sweep's first wavelength while the Parameters are saved).
+`follow_start` ("Use Range 1's (λ Start - λ Padding)": while the readout
+is on, the wavelength follows the sweep's first wavelength in the saved
+Parameters, which the panels pass in; see follow()).
 """
 import logging
 import math
@@ -77,10 +78,11 @@ class PowerReadout:
         self.enabled  = False         # "Use Power Readout": off when the app starts
         self.channels = {1}           # the channels shown and queried, out of 1-4
         self.follow_start = True      # "Use Range 1's (λ Start - λ Padding)"
-        # Range 1's λ Start - λ Padding of the saved Parameters, clamped to the
-        # source's range. None while there are none: before the first Save,
-        # and while the config window's Parameters are unlocked.
-        self.start_nm = None
+        # The TLS power cap: the lowest of the source's power limits. A power
+        # at or below it is allowed at every wavelength, so the wavelength can
+        # move without a power check. None for a source without power rules.
+        limits = [rule[2] for rule in source_spec["power_rules"]]
+        self.max_dbm  = min(limits) if limits else None
         self._lock    = threading.Lock()
         self._active  = False
         self._ranges  = None
@@ -91,13 +93,14 @@ class PowerReadout:
         """False for an external source: the power field and On/Off are disabled."""
         return self.laser is not None
 
-    @property
-    def following(self):
+    def following(self, params):
         """True while the wavelength follows Range 1's λ Start - λ Padding: the
-        box is checked and the Parameters are saved (start_nm). The panels
-        gray the λ field only then, so it stays editable while the Parameters
-        are unlocked."""
-        return self.follow_start and self.start_nm is not None
+        box is checked and there are saved Parameters. `params` is what the
+        panel has saved: None before the first Save and while the config
+        window's Parameters are unlocked (the graph window's always are). The
+        panels gray the λ field only then, so it stays editable while the
+        Parameters are unlocked."""
+        return self.follow_start and params is not None
 
     # ---- lifecycle: one call per panel open / close ---------------------
 
@@ -196,19 +199,13 @@ class PowerReadout:
             self.enabled = False
         log.info("[READOUT] turned off%s", ", laser off" if self.laser else "")
 
-    def params_unlocked(self):
-        """The config window's Parameters were unlocked (a new window, Change
-        or an edit): there's no saved λ Start to follow until the next Save,
-        so the λ field opens for editing. Sends nothing."""
-        self.start_nm = None
-
     def apply(self, wl_text, dbm_text):
-        """Apply: check both fields first, the TLS power against the source's
-        power rule at the new wavelength, and only then send them, in this
-        order: the wavelength to the meter (all channels) and the laser, then
-        the power. Returns an error message, and then nothing was sent, or
-        None when applied. Without a laser only the wavelength goes out.
-        Refused while the readout is off (the panels disable Apply then)."""
+        """Apply: check both fields first, the TLS power against the cap
+        (max_dbm), and only then send them, in this order: the wavelength to
+        the meter (all channels) and the laser, then the power. Returns an
+        error message, and then nothing was sent, or None when applied.
+        Without a laser only the wavelength goes out. Refused while the
+        readout is off (the panels disable Apply then)."""
         if not self.enabled:
             return "Use Power Readout is off."
         wl, error = self._parse_wavelength(wl_text)
@@ -220,9 +217,10 @@ class PowerReadout:
                 dbm = float(dbm_text)
             except (TypeError, ValueError):
                 return "TLS power must be a number."
-            error = self._power_error(dbm, wl)
-            if error:
-                return error
+            if not math.isfinite(dbm):
+                return "TLS power must be a number."
+            if self.max_dbm is not None and dbm > self.max_dbm:
+                return f"TLS power must be {self.max_dbm:g} dBm or less."
         with self._lock:
             self._write_wavelength(wl)
             if self.laser:
@@ -247,34 +245,27 @@ class PowerReadout:
                 self.actual["pm_wl_nm"] = None
             self.channels = channels
 
-    def set_sweep_start(self, params):
-        """Save's hook: remember Range 1's λ Start - λ Padding, where the sweep
-        sends the laser first (inst_run.padded_range), clamped to the source's
-        range. Then follow it, if the box is checked. Returns follow()'s error
-        message, or None."""
+    def follow(self, params):
+        """"Use Range 1's (λ Start - λ Padding)": move the readout's wavelength
+        to Range 1's start in the saved Parameters `params` (see following()),
+        where the sweep sends the laser first (inst_run.padded_range), clamped
+        to the source's range. The panels call it when the readout turns on,
+        when the box gets checked, and on a Save while the readout is on. Does
+        nothing while the readout is off, the box is unchecked or there are no
+        saved Parameters. Sends Apply's wavelength commands, only when the
+        wavelength changes and the readout is running; otherwise only the
+        setting changes, and the next start() sends it. No power check: the
+        TLS power is at most max_dbm, which every wavelength allows."""
+        if not (self.enabled and self.following(params)):
+            return
         lo, hi = self.spec["wl_min"], self.spec["wl_max"]
-        self.start_nm = min(max(padded_range(params, 0)[0], lo), hi)
-        return self.follow()
-
-    def follow(self):
-        """With "Use Range 1's (λ Start - λ Padding)" checked and the Parameters
-        saved, move the readout's wavelength to start_nm: Apply's wavelength
-        commands after the same power check, and only when start_nm differs
-        from the current wavelength. While the readout isn't running, only the
-        setting changes, and the next start() sends it. Returns an error
-        message (nothing changed), or None."""
-        if not self.follow_start or self.start_nm is None or self.start_nm == self.wl_nm:
-            return None
-        wl = self.start_nm
-        if self.laser:
-            error = self._power_error(self.dbm, wl)
-            if error:
-                return error
+        wl = min(max(padded_range(params, 0)[0], lo), hi)
+        if wl == self.wl_nm:
+            return
         with self._lock:
             if self._active:
                 self._write_wavelength(wl)
             self.wl_nm = wl
-        return None
 
     def set_emission(self, on):
         """Laser emission on/off. No-op without a laser, or while the readout
@@ -317,13 +308,6 @@ class PowerReadout:
         if self.laser:
             self.laser.write(f":SOURCE0:WAVE {wl:.5f} NM")
 
-    def _power_rule(self, wl):
-        """The (lo, hi, max_dbm) band that applies at `wl`: of the source's
-        bands containing it, the one with the highest limit (same rule as
-        validate_inputs). None when no band applies or the list is empty."""
-        applicable = [rule for rule in self.spec["power_rules"] if rule[0] <= wl <= rule[1]]
-        return max(applicable, key=lambda rule: rule[2]) if applicable else None
-
     def _parse_wavelength(self, text):
         """(wavelength, None), or (None, error message) for a field that isn't
         a number inside the source's range."""
@@ -335,14 +319,6 @@ class PowerReadout:
         if not (lo <= wl <= hi):
             return None, f"Wavelength must be between {lo:g} and {hi:g} nm."
         return wl, None
-
-    def _power_error(self, dbm, wl):
-        """The error message when TLS power `dbm` is over the limit at `wl`, or None."""
-        rule = self._power_rule(wl)
-        if rule and dbm > rule[2]:
-            lo, hi, lim = rule
-            return f"TLS power exceeds the maximum ({lim:g} dBm) in {lo:g}-{hi:g} nm."
-        return None
 
 
 def format_wl(wl_nm):
