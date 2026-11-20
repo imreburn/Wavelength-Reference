@@ -1769,11 +1769,12 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     def _readout_disabled():
         """What's disabled now: everything but Use Power Readout while the
         readout is off; the λ field also while it follows the sweep's start
-        (readout.following, which needs saved Parameters: after a Run they
-        always are); the power field and Laser On without a laser."""
+        (readout.following, which needs saved Parameters: here they're the
+        Run's `params`, always saved); the power field and Laser On without a
+        laser."""
         on = readout is not None and readout.enabled
         return {'laser': not (on and _ro_has_laser),
-                'wl':    not on or readout.following,
+                'wl':    not on or readout.following(params),
                 'other': not on}     # the follow box, Apply, Reset Max, the channel boxes
 
     def _readout_options(dis):
@@ -2674,10 +2675,11 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     # Use Power Readout and Use Range 1's (λ Start - λ Padding): session
     # settings on the readout, shared with the config window. Laser On
     # follows Use Power Readout (readout.set_enabled): turning the readout on
-    # checks Laser On and runs start() (the instrument check, then its setup,
-    # which turns the laser on); off turns the laser off and sends nothing
-    # else. Checking the follow box moves the readout to the sweep's start
-    # (readout.follow()).
+    # checks Laser On, moves the λ to the sweep's start if the follow box is
+    # checked (readout.follow), and runs start() (the instrument check, then
+    # its setup, which turns the laser on and sends the λ); off turns the
+    # laser off and sends nothing else. Checking the follow box moves the
+    # readout to the sweep's start too.
     @app.callback(
         Output('readout-laser', 'options'),
         Output('readout-laser', 'value', allow_duplicate=True),
@@ -2702,6 +2704,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
             on = 'on' in (enable_value or [])
             if on and not readout.enabled:
                 readout.set_enabled(True)
+                readout.follow(params)
                 try:
                     readout.start()
                 except Exception:
@@ -2720,15 +2723,12 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
             laser = ['on'] if readout.emission else []
         else:
             readout.follow_start = 'on' in (follow_value or [])
-            if readout.follow_start:
-                error = readout.follow()
-                if error:
-                    msg = html.Span(error, style={'color': 'red'})
+            readout.follow(params)
         dis = _readout_disabled()
         laser_opts, follow_opts, ch_opts = _readout_options(dis)
         # The λ field shows the setting while it follows (grayed). Otherwise it
         # keeps what was typed, as in the config window.
-        wl_value = format_wl(readout.wl_nm) if readout.following else dash.no_update
+        wl_value = format_wl(readout.wl_nm) if readout.following(params) else dash.no_update
         return (laser_opts, laser, dis['wl'], wl_value, dis['laser'], follow_opts,
                 dis['other'], dis['other'], ch_opts, msg)
 

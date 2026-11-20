@@ -1,6 +1,6 @@
 # Changelog
 
-## [3.0.2] - 2026-11-19
+## [3.0.2] - 2026-11-20
 
 ### Added
 
@@ -18,8 +18,9 @@
 - "Label (SN)" is now "Label/SN".
 - In the graph window, P opens Power Readout (was R), K opens Save Peak Info (was P), C is the new shortcut for "Clear all", and L is the new shortcut for "Laser On" in Power Readout.
 - The config window's buttons, checkboxes, fields and dropdowns now have the standard Windows look. ([#155](https://github.com/imreburn/Wavelength-Reference/issues/155))
-- In the config window, Enter in a field no longer starts Run or applies the Power Readout. Esc, or clicking a button, checkbox or dropdown, takes the focus out of the field. ([#141](https://github.com/imreburn/Wavelength-Reference/issues/141))
+- In the config window, if the cursor focus is in a field, Enter no longer starts Run or applies the Power Readout. Esc, or clicking a button, checkbox or dropdown, takes the focus out of the field. ([#141](https://github.com/imreburn/Wavelength-Reference/issues/141))
 - In the config window, Tab goes down each range's λ Start and λ Stop before moving to the next range, and through the Peak Test Criteria one range at a time. ([#136](https://github.com/imreburn/Wavelength-Reference/issues/136))
+- The Power Readout's TLS Power can't go above 5 dBm, so it's allowed at every wavelength.
 
 ### Fixed
 

@@ -321,8 +321,9 @@ def get_inputs(readout=None, auto_run=False, source=None):
             step_note.config(text="")   # it's about the value Save locked in
         _pin_padding()
         # The Power Readout's λ field follows the saved Parameters only, so it
-        # opens for editing while they're unlocked. Save locks them again and
-        # then calls sweep_saved (on_save).
+        # opens for editing while they're unlocked (saved["ok"] is already
+        # False here). Save locks them again and then calls sweep_saved
+        # (on_save).
         if readout_section and not locked:
             readout_section.params_unlocked()
 
@@ -421,13 +422,10 @@ def get_inputs(readout=None, auto_run=False, source=None):
         # Take the keyboard focus away from whichever field had it (Enter does
         # nothing in a field that takes text), so Enter now starts Run.
         root.focus_set()
-        # The Power Readout's λ can follow Range 1's λ Start - λ Padding. Its
-        # message, if any, shows after Save's (or a loaded preset's), so that
-        # one doesn't replace it.
+        # The Power Readout's λ can follow Range 1's λ Start - λ Padding, while
+        # the readout is on.
         if readout_section:
-            readout_msg = readout_section.sweep_saved(params)
-            if readout_msg:
-                root.after_idle(lambda: show_status(readout_msg, "red"))
+            readout_section.sweep_saved()
         return None
 
     # Set while set_preset_name() writes a name, so on_preset_change leaves
@@ -1103,11 +1101,13 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # Started once the window is up (below), except on a Repeat; Run and Close
     # stop it. Its messages show in the Status section.
     if readout is not None:
-        readout_section = ReadoutSection(right_col, readout, show_status)
+        # Its follow box reads the saved Parameters: `params` once Save has
+        # filled it, None while they're unlocked. A new window starts
+        # unlocked; when it reopens with a previous Run's values, the
+        # auto-Save below locks them again.
+        readout_section = ReadoutSection(right_col, readout, show_status,
+                                         lambda: params if saved["ok"] else None)
         readout_section.frame.pack(anchor="w", fill="x", pady=(16, 0))
-        # A new window's Parameters start unlocked. When it reopens with a
-        # previous Run's values, the auto-Save below locks them again.
-        readout_section.params_unlocked()
         _bind_checkbox_key(root, "p", readout_section.enable_cb)
         _bind_checkbox_key(root, "l", readout_section.laser_cb)
 

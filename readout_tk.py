@@ -36,11 +36,14 @@ class ReadoutSection:
     """Widgets plus tick. Pack or grid `.frame` where the section should sit,
     then start(); stop() before the window is torn down. `show_message(text,
     color)` shows the section's messages, in the config window's Status
-    section."""
+    section. `saved_params()` returns the config window's saved Parameters,
+    or None while there are none (before the first Save, and while they're
+    unlocked): "Use Range 1's (λ Start - λ Padding)" reads them from there."""
 
-    def __init__(self, parent, readout, show_message):
+    def __init__(self, parent, readout, show_message, saved_params):
         self.readout      = readout
         self.show_message = show_message
+        self.saved_params = saved_params
         self._job         = None      # pending after() id: the deferred start, or the next tick
         self._started     = False
 
@@ -200,7 +203,7 @@ class ReadoutSection:
         laser_state = state if self.readout.has_laser else "disabled"
         self.laser_cb.config(state=laser_state)
         self.dbm_entry.config(state=laser_state)
-        self.wl_entry.config(state="disabled" if self.readout.following else state)
+        self.wl_entry.config(state="disabled" if self.readout.following(self.saved_params()) else state)
         for w in (self.follow_cb, self.apply_btn, self.reset_btn, *self.ch_cbs):
             w.config(state=state)
 
@@ -244,9 +247,11 @@ class ReadoutSection:
 
     def toggle_enabled(self):
         """Use Power Readout, with Laser On following it (readout.set_enabled).
-        On checks Laser On and runs the readout's start() (the instrument
-        check, then its setup, which turns the laser on); off stops the tick
-        and turns the laser off, the only command it sends."""
+        On checks Laser On, moves the λ to the saved Parameters' sweep start
+        if the follow box is checked, and runs the readout's start() (the
+        instrument check, then its setup, which turns the laser on and sends
+        the λ); off stops the tick and turns the laser off, the only command
+        it sends."""
         on = bool(self.enable_var.get())
         if not on:
             self.stop()
@@ -256,6 +261,10 @@ class ReadoutSection:
             log.exception("Power readout: the laser didn't turn off")
             self.show_message(MSG_LASER_OFF_FAILED, "red")
         self.laser_var.set(int(self.readout.emission))
+        if on:
+            # Saves made while it was off changed nothing here, so catch up
+            # with the saved Parameters before start() sends the wavelength.
+            self._follow()
         self._set_states()
         self._show_rows(None)
         self._show_actual()
@@ -266,30 +275,35 @@ class ReadoutSection:
         """Use Range 1's (λ Start - λ Padding). Checking it moves the readout to
         the saved Parameters' sweep start; while they're unlocked it changes
         nothing yet, and the λ field keeps what was typed. Unchecking leaves
-        the λ field to edit, and sends nothing."""
+        the λ field to edit, and sends nothing. The box is disabled while the
+        readout is off."""
         self.readout.follow_start = bool(self.follow_var.get())
-        if self.readout.following:
-            error = self.readout.follow()
-            if error:
-                self.show_message(MSG_PREFIX + error, "red")
-            self._set_wl_field(format_wl(self.readout.wl_nm))
+        if self.readout.follow_start:
+            self._follow()
         self._set_states()
 
-    def sweep_saved(self, params):
-        """Save's hook: Range 1's λ Start or the padding may have changed. With
-        the box checked, the λ field follows from now on, grayed. Returns the
-        message to show, or None."""
-        error = self.readout.set_sweep_start(params)
-        if self.readout.following:
+    def _follow(self):
+        """Move the readout to the saved Parameters' sweep start, if the box is
+        checked and they're saved (readout.follow), and show it in the λ
+        field."""
+        params = self.saved_params()
+        self.readout.follow(params)
+        if self.readout.following(params):
             self._set_wl_field(format_wl(self.readout.wl_nm))
+
+    def sweep_saved(self):
+        """Save's hook: Range 1's λ Start or the padding may have changed. The
+        readout comes first: while it's off, nothing in the section changes,
+        and turning it on catches up (toggle_enabled). While it's on and the
+        box is checked, the λ field follows, grayed."""
+        if self.readout.enabled:
+            self._follow()
         self._set_states()
-        return None if error is None else MSG_PREFIX + error
 
     def params_unlocked(self):
-        """The config window's hook for unlocked Parameters (a new window,
-        Change, or an edit): the λ field opens for editing until the next
-        Save, even with the box checked. Sends nothing."""
-        self.readout.params_unlocked()
+        """The config window's hook for unlocked Parameters (Change, or an
+        edit): the λ field opens for editing until the next Save, even with
+        the box checked. Sends nothing."""
         self._set_states()
 
     def channels_changed(self):
