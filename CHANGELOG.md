@@ -5,16 +5,16 @@
 ### Added
 
 - "Use Power Readout (P)" turns the Power Readout on and off. It's off when the program starts, and turning it on or off also turns the laser on or off. ([#149](https://github.com/imreburn/Wavelength-Reference/issues/149))
-- The Power Readout shows only the channels checked, and channel 1 is checked by default. ([#147](https://github.com/imreburn/Wavelength-Reference/issues/147))
+- The Power Readout shows only the checked channels, and channel 1 is checked by default. ([#147](https://github.com/imreburn/Wavelength-Reference/issues/147))
 - "Use Range 1's (λ Start - λ Padding)" keeps the Power Readout at the sweep's start wavelength, so the laser doesn't move before a sweep.
 
 ### Changed
 
 - "Save peak info" saves numbers as measured. The decimals buttons set only how many decimal places the dialog and the Excel file show.
-- In "Save peak info" files, "replaced" in the Status column is red.
-- In "Save peak info", now Temperature is checked, and it must be between 18 and 29 °C with at most one decimal place, or empty. The box keeps the last saved Temperature until the program closes. ([#158](https://github.com/imreburn/Wavelength-Reference/issues/158))
-- Peaks are named by their wavelength with 1 decimal place, like "1568.0", replacing IDs (P1, P2, ...). ([#138](https://github.com/imreburn/Wavelength-Reference/issues/138))
-- The Peak test result shows its base in its title, like "Peak test result (Max base)". ([#170](https://github.com/imreburn/Wavelength-Reference/issues/170))
+- In "Save peak info", "replaced" in the Status column is red in the Excel file.
+- In "Save peak info", now Temperature goes through a check, and it must be between 18 and 29 °C with at most one decimal place, or empty. The box keeps the last saved Temperature until the program closes. ([#158](https://github.com/imreburn/Wavelength-Reference/issues/158))
+- Peaks are named by their wavelength with 1 decimal place (e.g. "1568.0"), replacing IDs (P1, P2, ...). ([#138](https://github.com/imreburn/Wavelength-Reference/issues/138))
+- The Peak test result shows its base in its title (e.g. "Peak test result (Max base)"). ([#170](https://github.com/imreburn/Wavelength-Reference/issues/170))
 - "Label (SN)" is now "Label/SN".
 - In the graph window, P opens Power Readout (was R), K opens Save Peak Info (was P), C is the new shortcut for "Clear all", and L is the new shortcut for "Laser On" in Power Readout.
 - The config window's buttons, checkboxes, fields and dropdowns now have the standard Windows look. ([#155](https://github.com/imreburn/Wavelength-Reference/issues/155))
@@ -23,7 +23,6 @@
 
 ### Fixed
 
-- The Power Readout's Apply sends nothing when the entered TLS power is too high.
 - In "Save peak info", saving the same peak again sometimes didn't mark the earlier row "replaced". ([#135](https://github.com/imreburn/Wavelength-Reference/issues/135))
 - In "Save peak info", a peak or column field in the table sometimes went blank. ([#167](https://github.com/imreburn/Wavelength-Reference/issues/167))
 
