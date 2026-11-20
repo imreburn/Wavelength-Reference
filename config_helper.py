@@ -575,7 +575,15 @@ class Dropdown(ttk.Combobox):
     longest value, from `min_width` up to `max_width` characters. The mouse
     wheel and the touchpad don't step its value, as they do in a plain
     Combobox, where a scroll over Load Preset would load (and lock) a preset.
+    Its list shows up to LIST_ROWS items before it scrolls.
     """
+
+    # The most items a list shows before it scrolls: Windows' own default for
+    # its dropdowns. On Windows, each time a list opens, Tk makes it as tall
+    # as its items, up to the Combobox's height (10 rows unless set, so Sweep
+    # Speed's 13 items scrolled). The Mac ignores it: there the list is a
+    # native menu that shows every item.
+    LIST_ROWS = 30
 
     # The events Tk's Combobox class steps the value on. Tk 8.6 has no
     # <TouchpadScroll>, so each one is bound only where Tk knows it.
@@ -585,7 +593,7 @@ class Dropdown(ttk.Combobox):
     def __init__(self, master, variable, values, width=None, min_width=None, max_width=None):
         self._fit = width is None
         self._min_width, self._max_width = min_width, max_width
-        super().__init__(master, textvariable=variable, state="readonly")
+        super().__init__(master, textvariable=variable, state="readonly", height=self.LIST_ROWS)
         self.set_values(values, width)
         for seq in self._WHEEL_EVENTS:
             try:
