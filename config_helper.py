@@ -566,6 +566,65 @@ def ui_font(size, *style):
     return (default.actual("family"), default.cget("size") if size is None else size, *style)
 
 
+class Dropdown(ttk.Combobox):
+    """A field that picks from a list: a readonly ttk.Combobox, in place of
+    tk.OptionMenu (#155).
+
+    It never takes typing: state "normal", which the window uses to enable a
+    field, becomes "readonly" here. Unless `width` is given, it fits its
+    longest value, from `min_width` up to `max_width` characters. The mouse
+    wheel and the touchpad don't step its value, as they do in a plain
+    Combobox, where a scroll over Load Preset would load (and lock) a preset.
+    Its list shows up to LIST_ROWS items before it scrolls.
+    """
+
+    # The most items a list shows before it scrolls: Windows' own default for
+    # its dropdowns. On Windows, each time a list opens, Tk makes it as tall
+    # as its items, up to the Combobox's height (10 rows unless set, so Sweep
+    # Speed's 13 items scrolled). The Mac ignores it: there the list is a
+    # native menu that shows every item.
+    LIST_ROWS = 30
+
+    # The events Tk's Combobox class steps the value on. Tk 8.6 has no
+    # <TouchpadScroll>, so each one is bound only where Tk knows it.
+    _WHEEL_EVENTS = ("<MouseWheel>", "<Shift-MouseWheel>", "<Mod2-MouseWheel>",
+                     "<TouchpadScroll>", "<Button-4>", "<Button-5>")
+
+    def __init__(self, master, variable, values, width=None, min_width=None, max_width=None):
+        self._fit = width is None
+        self._min_width, self._max_width = min_width, max_width
+        super().__init__(master, textvariable=variable, state="readonly", height=self.LIST_ROWS)
+        self.set_values(values, width)
+        for seq in self._WHEEL_EVENTS:
+            try:
+                self.bind(seq, lambda _e: "break")
+            except tk.TclError:
+                pass
+
+    def set_values(self, values, width=None):
+        """Replace the list. A fitted width follows its longest value."""
+        values = [str(v) for v in values]
+        if width is None and self._fit:
+            width = max((len(v) for v in values), default=1) + 2
+            if self._min_width:
+                width = max(width, self._min_width)
+            if self._max_width:
+                width = min(width, self._max_width)
+        options = {"values": values}
+        if width is not None:
+            options["width"] = width
+        super().configure(**options)
+
+    def configure(self, cnf=None, **kw):
+        if isinstance(cnf, dict) and cnf.get("state") == "normal":
+            cnf = {**cnf, "state": "readonly"}
+        if kw.get("state") == "normal":
+            kw["state"] = "readonly"
+        return super().configure(cnf, **kw)
+
+    config = configure
+
+
 def section_header(frame, text, row, info=None, span=2):
     """Place a bold section title plus a horizontal separator line below it.
 
@@ -574,9 +633,9 @@ def section_header(frame, text, row, info=None, span=2):
     `span`  grid columns the title and line cover. The line stretches across
             them, so pass every column the section uses.
     """
-    title = tk.Frame(frame)
+    title = ttk.Frame(frame)
     title.grid(row=row, column=0, columnspan=span, sticky="w", pady=(10, 0))
-    tk.Label(title, text=text, font=ui_font(10, "bold"), anchor="w").pack(side="left")
+    ttk.Label(title, text=text, font=ui_font(10, "bold"), anchor="w").pack(side="left")
     if info:
         info_icon(title, text, info).pack(side="left", padx=(4, 0))
     ttk.Separator(frame, orient="horizontal").grid(
@@ -610,11 +669,11 @@ def info_icon(parent, title, text):
     glyph, font = _info_glyph(parent)
     # No padding/border, so it is no taller than the header text next to it and
     # doesn't push that header lower than the others.
-    icon = tk.Label(parent, text=glyph, font=font, fg=INFO_FG, cursor="hand2",
-                    pady=0, bd=0)
+    icon = ttk.Label(parent, text=glyph, font=font, foreground=INFO_FG, cursor="hand2",
+                     padding=0)
     icon.bind("<Button-1>", lambda _e: show_info(icon, title, text))
-    icon.bind("<Enter>", lambda _e: icon.config(fg=INFO_HOVER_FG))
-    icon.bind("<Leave>", lambda _e: icon.config(fg=INFO_FG))
+    icon.bind("<Enter>", lambda _e: icon.config(foreground=INFO_HOVER_FG))
+    icon.bind("<Leave>", lambda _e: icon.config(foreground=INFO_FG))
     return icon
 
 
@@ -641,22 +700,28 @@ def show_info(widget, title, text):
     flat = INFO_BOLD.sub(r"\1", text).replace("\n", "")
     text_w = round(base.measure(flat) / max(len(flat), 1) * INFO_WRAP_CHARS)
 
+    # Everything sits on a ttk frame that fills the popup, so the window's
+    # own (Tk) background never shows.
+    content = ttk.Frame(top)
+    content.pack(fill="both", expand=True)
     # Packed first, at the bottom, so a long text can never push it off.
     text_pady, close_pady = (14, 10), (0, 12)
-    close = tk.Button(top, text="Close (Esc)", command=top.destroy, width=10)
+    close = ttk.Button(content, text="Close (Esc)", command=top.destroy, width=10)
     close.pack(side="bottom", pady=close_pady)
-    row = tk.Frame(top)
+    row = ttk.Frame(content)
     row.pack(side="top", anchor="w", padx=16, pady=text_pady)
     # The text sits in a box sized in pixels by fit() below. The scrollbar
     # beside it only shows when the text is taller than the screen allows.
-    box = tk.Frame(row, width=text_w, height=1)
+    box = ttk.Frame(row, width=text_w, height=1)
     box.pack_propagate(False)
     box.pack(side="left")
     bar = ttk.Scrollbar(row, orient="vertical")
 
     # A read-only Text rather than a Label: a Label has one font for all its
-    # text, while a Text can bold parts of it and hang-indent bullets.
-    body = tk.Text(box, font=base, wrap="word", bg=top.cget("bg"), cursor="arrow",
+    # text, while a Text can bold parts of it and hang-indent bullets. Tk's
+    # Text has no ttk version, so it takes the ttk frames' background.
+    body = tk.Text(box, font=base, wrap="word", bg=ttk.Style(top).lookup("TFrame", "background"),
+                   cursor="arrow",
                    bd=0, highlightthickness=0, padx=0, pady=0, takefocus=0,
                    yscrollcommand=bar.set)
     body.pack(fill="both", expand=True)
@@ -700,7 +765,7 @@ def show_info(widget, title, text):
         room = (top.winfo_screenheight() - INFO_BOTTOM_MARGIN - box.winfo_rooty()
                 - text_pady[1] - close.winfo_reqheight() - close_pady[1])
         height = max(min(need, room), 3 * base.metrics("linespace"))
-        if height != int(box.cget("height")):
+        if height != int(str(box.cget("height"))):
             box.config(height=height)
         if need > height and not bar.winfo_manager():
             bar.pack(side="left", fill="y")
@@ -729,11 +794,12 @@ def show_info(widget, title, text):
     top.focus_set()
 
 
-def make_extra_widgets(frame, rows, init, on_change, enable_dynamic=True, span=1):
+def make_extra_widgets(frame, rows, init, on_change, enable_dynamic=True, span=1, width=None):
     """Build the extra dropdowns, one per EXTRA_LABELS entry.
 
     `rows`         dict of label -> grid row; each dropdown goes on its label's row,
                    in column 1 and the `span` - 1 columns after it.
+    `width`        the dropdowns' width in characters; None fits each to its values.
     `init`         dict of label -> initial value (falls back to EXTRA_DEFAULTS).
     `on_change`    callback fired on any selection change.
     `enable_dynamic`  when False, Dynamic Range Scans and Decrement are permanently
@@ -744,9 +810,9 @@ def make_extra_widgets(frame, rows, init, on_change, enable_dynamic=True, span=1
     """
     vars_, menus = {}, {}
     for label in EXTRA_LABELS:
-        tk.Label(frame, text=label_text(label), anchor="e").grid(row=rows[label], column=0, pady=4, padx=(0, 8), sticky="e")
+        ttk.Label(frame, text=label_text(label), anchor="e").grid(row=rows[label], column=0, pady=4, padx=(0, 8), sticky="e")
         v = tk.StringVar(value=init.get(label, EXTRA_DEFAULTS[label]))
-        m = tk.OptionMenu(frame, v, *EXTRA_OPTIONS[label])
+        m = Dropdown(frame, v, EXTRA_OPTIONS[label], width=width)
         m.grid(row=rows[label], column=1, columnspan=span, pady=4, sticky="w")
         v.trace_add("write", on_change)
         vars_[label] = v
@@ -935,6 +1001,6 @@ def validate_passfail(raw, where="Peak Test Criteria"):
 
 
 def validation_error(msg, result_label, num_data, avg_time, saved, run_btn):
-    result_label.config(text=f"Error: {msg}", fg="red")
+    result_label.config(text=f"Error: {msg}", foreground="red")
     saved["ok"] = False
     run_btn.config(state="disabled")

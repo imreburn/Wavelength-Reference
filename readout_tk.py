@@ -7,6 +7,7 @@ config window's Status section, through the callback it is given.
 """
 import logging
 import tkinter as tk
+from tkinter import ttk
 
 from config_helper import section_header, ui_font
 from readout import READOUT_COLUMNS, TK_REFRESH_MS, format_row, format_actual, format_wl
@@ -18,6 +19,8 @@ VALUE_WIDTHS = (7, 11, 11, 11)
 # The text color of a row that shows nothing: an unchecked channel, or every
 # channel while the readout is off. Its values read "—".
 IDLE_FG = "gray60"
+# The channel boxes' ttk style: their numbers in the table's value font.
+CHANNEL_STYLE = "ReadoutChannel.TCheckbutton"
 
 # The section's messages. They show in the config window's Status section,
 # so each starts with where it comes from. The errors from the λ and power
@@ -41,7 +44,7 @@ class ReadoutSection:
         self._job         = None      # pending after() id: the deferred start, or the next tick
         self._started     = False
 
-        f = self.frame = tk.Frame(parent)
+        f = self.frame = ttk.Frame(parent)
         # The line spans the table plus an empty last column that takes any
         # width the parent stretches the frame to, so the line runs its full
         # width without moving the table.
@@ -52,56 +55,47 @@ class ReadoutSection:
         # wavelength field, with "Use Range 1's (λ Start - λ Padding)" under
         # it; the power field; what the instruments currently report to the
         # right of each field; then Apply and Reset Max side by side
-        ctrl = tk.Frame(f)
+        ctrl = ttk.Frame(f)
         ctrl.grid(row=2, column=0, columnspan=5, sticky="w", pady=(0, 2))
-        toggles = tk.Frame(ctrl)
+        toggles = ttk.Frame(ctrl)
         toggles.grid(row=0, column=0, columnspan=3, sticky="w")
-        # The config window binds the P key to this box and L to the next. No
-        # padding, like the section's other checkboxes, to keep the window
-        # short (#145: its bottom was cut off on the lab laptop). Between the
-        # two, the gap their default padding would give (pady 1 plus
-        # highlightthickness 1, on each side).
+        # The config window binds the P key to this box and L to the next.
+        # A 4 px gap between the two (the user's pick, 2026-11-18).
         self.enable_var = tk.IntVar(value=int(readout.enabled))
-        self.enable_cb  = tk.Checkbutton(toggles, text="Use Power Readout (P)",
-                                         variable=self.enable_var, command=self.toggle_enabled,
-                                         pady=0, highlightthickness=0)
+        self.enable_cb  = ttk.Checkbutton(toggles, text="Use Power Readout (P)",
+                                          variable=self.enable_var, command=self.toggle_enabled)
         self.enable_cb.pack(anchor="w")
         self.laser_var = tk.IntVar(value=int(readout.emission))
-        self.laser_cb  = tk.Checkbutton(toggles, text="Laser On (L)", variable=self.laser_var,
-                                        command=self.toggle_laser, pady=0, highlightthickness=0)
+        self.laser_cb  = ttk.Checkbutton(toggles, text="Laser On (L)", variable=self.laser_var,
+                                         command=self.toggle_laser)
         self.laser_cb.pack(anchor="w", pady=(4, 0))
-        tk.Label(ctrl, text="λ (nm)", anchor="e").grid(
+        ttk.Label(ctrl, text="λ (nm)", anchor="e").grid(
             row=1, column=0, sticky="e", padx=(0, 6), pady=2)
-        self.wl_entry = tk.Entry(ctrl, width=9)
+        self.wl_entry = ttk.Entry(ctrl, width=9)
         self.wl_entry.insert(0, format_wl(readout.wl_nm))
         self.wl_entry.grid(row=1, column=1, sticky="w", pady=2)
         self.wl_actual = tk.StringVar()
-        tk.Label(ctrl, textvariable=self.wl_actual, fg="gray30").grid(
+        ttk.Label(ctrl, textvariable=self.wl_actual, foreground="gray30").grid(
             row=1, column=2, sticky="w", padx=(10, 0))
         # Under the λ field, reaching under the read-back so its long text
-        # doesn't widen the field's column. No padding, like the channel boxes,
-        # so the section grows as little as it can.
+        # doesn't widen the field's column.
         self.follow_var = tk.IntVar(value=int(readout.follow_start))
-        self.follow_cb  = tk.Checkbutton(ctrl, text="Use Range 1's (λ Start - λ Padding)",
-                                         variable=self.follow_var, command=self.toggle_follow,
-                                         pady=0, highlightthickness=0)
+        self.follow_cb  = ttk.Checkbutton(ctrl, text="Use Range 1's (λ Start - λ Padding)",
+                                          variable=self.follow_var, command=self.toggle_follow)
         self.follow_cb.grid(row=2, column=1, columnspan=2, sticky="w")
-        tk.Label(ctrl, text="TLS Power (dBm)", anchor="e").grid(
+        ttk.Label(ctrl, text="TLS Power (dBm)", anchor="e").grid(
             row=3, column=0, sticky="e", padx=(0, 6), pady=2)
-        self.dbm_entry = tk.Entry(ctrl, width=9)
+        self.dbm_entry = ttk.Entry(ctrl, width=9)
         self.dbm_entry.insert(0, f"{readout.dbm:g}")
         self.dbm_entry.grid(row=3, column=1, sticky="w", pady=2)
         self.dbm_actual = tk.StringVar()
-        tk.Label(ctrl, textvariable=self.dbm_actual, fg="gray30").grid(
+        ttk.Label(ctrl, textvariable=self.dbm_actual, foreground="gray30").grid(
             row=3, column=2, sticky="w", padx=(10, 0))
-        for e in (self.wl_entry, self.dbm_entry):
-            e.bind("<Return>",   self._on_return)
-            e.bind("<KP_Enter>", self._on_return)
-        btns = tk.Frame(ctrl)
+        btns = ttk.Frame(ctrl)
         btns.grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
-        self.apply_btn = tk.Button(btns, text="Apply", command=self._on_apply_click, width=7)
+        self.apply_btn = ttk.Button(btns, text="Apply", command=self._on_apply_click, width=7)
         self.apply_btn.pack(side="left")
-        self.reset_btn = tk.Button(btns, text="Reset Max", command=self.reset_max)
+        self.reset_btn = ttk.Button(btns, text="Reset Max", command=self.reset_max)
         self.reset_btn.pack(side="left", padx=(8, 0))
 
         # ---- the table: header row, then one row per channel, its checkbox
@@ -109,8 +103,9 @@ class ReadoutSection:
         # fields above them sit to each other: the messages are in the Status
         # section.
         value_font, header_font = ui_font(11), ui_font(10, "bold")
+        ttk.Style(f).configure(CHANNEL_STYLE, font=value_font)
         for col, text in enumerate(READOUT_COLUMNS):
-            tk.Label(f, text=text, font=header_font).grid(
+            ttk.Label(f, text=text, font=header_font).grid(
                 row=3, column=col, padx=3, pady=(4, 1), sticky="w" if col == 0 else "e")
         self.ch_vars  = []    # per channel: its checkbox's IntVar
         self.ch_cbs   = []
@@ -118,20 +113,20 @@ class ReadoutSection:
         self._row_fg  = [None] * 4
         for i in range(4):
             var = tk.IntVar(value=int(i + 1 in readout.channels))
-            # No padding, so a row is no taller than its value labels.
-            cb = tk.Checkbutton(f, text=str(i + 1), variable=var, font=value_font,
-                                pady=0, highlightthickness=0, command=self.channels_changed)
+            cb = ttk.Checkbutton(f, text=str(i + 1), variable=var, style=CHANNEL_STYLE,
+                                 command=self.channels_changed)
             cb.grid(row=4 + i, column=0, padx=(0, 3), sticky="w")
             self.ch_vars.append(var)
             self.ch_cbs.append(cb)
             cells = []
             for col, width in enumerate(VALUE_WIDTHS, start=1):
                 var_ = tk.StringVar(value="—")
-                label = tk.Label(f, textvariable=var_, anchor="e", width=width, font=value_font)
+                label = ttk.Label(f, textvariable=var_, anchor="e", width=width, font=value_font)
                 label.grid(row=4 + i, column=col, padx=3, sticky="e")
                 cells.append((var_, label))
             self.rows.append(tuple(cells))
-        self._value_fg = self.rows[0][0][1].cget("fg")
+        # A live row's color: "" leaves it to the ttk theme.
+        self._value_fg = ""
 
         self._set_states()
         self._show_rows(None)
@@ -211,7 +206,7 @@ class ReadoutSection:
 
     def _set_wl_field(self, text):
         """Write the λ field, even while it's disabled."""
-        state = self.wl_entry.cget("state")
+        state = str(self.wl_entry.cget("state"))
         self.wl_entry.config(state="normal")
         self.wl_entry.delete(0, tk.END)
         self.wl_entry.insert(0, text)
@@ -235,7 +230,7 @@ class ReadoutSection:
             if fg != self._row_fg[i]:
                 self._row_fg[i] = fg
                 for _, label in cells:
-                    label.config(fg=fg)
+                    label.config(foreground=fg)
 
     def _show_actual(self):
         """The read-back labels: what the meter and laser report right now,
@@ -316,18 +311,12 @@ class ReadoutSection:
         return err is None
 
     def _on_apply_click(self):
-        # Clicking Apply also hands keyboard focus back to the window, so Enter
-        # reaches root's Run binding again: the fields swallow Enter while they
-        # have the focus, and nothing else in the window takes it on a click.
-        # Enter inside a field applies but keeps the focus there, so a second
-        # Enter can't start a sweep by accident. On an error the focus stays
-        # put for the correction.
+        # Only a click applies the fields: Enter in them does nothing (#141).
+        # A click gives Apply the keyboard focus, so after a successful Apply
+        # it goes to the window instead, where Space can't apply again. On an
+        # error it stays on Apply.
         if self.apply():
             self.frame.winfo_toplevel().focus_set()
-
-    def _on_return(self, _event):
-        self.apply()
-        return "break"    # keep Enter in these fields from reaching root's Run binding
 
     def toggle_laser(self):
         self.readout.set_emission(bool(self.laser_var.get()))
