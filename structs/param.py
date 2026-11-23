@@ -28,10 +28,21 @@ def _fmt(value, unit=None):
 
 
 @dataclass
+class Options:
+    """One Run's choices that only change what the app does, such as
+    autosaving. Unlike Params, they aren't saved with the data or shown in
+    Sweep Info, so a raw file records the sweep, not how the app was set."""
+    autosave_raw     : bool = False   # "Autosave Raw Data"
+    remind_save_peak : bool = False   # "Remind Me to Save Peak Info"
+
+
+@dataclass
 class Params:
     """One Run's settings. A sweep has one to four wavelength ranges: the
     fields that differ per range are lists, one value per range in range
-    order, and the rest are shared by every range."""
+    order, and the rest are shared by every range. Raw files save every
+    field, and Sweep Info shows them; choices that only change what the app
+    does are in Options."""
     name      : str             = _p(label='Preset',              group='Sweep')
 
     wl_start  : List[float]     = _p(label='λ start',             unit='nm',   group='Sweep')
@@ -56,7 +67,6 @@ class Params:
     crit_base : List[str]       = _p(label='Base',                group='Peak test criteria')
 
     label     : str             = _p(label='Label',               group='Run')
-    save_raw  : bool            = _p(label='Autosave raw data',   group='Run')
     source    : str             = _p(label='Source',              group='Run')
     detector  : str             = _p(label='Detector',            group='Run')
     time      : str             = _p(label='Time',                group='Run')

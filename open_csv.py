@@ -61,7 +61,8 @@ def read_raw(csv_path):
                       f"{params_dict.get('version', 'unknown')} in raw data format {file_format}. "
                       f"This version opens format {RAW_FORMAT} only.")
             return None
-        # A key this version doesn't know (one a later version added) is skipped.
+        # A key this version doesn't know is skipped: one a later version
+        # added, or one an older version saved, like save_raw (now in Options).
         known = {field.name for field in fields(Params)}
         params = Params(**{k: v for k, v in params_dict.items() if k in known})
         df = pd.read_csv(f)

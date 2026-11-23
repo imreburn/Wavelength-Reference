@@ -13,7 +13,7 @@ log = logging.getLogger(__name__)
 
 from constants import APP_VERSION, TLS_SOURCES, DETECTOR, PEAK_BASE_OPTIONS, PEAK_BASE_DEFAULT
 from shutdown import IDLE_SECONDS, IDLE_POLL_MS
-from structs import Params
+from structs import Params, Options
 from readout_tk import ReadoutSection
 from config_helper import (
     FIELD_LABELS, DEFAULTS, SWEEP_SPEED_OPTIONS,
@@ -235,6 +235,9 @@ def _bind_checkbox_key(root, letter, checkbox):
 
 
 def get_inputs(readout=None, auto_run=False, source=None):
+    # Returns (params, options) after Run: the sweep's Params, and the Options
+    # that only change what the app does (autosave, the peak info reminder).
+    # (None, None) when the window closes without Run.
     # readout: the session's readout.PowerReadout, shown live in its own section
     # for as long as this window is up (stopped before Run tears it down). Not
     # started for a Repeat's auto-Run, unless that Run is refused. None runs the
@@ -265,6 +268,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     params.reference = _state["reference"]
     params.source    = source
     params.detector  = DETECTOR
+    options = Options()   # filled at Run
     saved = {"ok": False}
     ran = {"ok": False}
     # The readout section (readout_tk.ReadoutSection), built with the widgets
@@ -550,8 +554,9 @@ def get_inputs(readout=None, auto_run=False, source=None):
             if error:
                 result_label.config(text=f"Error: {error}", foreground="red")
                 return
-        params.label    = label
-        params.save_raw = bool(save_raw_var.get())
+        params.label = label
+        options.autosave_raw     = bool(autosave_raw_var.get())
+        options.remind_save_peak = bool(remind_save_peak_var.get())
 
         # Stamped at Run, not Save, so the time (and the auto-save filename)
         # matches the sweep even if the window sat saved for a while.
@@ -568,7 +573,8 @@ def get_inputs(readout=None, auto_run=False, source=None):
         _state["label_n"] = label_n
         _last["info"] = {"add_label": add_label_var.get(), "prefix": prefix_var.get(),
                          "digits": digits_var.get(), "start": start_var.get(),
-                         "save_raw": save_raw_var.get()}
+                         "autosave_raw": autosave_raw_var.get(),
+                         "remind_save_peak": remind_save_peak_var.get()}
 
         _last["fields"] = field_texts()
         _last["preset"] = preset_var.get()
@@ -581,6 +587,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
         ran["ok"] = True
         _state["pos"] = (root.winfo_x(), root.winfo_y())
         log.info("params: %s", params)
+        log.info("options: %s", options)
         # Stop the readout (and its tick) first, so no `after` callback fires
         # after root.destroy(), and the meter is free before the sweep arms it.
         if readout_section:
@@ -714,7 +721,8 @@ def get_inputs(readout=None, auto_run=False, source=None):
 
     def update_ref_ui():
         # Also syncs the check mark, since Change turns the reference off.
-        # With data, the line under the state shows when its sweep was Run.
+        # With data, "(measured: <time>)" follows the state on the same line:
+        # the time its sweep was Run.
         ref_var.set(1 if _state["reference"] else 0)
         if _state["reference"]:
             status_value.config(text="In Use", foreground="red")
@@ -726,7 +734,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
         else:
             status_value.config(text="No Data", foreground="black")
             ref_check.config(state="disabled")
-        ref_time_value.config(text=f"Measured: {_state['ref_time']}" if _state["ref_time"] else "")
+        ref_time_value.config(text=f" (measured: {_state['ref_time']})" if _state["ref_time"] else "")
 
     def on_toggle_ref():
         _state["reference"] = bool(ref_var.get())
@@ -770,8 +778,8 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # ---- The window's three columns ----------------------------------------
     # Each column is a frame of its own, at the top of the window, so one
     # column's height never stretches another's rows: the Parameters section
-    # (`frame`); Reference, Instruments and Status; then Peak Test Criteria,
-    # Label & Autosave and the Power Readout. Every section in the second and
+    # (`frame`); Label & Save, Reference, Instruments and Status; then Peak
+    # Test Criteria and the Power Readout. Every section in the second and
     # third columns has its own frame, too. Created in this order, so Tab
     # moves through the columns from left to right.
     body = ttk.Frame(root, padding=(20, 15))
@@ -933,7 +941,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     for r, var in enumerate(duration):
         ttk.Label(frame, textvariable=var, anchor="w").grid(row=DURATION_ROW, column=1 + r, sticky="w", pady=4, padx=RANGE_PADX)
 
-    # ---- Right column: Peak Test Criteria, Label & Autosave, Power Readout
+    # ---- Right column: Peak Test Criteria, then Power Readout --------------
     # Each section fills the column's width and hands the spare width to a
     # grid column whose widgets stay put, so every header line runs the full
     # width of the column, however wide its widest section makes it. Each
@@ -1004,12 +1012,50 @@ def get_inputs(readout=None, auto_run=False, source=None):
                     for w in [e for label in PASSFAIL_LABELS for e in passfail_entries[label][r]]
                     + [base_menus[r]]])
 
-    # More Info: an optional label (prefix + zero-padded counter) and auto-save.
-    # Session-only (kept in _last, not presets) and never locked by Save; Run
-    # validates it. Not bound to on_entry_change, so edits keep the saved state.
-    info_container = ttk.Frame(right_col)
-    info_container.pack(anchor="w", fill="x", pady=(16, 0))
-    section_header(info_container, "Label & Autosave (Optional)", 0, info=AUTOSAVE_INFO)
+    # Power Readout: live meter values plus the laser wavelength/power controls.
+    # Started once the window is up (below), except on a Repeat; Run and Close
+    # stop it. Its messages show in the Status section.
+    if readout is not None:
+        # Its follow box reads the saved Parameters: `params` once Save has
+        # filled it, None while they're unlocked. A new window starts
+        # unlocked; when it reopens with a previous Run's values, the
+        # auto-Save below locks them again.
+        readout_section = ReadoutSection(right_col, readout, show_status,
+                                         lambda: params if saved["ok"] else None)
+        readout_section.frame.pack(anchor="w", fill="x", pady=(16, 0))
+        _bind_checkbox_key(root, "p", readout_section.enable_cb)
+        _bind_checkbox_key(root, "l", readout_section.laser_cb)
+
+    save_frame = ttk.Frame(frame)
+    save_frame.grid(row=SAVEBTN_ROW, column=0, columnspan=COLS, pady=10)
+    save_btn = ttk.Button(save_frame, text="Save", command=on_save, width=10)
+    save_btn.pack(side="left", padx=5)
+    change_btn = ttk.Button(save_frame, text="Change", command=on_change_params, width=10, state="disabled")
+    change_btn.pack(side="left", padx=5)
+    preset_save_btn = ttk.Button(save_frame, text="Manage Presets...", command=on_save_preset, state="disabled")
+    preset_save_btn.pack(side="left", padx=5)
+
+    # ---- Middle column: Label & Save, Reference, Instruments, Status -------
+    # Stacked at the top of the column, each in its own frame, with its header
+    # line across the column's full width. The column is as wide as the Status
+    # box, unless a section needs more (Label & Save does). Each one is 16 px
+    # below the one before; the first, Label & Save, is built below.
+    def column_section(title, info=None):
+        sec = ttk.Frame(mid_col)
+        sec.pack(anchor="w", fill="x", pady=(16, 0))
+        sec.columnconfigure(0, weight=1)
+        section_header(sec, title, 0, info=info, span=1)
+        return sec
+
+    # ---- Label & Save ------------------------------------------------------
+    # An optional label (prefix + zero-padded counter), autosave, and the
+    # reminder to save peak info. Session-only (kept in _last, not presets)
+    # and never locked by Save; Run validates the label. Not bound to
+    # on_entry_change, so edits keep the saved state. The first section in the
+    # column. Not a column_section: its grid gives the spare width to column 1.
+    info_container = ttk.Frame(mid_col)
+    info_container.pack(anchor="w", fill="x")
+    section_header(info_container, "Label & Save (Optional)", 0, info=AUTOSAVE_INFO)
     # Column 0 fits its widest item, the "Add Label/SN (A)" checkbox. Column 1
     # takes the spare width, so the fields stay next to their labels and the
     # filename preview (which spans both) gets the column's full width.
@@ -1020,7 +1066,8 @@ def get_inputs(readout=None, auto_run=False, source=None):
     prefix_var    = tk.StringVar(value=init_info.get("prefix", ""))
     digits_var    = tk.StringVar(value=init_info.get("digits", LABEL_DIGIT_DEFAULT))
     start_var     = tk.StringVar(value=init_info.get("start", LABEL_START_DEFAULT))
-    save_raw_var  = tk.IntVar(value=init_info.get("save_raw", 0))
+    autosave_raw_var     = tk.IntVar(value=init_info.get("autosave_raw", 0))
+    remind_save_peak_var = tk.IntVar(value=init_info.get("remind_save_peak", 0))
 
     add_label_cb = ttk.Checkbutton(info_container, text="Add Label/SN (A)", variable=add_label_var)
     add_label_cb.grid(row=2, column=0, pady=4, sticky="w")
@@ -1051,7 +1098,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
 
     # Spans both columns so its long text doesn't widen column 0 (which would
     # push the Prefix/Digits fields to the right).
-    ttk.Checkbutton(info_container, text="Autosave Raw Data", variable=save_raw_var).grid(
+    ttk.Checkbutton(info_container, text="Autosave Raw Data", variable=autosave_raw_var).grid(
         row=5, column=0, columnspan=2, pady=4, sticky="w")
     # The name the file will get, on its own line under the checkbox's text.
     # The time part is only stamped at Run, so it stands in as its format (see
@@ -1064,6 +1111,14 @@ def get_inputs(readout=None, auto_run=False, source=None):
     save_note = ttk.Label(info_container, text="", foreground="gray", anchor="w", width=1)
     save_note.grid(row=6, column=0, columnspan=2, padx=(CHECKBOX_TEXT_INDENT, 0), pady=(0, 4),
                    sticky="ew")
+
+    # When checked, the graph window asks before it closes if no Save Peak
+    # Info went through for the sweep (plot.display_plot's remind_save_peak).
+    # Under the file name, which stays with its own checkbox. Spans both
+    # columns, like Autosave Raw Data.
+    ttk.Checkbutton(info_container, text="Remind Me to Save Peak Info",
+                    variable=remind_save_peak_var).grid(
+        row=7, column=0, columnspan=2, pady=4, sticky="w")
 
     def update_label_ui(*_):
         """Enable the label fields to match the checkbox/digits; refresh the preview."""
@@ -1084,7 +1139,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
 
         # Filename preview: shown only while auto-save is on, and the label is
         # included only when there is a valid one.
-        if not save_raw_var.get():
+        if not autosave_raw_var.get():
             save_note.config(text="")
         elif on and error:
             save_note.config(text=".../Raw Data/")
@@ -1093,60 +1148,29 @@ def get_inputs(readout=None, auto_run=False, source=None):
         else:
             save_note.config(text=f".../Raw Data/{TIME_PLACEHOLDER}.csv")
 
-    for v in (add_label_var, prefix_var, digits_var, start_var, save_raw_var):
+    for v in (add_label_var, prefix_var, digits_var, start_var, autosave_raw_var):
         v.trace_add("write", update_label_ui)
     update_label_ui()
 
-    # Power Readout: live meter values plus the laser wavelength/power controls.
-    # Started once the window is up (below), except on a Repeat; Run and Close
-    # stop it. Its messages show in the Status section.
-    if readout is not None:
-        # Its follow box reads the saved Parameters: `params` once Save has
-        # filled it, None while they're unlocked. A new window starts
-        # unlocked; when it reopens with a previous Run's values, the
-        # auto-Save below locks them again.
-        readout_section = ReadoutSection(right_col, readout, show_status,
-                                         lambda: params if saved["ok"] else None)
-        readout_section.frame.pack(anchor="w", fill="x", pady=(16, 0))
-        _bind_checkbox_key(root, "p", readout_section.enable_cb)
-        _bind_checkbox_key(root, "l", readout_section.laser_cb)
-
-    save_frame = ttk.Frame(frame)
-    save_frame.grid(row=SAVEBTN_ROW, column=0, columnspan=COLS, pady=10)
-    save_btn = ttk.Button(save_frame, text="Save", command=on_save, width=10)
-    save_btn.pack(side="left", padx=5)
-    change_btn = ttk.Button(save_frame, text="Change", command=on_change_params, width=10, state="disabled")
-    change_btn.pack(side="left", padx=5)
-    preset_save_btn = ttk.Button(save_frame, text="Manage Presets...", command=on_save_preset, state="disabled")
-    preset_save_btn.pack(side="left", padx=5)
-
-    # ---- Middle column: Reference, Instruments, then Status ----------------
-    # Stacked at the top of the column, each in its own frame, with its header
-    # line across the column's full width. The column is as wide as the Status
-    # box, unless a section needs more.
-    def column_section(title, info=None, first=False):
-        sec = ttk.Frame(mid_col)
-        sec.pack(anchor="w", fill="x", pady=(0 if first else 16, 0))
-        sec.columnconfigure(0, weight=1)
-        section_header(sec, title, 0, info=info, span=1)
-        return sec
-
     # ---- Reference ---------------------------------------------------------
-    # The checkbox, then two lines under its text (update_ref_ui): the data's
-    # state, and when its sweep was Run. Each has its own row, and the time's
-    # row stays while there's no data, so a change of text moves nothing.
-    ref_sec = column_section("Reference", info=REFERENCE_INFO, first=True)
+    # The checkbox, then one line under its text (update_ref_ui): the data's
+    # state and, with data, when its sweep was Run, as in "Data Ready
+    # (measured: 2026-11-23 10:15:42)". The line always has a state, so a
+    # change of text moves nothing below it.
+    ref_sec = column_section("Reference", info=REFERENCE_INFO)
     ref_var = tk.IntVar(value=0)
     ref_check = ttk.Checkbutton(ref_sec, text="Use Reference (R)", variable=ref_var,
                                 command=on_toggle_ref, state="disabled")
     ref_check.grid(row=2, column=0, sticky="w")
     _bind_checkbox_key(root, "r", ref_check)
-    # Bold, at the other labels' size.
-    status_value = ttk.Label(ref_sec, text="No Data", foreground="black", font=ui_font(None, "bold"), anchor="w")
-    status_value.grid(row=3, column=0, sticky="w", padx=(CHECKBOX_TEXT_INDENT, 0), pady=(2, 0))
-    # The dark gray of the Power Readout's PM and Laser values.
-    ref_time_value = ttk.Label(ref_sec, text="", foreground="gray30", anchor="w")
-    ref_time_value.grid(row=4, column=0, sticky="w", padx=(CHECKBOX_TEXT_INDENT, 0))
+    ref_line = ttk.Frame(ref_sec)
+    ref_line.grid(row=3, column=0, sticky="w", padx=(CHECKBOX_TEXT_INDENT, 0), pady=(2, 0))
+    # The state: bold, at the other labels' size.
+    status_value = ttk.Label(ref_line, text="No Data", foreground="black", font=ui_font(None, "bold"), anchor="w")
+    status_value.pack(side="left")
+    # The time: the dark gray of the Power Readout's PM and Laser values.
+    ref_time_value = ttk.Label(ref_line, text="", foreground="gray30", anchor="w")
+    ref_time_value.pack(side="left")
 
     # ---- Instruments -------------------------------------------------------
     inst_sec = column_section("Instruments")
@@ -1216,9 +1240,10 @@ def get_inputs(readout=None, auto_run=False, source=None):
 
     # ---- Idle timeout ----------------------------------------------------
     # Close after IDLE_SECONDS with no keyboard/button activity. On expiry reuse
-    # on_close(), so get_inputs() returns None and main.py breaks the loop and
-    # runs close_inst (laser off). Reset on key/button (mouse motion alone isn't
-    # activity on a form); bind_all also covers the Manage Presets Toplevel.
+    # on_close(), so get_inputs() returns (None, None) and main.py breaks the
+    # loop and runs close_inst (laser off). Reset on key/button (mouse motion
+    # alone isn't activity on a form); bind_all also covers the Manage Presets
+    # Toplevel.
     _idle_deadline = {"t": time.time() + IDLE_SECONDS}
 
     def _reset_idle(_e=None):
@@ -1253,7 +1278,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     root.after(0, root.focus_force)
 
     root.mainloop()
-    return params if ran["ok"] else None
+    return (params, options) if ran["ok"] else (None, None)
 
 
 if __name__ == "__main__":
@@ -1262,7 +1287,8 @@ if __name__ == "__main__":
     source  = "N7778C"
     readout = dummy_readout(source)
     while True:
-        params = get_inputs(readout, source=source)
-        if not params:
+        params, options = get_inputs(readout, source=source)
+        if params is None:
             break
         print(params)
+        print(options)
