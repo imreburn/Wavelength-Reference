@@ -58,7 +58,7 @@ REFERENCE_INFO="""
 
 **Reference data**
 
-The lines under the checkbox show whether there is data to use as a reference, and when it was measured.
+The line under the checkbox shows whether there is data to use as a reference, and when it was measured.
 
 - **No Data:** No data is available to use as a reference. This appears right after the program starts and after "Change" is clicked. The "Use Reference" checkbox is disabled.
 
@@ -66,7 +66,7 @@ The lines under the checkbox show whether there is data to use as a reference, a
 
 - **In Use:** The reference is in use.
 
-- The date and time after **Measured** are when the reference measurement started, when Run was clicked. Its raw data file names use the same time, written as YYYY-MM-DD_hh-mm-ss.
+- The date and time after **measured** are when the reference measurement started, when Run was clicked. Its raw data file names use the same time, written as YYYY-MM-DD_hh-mm-ss.
 """
 
 
@@ -144,9 +144,9 @@ The fields in this section don't lock after Save, so you can change them without
 - With a label, the file name is "<label>_<time>.csv". Without one, it's "<time>.csv". The time is when you click Run, in the form YYYY-MM-DD_hh-mm-ss. The name is previewed below the checkbox, where ".../" stands for the data folder.
 
 
-**Remind Me to Save Peak Info (Beta)**
+**Remind Me to Save Peak Info**
 
-- If "Remind Me to Save Peak Info (Beta)" is checked, the graph window shows a warning when you click "Close Window" or "Close & Repeat" (or press W or Enter) before you've saved any peak info for that sweep. Click "Cancel" to go back, or "Proceed" to continue.
+- If "Remind Me to Save Peak Info" is checked, the graph window shows a warning when you click "Close Window" or "Close & Repeat" (or press W or Enter) before you've saved any peak info for that sweep. Click "Cancel" to go back, or "Proceed" to continue.
 
 - Peak info counts as saved once "Save Peak Info..." has written it to the file. The window's X button closes the window without a warning.
 """

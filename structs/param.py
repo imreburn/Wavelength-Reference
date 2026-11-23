@@ -33,7 +33,7 @@ class Options:
     autosaving. Unlike Params, they aren't saved with the data or shown in
     Sweep Info, so a raw file records the sweep, not how the app was set."""
     autosave_raw     : bool = False   # "Autosave Raw Data"
-    remind_save_peak : bool = False   # "Remind Me to Save Peak Info (Beta)"
+    remind_save_peak : bool = False   # "Remind Me to Save Peak Info"
 
 
 @dataclass

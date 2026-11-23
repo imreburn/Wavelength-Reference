@@ -721,7 +721,8 @@ def get_inputs(readout=None, auto_run=False, source=None):
 
     def update_ref_ui():
         # Also syncs the check mark, since Change turns the reference off.
-        # With data, the line under the state shows when its sweep was Run.
+        # With data, "(measured: <time>)" follows the state on the same line:
+        # the time its sweep was Run.
         ref_var.set(1 if _state["reference"] else 0)
         if _state["reference"]:
             status_value.config(text="In Use", foreground="red")
@@ -733,7 +734,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
         else:
             status_value.config(text="No Data", foreground="black")
             ref_check.config(state="disabled")
-        ref_time_value.config(text=f"Measured: {_state['ref_time']}" if _state["ref_time"] else "")
+        ref_time_value.config(text=f" (measured: {_state['ref_time']})" if _state["ref_time"] else "")
 
     def on_toggle_ref():
         _state["reference"] = bool(ref_var.get())
@@ -777,7 +778,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # ---- The window's three columns ----------------------------------------
     # Each column is a frame of its own, at the top of the window, so one
     # column's height never stretches another's rows: the Parameters section
-    # (`frame`); Label & Autosave, Reference, Instruments and Status; then Peak
+    # (`frame`); Label & Save, Reference, Instruments and Status; then Peak
     # Test Criteria and the Power Readout. Every section in the second and
     # third columns has its own frame, too. Created in this order, so Tab
     # moves through the columns from left to right.
@@ -1034,11 +1035,11 @@ def get_inputs(readout=None, auto_run=False, source=None):
     preset_save_btn = ttk.Button(save_frame, text="Manage Presets...", command=on_save_preset, state="disabled")
     preset_save_btn.pack(side="left", padx=5)
 
-    # ---- Middle column: Label & Autosave, Reference, Instruments, Status ---
+    # ---- Middle column: Label & Save, Reference, Instruments, Status -------
     # Stacked at the top of the column, each in its own frame, with its header
     # line across the column's full width. The column is as wide as the Status
-    # box, unless a section needs more (Label & Autosave does). Each one is
-    # 16 px below the one before; the first, Label & Autosave, is built below.
+    # box, unless a section needs more (Label & Save does). Each one is 16 px
+    # below the one before; the first, Label & Save, is built below.
     def column_section(title, info=None):
         sec = ttk.Frame(mid_col)
         sec.pack(anchor="w", fill="x", pady=(16, 0))
@@ -1046,7 +1047,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
         section_header(sec, title, 0, info=info, span=1)
         return sec
 
-    # ---- Label & Autosave --------------------------------------------------
+    # ---- Label & Save ------------------------------------------------------
     # An optional label (prefix + zero-padded counter), autosave, and the
     # reminder to save peak info. Session-only (kept in _last, not presets)
     # and never locked by Save; Run validates the label. Not bound to
@@ -1054,7 +1055,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # column. Not a column_section: its grid gives the spare width to column 1.
     info_container = ttk.Frame(mid_col)
     info_container.pack(anchor="w", fill="x")
-    section_header(info_container, "Label & Autosave (Optional)", 0, info=AUTOSAVE_INFO)
+    section_header(info_container, "Label & Save (Optional)", 0, info=AUTOSAVE_INFO)
     # Column 0 fits its widest item, the "Add Label/SN (A)" checkbox. Column 1
     # takes the spare width, so the fields stay next to their labels and the
     # filename preview (which spans both) gets the column's full width.
@@ -1115,7 +1116,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # Info went through for the sweep (plot.display_plot's remind_save_peak).
     # Under the file name, which stays with its own checkbox. Spans both
     # columns, like Autosave Raw Data.
-    ttk.Checkbutton(info_container, text="Remind Me to Save Peak Info (Beta)",
+    ttk.Checkbutton(info_container, text="Remind Me to Save Peak Info",
                     variable=remind_save_peak_var).grid(
         row=7, column=0, columnspan=2, pady=4, sticky="w")
 
@@ -1152,21 +1153,24 @@ def get_inputs(readout=None, auto_run=False, source=None):
     update_label_ui()
 
     # ---- Reference ---------------------------------------------------------
-    # The checkbox, then two lines under its text (update_ref_ui): the data's
-    # state, and when its sweep was Run. Each has its own row, and the time's
-    # row stays while there's no data, so a change of text moves nothing.
+    # The checkbox, then one line under its text (update_ref_ui): the data's
+    # state and, with data, when its sweep was Run, as in "Data Ready
+    # (measured: 2026-11-23 10:15:42)". The line always has a state, so a
+    # change of text moves nothing below it.
     ref_sec = column_section("Reference", info=REFERENCE_INFO)
     ref_var = tk.IntVar(value=0)
     ref_check = ttk.Checkbutton(ref_sec, text="Use Reference (R)", variable=ref_var,
                                 command=on_toggle_ref, state="disabled")
     ref_check.grid(row=2, column=0, sticky="w")
     _bind_checkbox_key(root, "r", ref_check)
-    # Bold, at the other labels' size.
-    status_value = ttk.Label(ref_sec, text="No Data", foreground="black", font=ui_font(None, "bold"), anchor="w")
-    status_value.grid(row=3, column=0, sticky="w", padx=(CHECKBOX_TEXT_INDENT, 0), pady=(2, 0))
-    # The dark gray of the Power Readout's PM and Laser values.
-    ref_time_value = ttk.Label(ref_sec, text="", foreground="gray30", anchor="w")
-    ref_time_value.grid(row=4, column=0, sticky="w", padx=(CHECKBOX_TEXT_INDENT, 0))
+    ref_line = ttk.Frame(ref_sec)
+    ref_line.grid(row=3, column=0, sticky="w", padx=(CHECKBOX_TEXT_INDENT, 0), pady=(2, 0))
+    # The state: bold, at the other labels' size.
+    status_value = ttk.Label(ref_line, text="No Data", foreground="black", font=ui_font(None, "bold"), anchor="w")
+    status_value.pack(side="left")
+    # The time: the dark gray of the Power Readout's PM and Laser values.
+    ref_time_value = ttk.Label(ref_line, text="", foreground="gray30", anchor="w")
+    ref_time_value.pack(side="left")
 
     # ---- Instruments -------------------------------------------------------
     inst_sec = column_section("Instruments")

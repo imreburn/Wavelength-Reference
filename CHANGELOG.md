@@ -4,11 +4,11 @@
 
 ### Added
 
-- "Remind Me to Save Peak Info (Beta)" in the config window: when it's checked, "Close Window" and "Close & Repeat" show a warning if no peak info was saved for the sweep. ([#157](https://github.com/imreburn/Wavelength-Reference/issues/157))
+- "Remind Me to Save Peak Info" in the config window: when it's checked, "Close Window" and "Close & Repeat" show a warning if no peak info was saved for the sweep. ([#157](https://github.com/imreburn/Wavelength-Reference/issues/157))
 
 ### Changed
 
-- In the config window, the "Label & Autosave" section moved to the top of the middle column, above "Reference".
+- In the config window, the "Label & Save" section moved to the top of the middle column, above "Reference".
 
 ## [3.0.2] - 2026-11-20
 

@@ -1364,7 +1364,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         The session's live power readout, shown in the "Power Readout" modal.
         None (e.g. plotting a saved CSV) leaves the button disabled.
     remind_save_peak : bool
-        The config window's "Remind Me to Save Peak Info (Beta)" (Options):
+        The config window's "Remind Me to Save Peak Info" (Options):
         until a Save in Save Peak Info goes through, Close Window and Close &
         Repeat show a warning first. Off for PlotSweep.
 
@@ -1872,7 +1872,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
 
     # ------------------------------------------------------------------
     # The Save Peak Info reminder. With remind_save_peak (the config window's
-    # "Remind Me to Save Peak Info (Beta)"), Close Window and Close & Repeat
+    # "Remind Me to Save Peak Info"), Close Window and Close & Repeat
     # show this warning first until a Save in Save Peak Info goes through
     # (on_close_or_repeat). One text for both: each closes the window. It sits
     # above every other dialog, since Power Readout's own Close & Repeat can
@@ -1886,7 +1886,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         id='save-reminder-modal',
         style=REMINDER_HIDDEN,
         children=html.Div([
-            html.H4('Warning', style={'marginTop': 0}),
+            html.H4('Peak Info Not Saved', style={'marginTop': 0}),
             html.Div('"Remind Me to Save Peak Info" is checked, but you haven\'t saved any '
                      'peak info for this sweep. Do you want to proceed anyway?',
                      style={'fontSize': '14px', 'lineHeight': '1.4'}),
