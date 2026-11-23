@@ -67,14 +67,14 @@ try:
     auto_run = False  # set by Repeat on the previous plot; auto-Runs this loop
 
     while True:
-        params = get_inputs(readout, auto_run=auto_run, source=source)
+        params, options = get_inputs(readout, auto_run=auto_run, source=source)
         # The closed config window leaves Tk variables in reference cycles (the
         # readout section's 19, via the self-rescheduling idle poll). Free them
         # here, on the thread that owns Tcl. Left to the GC, they can be freed on
         # a Dash worker thread while the plot loads, where each one blocks ~1 s
         # and raises "main thread is not in main loop".
         gc.collect()
-        if not params:
+        if params is None:
             break
 
         # One Dataset per wavelength range. The ranges run in order, each with
@@ -133,7 +133,7 @@ try:
         # "Save Raw Data..." would write. A failure is shown on the plot rather
         # than ending the session; the button is still there as a fallback.
         autosaved_to, autosave_error = None, None
-        if params.save_raw:
+        if options.autosave_raw:
             try:
                 autosaved_to = auto_raw_path(params)
                 save_csv_raw(datasets, params=params, file_path=autosaved_to)
@@ -144,7 +144,8 @@ try:
         # The graph window can change params.label (its Label field).
         run_label = params.label
         auto_run = display_plot(datasets, params=params, readout=readout,
-                                autosaved_to=autosaved_to, autosave_error=autosave_error)
+                                autosaved_to=autosaved_to, autosave_error=autosave_error,
+                                remind_save_peak=options.remind_save_peak)
         # The plot window sets this on idle timeout; its normal close would
         # otherwise loop back to the config window instead of exiting.
         if shutdown.requested():

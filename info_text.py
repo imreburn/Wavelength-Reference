@@ -142,4 +142,11 @@ The fields in this section don't lock after Save, so you can change them without
 - The graph window shows a status message with the file name, or an error if the save failed.
 
 - With a label, the file name is "<label>_<time>.csv". Without one, it's "<time>.csv". The time is when you click Run, in the form YYYY-MM-DD_hh-mm-ss. The name is previewed below the checkbox, where ".../" stands for the data folder.
+
+
+**Remind Me to Save Peak Info (Beta)**
+
+- If "Remind Me to Save Peak Info (Beta)" is checked, the graph window shows a warning when you click "Close Window" or "Close & Repeat" (or press W or Enter) before you've saved any peak info for that sweep. Click "Cancel" to go back, or "Proceed" to continue.
+
+- Peak info counts as saved once "Save Peak Info..." has written it to the file. The window's X button closes the window without a warning.
 """

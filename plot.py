@@ -1353,7 +1353,7 @@ def _overview_tab(app, tabs):
 
 
 def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title="Absorption Spectrum",
-                 autosaved_to=None, autosave_error=None):
+                 autosaved_to=None, autosave_error=None, remind_save_peak=False):
     """
     Parameters
     ----------
@@ -1363,6 +1363,10 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     readout : readout.PowerReadout, optional
         The session's live power readout, shown in the "Power Readout" modal.
         None (e.g. plotting a saved CSV) leaves the button disabled.
+    remind_save_peak : bool
+        The config window's "Remind Me to Save Peak Info (Beta)" (Options):
+        until a Save in Save Peak Info goes through, Close Window and Close &
+        Repeat show a warning first. Off for PlotSweep.
 
     Notes
     -----
@@ -1379,6 +1383,11 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     # Set by the Repeat button; read after the window closes to tell the caller
     # to auto-Run the next sweep. NOT part of Params (which stays run-only).
     _repeat = {'flag': False}
+    # For the Save Peak Info reminder (remind_save_peak): whether a Save has
+    # gone through in this window, and whether the reminder's Proceed repeats
+    # (it was opened by Close & Repeat) or just closes (Close Window).
+    _peak_saved = {'ok': False}
+    _reminder = {'repeat': False}
 
     # Dash callbacks run on the Flask server thread; an unhandled exception
     # there is caught by Dash and would otherwise surface only as an HTTP 500 in
@@ -1469,17 +1478,17 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
                     disabled=readout is None,
                     style=NAV_BTN_STYLE if readout is not None else NAV_OFF_STYLE),
 
-        # Close & Repeat: close this plot window and auto-Run the next sweep with the same parameters. Also bound to the Enter key (see the clientside callback below).
+        # Close & Repeat: close this plot window and auto-Run the next sweep
+        # with the same parameters. Also bound to the Enter key (see the
+        # clientside callback below). marginLeft: auto pushes it and Close
+        # Window to the right edge.
         html.Button('Close & Repeat (Enter)', id='repeat-btn', n_clicks=0,
                     style={**NAV_BTN_STYLE, 'fontWeight': 'bold', 'marginLeft': 'auto'}),
-        # Dummy sink for the keybind clientside callback; the keydown
-        # listener it installs is what actually clicks the button.
-        html.Div(id='repeat-keybind-dummy', style={'display': 'none'}),
-                # Close Window: just close this plot window (same as the window's close
-        # button). marginLeft: auto pushes it and the Repeat button to the right edge.
+        # Close Window: just close this plot window, like the window's own
+        # close button. Both buttons may show the Save Peak Info reminder
+        # first (on_close_or_repeat).
         html.Button('Close Window (W)', id='close-btn', n_clicks=0,
                     style={**NAV_BTN_STYLE}),
-        html.Div(id='close-dummy', style={'display': 'none'}),
         # No visible button: the X shortcut clicks this to reset the plot's
         # zoom, like the modebar's Autoscale (see the clientside callback right
         # after KEY_SHORTCUTS).
@@ -1861,6 +1870,37 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
                   'boxShadow': '0 4px 20px rgba(0,0,0,0.25)'}),
     )
 
+    # ------------------------------------------------------------------
+    # The Save Peak Info reminder. With remind_save_peak (the config window's
+    # "Remind Me to Save Peak Info (Beta)"), Close Window and Close & Repeat
+    # show this warning first until a Save in Save Peak Info goes through
+    # (on_close_or_repeat). One text for both: each closes the window. It sits
+    # above every other dialog, since Power Readout's own Close & Repeat can
+    # open it on top of Power Readout. No keys: while it's open, every key is
+    # ignored (see the key guard after the keybinds), so no key can proceed
+    # out of habit.
+    # ------------------------------------------------------------------
+    REMINDER_HIDDEN = {**MODAL_HIDDEN, 'zIndex': 1100}
+    REMINDER_SHOWN  = {**MODAL_SHOWN, 'zIndex': 1100}
+    save_reminder_modal = html.Div(
+        id='save-reminder-modal',
+        style=REMINDER_HIDDEN,
+        children=html.Div([
+            html.H4('Warning', style={'marginTop': 0}),
+            html.Div('"Remind Me to Save Peak Info" is checked, but you haven\'t saved any '
+                     'peak info for this sweep. Do you want to proceed anyway?',
+                     style={'fontSize': '14px', 'lineHeight': '1.4'}),
+            html.Div([
+                html.Button('Cancel', id='save-reminder-cancel', n_clicks=0),
+                html.Button('Proceed', id='save-reminder-proceed', n_clicks=0,
+                            style={'marginLeft': '8px'}),
+            ], style={'textAlign': 'right', 'marginTop': '16px'}),
+        ], style={'backgroundColor': 'white', 'padding': '20px 24px',
+                  'borderRadius': '8px', 'width': '360px',
+                  'fontFamily': WINDOW_CSS_FONT,
+                  'boxShadow': '0 4px 20px rgba(0,0,0,0.25)'}),
+    )
+
     # Columns a table doesn't have in this window (see _table_absent).
     TABLE_ABSENT = _table_absent(params)
 
@@ -1898,6 +1938,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         readout_modal,
         show_hide_modal,
         pt.customize_modal([(t.key, t.peak_rows, set(_hidden_peaks.get(t.key, []))) for t in tabs]),
+        save_reminder_modal,
     ])
 
     # ------------------------------------------------------------------
@@ -1970,37 +2011,49 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     def watt_plot_page():
         return _watt_page['html']
 
-    @app.callback(
-        Output('repeat-keybind-dummy', 'children'),
-        Input('repeat-btn', 'n_clicks'),
-        Input('readout-repeat-btn', 'n_clicks'),
-        prevent_initial_call=True,
-    )
-    def on_repeat(_menu_clicks, _readout_clicks):
-        # Remember the request, then close the window. webview.start() returns,
-        # the function below shuts the server down, and display_plot() returns
-        # _repeat['flag'] to the caller (main_sweep), which auto-Runs next loop.
-        # From the Power Readout modal, the readout.stop() after webview.start()
-        # stops the readout, as the modal's Close would.
-        _repeat['flag'] = True
+    def _close_window(repeat):
+        """Close the window. webview.start() returns, the code after it shuts
+        the server down, and display_plot() returns `repeat` to the caller
+        (main.py): True for Close & Repeat, which auto-Runs the next sweep;
+        False for Close Window, like the window's own close button, so the
+        config window waits for the user. From the Power Readout modal, the
+        readout.stop() after webview.start() stops the readout, as the
+        modal's Close would."""
+        _repeat['flag'] = repeat
         window = _window_holder.get('window')
         if window is not None:
             window.destroy()
-        return dash.no_update
 
+    # Close & Repeat (the menu bar's, Power Readout's, or Enter) and Close
+    # Window (or W). With the reminder on and no Save Peak Info gone through
+    # in this window, they show the reminder instead, and its Proceed closes
+    # the window the way the button would have.
     @app.callback(
-        Output('close-dummy', 'children'),
+        Output('save-reminder-modal', 'style'),
+        Input('repeat-btn', 'n_clicks'),
+        Input('readout-repeat-btn', 'n_clicks'),
         Input('close-btn', 'n_clicks'),
         prevent_initial_call=True,
     )
-    def on_close(n_clicks):
-        # Just close the window, exactly like the window's own close button:
-        # no repeat flag, so display_plot() returns False and main_sweep waits
-        # for the user instead of auto-Running.
-        window = _window_holder.get('window')
-        if window is not None:
-            window.destroy()
+    def on_close_or_repeat(_menu_repeat, _readout_repeat, _close):
+        repeat = callback_context.triggered_id != 'close-btn'
+        if remind_save_peak and not _peak_saved['ok']:
+            _reminder['repeat'] = repeat
+            return REMINDER_SHOWN
+        _close_window(repeat)
         return dash.no_update
+
+    @app.callback(
+        Output('save-reminder-modal', 'style', allow_duplicate=True),
+        Input('save-reminder-cancel', 'n_clicks'),
+        Input('save-reminder-proceed', 'n_clicks'),
+        prevent_initial_call=True,
+    )
+    def answer_save_reminder(_cancel, _proceed):
+        if callback_context.triggered_id == 'save-reminder-proceed':
+            _close_window(_reminder['repeat'])
+            return dash.no_update
+        return REMINDER_HIDDEN
 
     # Opening a tab: note which tab is open, for the menu bar, show its part
     # of the sidebar, and turn Apply filter off on the Overview. In the
@@ -2224,6 +2277,38 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
            .replace('__MODALS__', json.dumps(MODAL_IDS)),
         Output('save-peak-btn', 'title'),
         Input('save-peak-btn', 'n_clicks'),
+    )
+
+    # The key guard: while the Save Peak Info reminder is open, the window
+    # ignores every key. That covers Enter, Esc and the letter shortcuts
+    # above (P and L too, which act on Power Readout, and Power Readout may
+    # be open under the reminder), and Enter or Space on a button that still
+    # has the focus behind the reminder (WebView2 keeps a clicked button
+    # focused). It listens on the document in the capture phase, which runs
+    # before the listeners above and the page, and stops the key there.
+    # The idle timeout's own capture listener on the document still runs,
+    # so a key still counts as activity.
+    app.clientside_callback(
+        """
+        function(n) {
+            if (!window._reminderKeysBound) {
+                window._reminderKeysBound = true;
+                var swallow = function(e) {
+                    var m = document.getElementById('save-reminder-modal');
+                    if (m && m.style.display !== 'none') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }
+                };
+                ['keydown', 'keypress', 'keyup'].forEach(function(type) {
+                    document.addEventListener(type, swallow, true);
+                });
+            }
+            return '';
+        }
+        """,
+        Output('save-reminder-cancel', 'title'),
+        Input('save-reminder-cancel', 'n_clicks'),
     )
 
     # X (via the hidden reset-zoom-btn): autoscale both axes, the same as the
@@ -2509,6 +2594,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         global _last_peak_file, _peak_temperature
         _last_peak_file = os.path.abspath(path)
         _peak_temperature = temperature
+        _peak_saved['ok'] = True   # the reminder (remind_save_peak) is satisfied
         _remember_peak_file(path)
         log.info(f"Saved peak info: {path} (rows added {added}, replaced {replaced})")
         done = [f"{len(added)} new row" + ('s' if len(added) > 1 else '')]
