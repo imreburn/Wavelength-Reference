@@ -67,6 +67,10 @@ class Params:
     crit_base : List[str]       = _p(label='Base',                group='Peak test criteria')
 
     label     : str             = _p(label='Label',               group='Run')
+    # A second label, such as a tube number: (column name, text), like
+    # ("Tube", "T05"). Save Peak Info saves the text in the column with that
+    # name. Sweep Info shows it as "Tube: T05".
+    sublabel  : Tuple[str, str] = _p(label='Sublabel',            group='Run')
     source    : str             = _p(label='Source',              group='Run')
     detector  : str             = _p(label='Detector',            group='Run')
     time      : str             = _p(label='Time',                group='Run')
@@ -75,10 +79,12 @@ class Params:
 
     def __post_init__(self):
         # JSON has no tuple type, so a saved-then-reloaded Params returns
-        # channel and the criterion pairs as lists. Coerce to tuples so every
-        # path is consistent.
+        # channel, the sublabel and the criterion pairs as lists. Coerce to
+        # tuples so every path is consistent.
         if self.channel is not None:
             self.channel = tuple(self.channel)
+        if self.sublabel is not None:
+            self.sublabel = tuple(self.sublabel)
         for name in ('crit_wl', 'crit_depth', 'crit_width'):
             pairs = getattr(self, name)
             if pairs is not None:
@@ -103,6 +109,10 @@ class Params:
             if value is None and skip_none:
                 continue
             meta = f.metadata
+            if f.name == 'sublabel' and value is not None:
+                # Named by its column: "Tube" with "T05".
+                rows.append((meta['group'], value[0], value[1]))
+                continue
             rows.append((meta.get('group') or 'Other',
                          meta.get('label') or f.name,
                          _fmt(value, meta.get('unit'))))

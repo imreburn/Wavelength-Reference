@@ -124,7 +124,7 @@ The fields in this section don't lock after Save, so you can change them without
 
 - **You can leave out either the prefix or the counter, but not both.** The prefix can be any text, even just numbers, but it can't contain \\ / : * ? " < > | or end with a space or a dot, because the label can become part of a file name.
 
-- The counter is set with two fields: "Digits" and "Starting from". "Digits" (0 to 4) sets how many digits the counter has, and 0 means no counter. The counter is padded with zeros, so 3 digits starting from 7 gives 007.
+- The counter is set with two fields: "Digits" and "Starting from". "Digits" (0 to 8) sets how many digits the counter has, and 0 means no counter. The counter is padded with zeros, so 3 digits starting from 7 gives 007.
 
 - "Digits" also sets the range for "Starting from". With 2 digits, for example, you can enter 0 to 99.
 
@@ -133,6 +133,19 @@ The fields in this section don't lock after Save, so you can change them without
 - The label is shown in the graph window's right panel, where you can change it. "Save Raw Data" and "Save Peak Info" use the changed label.
 
 - **If you change only the counter there, the counter here continues from it.** For example, change SN05 to SN04, and the next label is SN05. Any other change is for that sweep only: "Close & Repeat" then stops here with a message, so you can check the label before you click Run.
+
+
+**Sublabel**
+
+- Check "Add Sublabel" to give each sweep a second label, such as a tube number. It works only while "Add Label/SN" is checked.
+
+- "Column Name" is the name of the Save Peak Info column the sublabel goes in, like Tube. It can't be the name of one of Save Peak Info's own columns, like Temperature (°C).
+
+- The prefix and the counter work the same way as the label's. With 0 digits, the sublabel is just its prefix, so it can also be a fixed value, like a lot number.
+
+- **The sublabel's counter moves with the label's.** Both increase by 1 after each sweep finishes. If you change the label's counter in the graph window, the sublabel's counter changes by the same amount: change SN05 to SN04, and T05 becomes T04.
+
+- In Save Peak Info, the sublabel is in the "Sublabel: <Column Name>" box next to Label/SN. For a new file, add its column from the "Add Column…" list. In an existing file, it goes in the column with that name. A change in the box is for that save only.
 
 
 **Autosave Raw Data**

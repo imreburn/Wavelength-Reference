@@ -10,6 +10,7 @@ import tomlkit
 from tomlkit.exceptions import TOMLKitError
 from constants import CONFIG_WINDOW_FONT, PEAK_BASE_DEFAULT, FILENAME_BAD_CHARS
 from datapath import data_path
+import peak_file as pf
 
 import logging
 log = logging.getLogger(__name__)
@@ -96,10 +97,12 @@ def label_text(label):
 
 
 # More Info: an optional per-run label (prefix + zero-padded counter) and the
-# auto-save switch. Session-only UI state — never written to presets.
-LABEL_DIGIT_OPTIONS = ["0", "1", "2", "3", "4"]
+# auto-save switch. Session-only UI state — never written to presets. The
+# sublabel's prefix and counter use the same options and checks.
+LABEL_DIGIT_OPTIONS = [str(d) for d in range(9)]   # "0" to "8"
 LABEL_DIGIT_DEFAULT = "0"
 LABEL_START_DEFAULT = "1"
+SUBLABEL_NAME_DEFAULT = "Tube"   # the sublabel's Column Name in a fresh window
 # The auto-save filename's time part: the strftime format Run stamps onto
 # params.time, and how the config window spells it out before a time exists.
 TIME_FORMAT      = "%Y-%m-%d_%H-%M-%S"
@@ -115,33 +118,47 @@ def build_label(prefix, digits, n):
     return prefix + (f"{n:0{digits}d}" if digits else "")
 
 
-def validate_label(prefix, digits_s, start_s):
-    """Validate the More Info label fields.
+def validate_label(prefix, digits_s, start_s, what="Label"):
+    """Validate the More Info label fields, or the sublabel's with what
+    "Sublabel" (the word the messages start with). Both follow the same
+    rules, so the sublabel's prefix can't have FILENAME_BAD_CHARS either.
 
     Returns (label, n, None) on success or (None, None, error_msg) on failure,
     where n is the counter value (None when digits is 0). The prefix is kept as
     text, so leading zeros survive.
     """
     if digits_s not in LABEL_DIGIT_OPTIONS:
-        return None, None, "Label digits must be selected from the dropdown list."
+        return None, None, f"{what} digits must be selected from the dropdown list."
     digits = int(digits_s)
     if any(c in FILENAME_BAD_CHARS for c in prefix):
-        return None, None, f"Label prefix must not contain any of {FILENAME_BAD_CHARS}"
+        return None, None, f"{what} prefix must not contain any of {FILENAME_BAD_CHARS}"
     if prefix != prefix.rstrip(" ."):
-        return None, None, "Label prefix must not end with a space or a dot."
+        return None, None, f"{what} prefix must not end with a space or a dot."
     n = None
     if digits:
         start_s = start_s.strip()
         if not (start_s.isascii() and start_s.isdigit()):   # isdigit alone accepts "²"
-            return None, None, "Label 'starting from' must be a whole number."
+            return None, None, f"{what} 'starting from' must be a whole number."
         n = int(start_s)
         limit = 10 ** digits - 1
         if n > limit:
-            return None, None, f"Label counter is over {limit}, the {digits}-digit limit."
+            return None, None, f"{what} counter is over {limit}, the {digits}-digit limit."
     label = build_label(prefix, digits, n)
     if not label:
-        return None, None, "Label is empty. Enter a prefix or choose 1 or more digits."
+        return None, None, f"{what} is empty. Enter a prefix or choose 1 or more digits."
     return label, n, None
+
+
+def validate_sublabel_name(name):
+    """The sublabel's Column Name: the header of the Save Peak Info column it
+    goes in, so it can't be empty or one of the peak file's own headers, in
+    any case. Returns an error message, or None."""
+    name = name.strip()
+    if not name:
+        return "Sublabel column name is empty. Enter a name, like Tube."
+    if pf.is_builtin(name):
+        return f'Sublabel column name "{name}" is a built-in Save Peak Info column. Enter another name.'
+    return None
 
 
 def label_counter(label, prefix, digits):

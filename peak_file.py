@@ -7,7 +7,8 @@ A peak file has one sheet named "Peaks". Row 1 holds the column headers, and
 each row below it is one saved peak. Columns are found by their header, so
 their order doesn't matter, and a header the app doesn't know is a text
 column. The header text is part of the file format: once files exist, never
-rename one, or old files lose that column. Adding items is fine.
+rename one, or old files lose that column. Adding items is fine, and so is
+changing a header's case, since headers are compared ignoring case.
 
 Numbers are saved as measured, not rounded. A column's decimals set only how
 many places the dialog and the cell's number format show, and the dialog
@@ -45,7 +46,7 @@ REPLACED_STATUS_COLOR = 'FFC00000'  # except its Status: Excel's dark red
 MAX_DECIMALS = 10           # the same limit as the tables' Customize dialog
 DATE_FORMAT = 'mm/dd/yyyy'  # Excel's format for the Date column
 TIME_FORMAT = 'hh:mm:ss'    # Excel's format for the Time column
-TEXT = 'text'               # the column dropdown's value for "Text column…"
+TEXT = 'text'               # the column dropdown's value for "Text Column…"
 
 
 class PeakFileError(Exception):
@@ -59,6 +60,9 @@ class Item(NamedTuple):
     decimals: Optional[int] = None  # starting decimals; None = no decimals control
 
 
+# The headers are in title case. Headers are compared ignoring case (see
+# norm), so files saved before that, with "Depth, max (dB)" and the like,
+# still work.
 ITEMS = [
     Item('date',         'Date',               'Fixed'),
     Item('time',         'Time',               'Fixed'),
@@ -67,28 +71,32 @@ ITEMS = [
     Item('label',        'Label/SN',           'Fixed'),
     Item('wl',           'λ (nm)',             'Fixed', 1),
     Item('status',       'Status',             'Fixed'),
-    Item('depth_max',    'Depth, max (dB)',    'Peak', 3),
-    Item('depth_avg',    'Depth, avg (dB)',    'Peak', 3),
-    Item('depth_min',    'Depth, min (dB)',    'Peak', 3),
-    Item('depth_custom', 'Depth, custom (dB)', 'Peak', 3),
-    Item('width_max',    'Width, max (pm)',    'Peak', 1),
-    Item('width_avg',    'Width, avg (pm)',    'Peak', 1),
-    Item('width_min',    'Width, min (pm)',    'Peak', 1),
-    Item('width_custom', 'Width, custom (pm)', 'Peak', 1),
+    Item('depth_max',    'Depth, Max (dB)',    'Peak', 3),
+    Item('depth_avg',    'Depth, Avg (dB)',    'Peak', 3),
+    Item('depth_min',    'Depth, Min (dB)',    'Peak', 3),
+    Item('depth_custom', 'Depth, Custom (dB)', 'Peak', 3),
+    Item('width_max',    'Width, Max (pm)',    'Peak', 1),
+    Item('width_avg',    'Width, Avg (pm)',    'Peak', 1),
+    Item('width_min',    'Width, Min (pm)',    'Peak', 1),
+    Item('width_custom', 'Width, Custom (pm)', 'Peak', 1),
     Item('il',           'IL (dB)',            'Peak', 1),
-    Item('il_custom',    'IL, custom (dB)',    'Peak', 1),
-    Item('wl_start',     'λ start (nm)',       'Sweep'),
-    Item('wl_stop',      'λ stop (nm)',        'Sweep'),
-    Item('speed',        'Sweep speed (nm/s)', 'Sweep'),
-    Item('step',         'Step size (pm)',     'Sweep'),
-    Item('tls_power',    'TLS power (dBm)',    'Sweep'),
-    Item('avg_time',     'Averaging time (µs)', 'Sweep'),
-    Item('pm_range',     'Power range (dBm)',  'Sweep'),
+    Item('il_custom',    'IL, Custom (dB)',    'Peak', 1),
+    Item('wl_start',     'λ Start (nm)',       'Sweep'),
+    Item('wl_stop',      'λ Stop (nm)',        'Sweep'),
+    Item('speed',        'Sweep Speed (nm/s)', 'Sweep'),
+    Item('step',         'Step Size (pm)',     'Sweep'),
+    Item('tls_power',    'TLS Power (dBm)',    'Sweep'),
+    Item('avg_time',     'Averaging Time (µs)', 'Sweep'),
+    Item('pm_range',     'Power Range (dBm)',  'Sweep'),
     Item('dyn_scans',    'Scans',              'Sweep'),
     Item('decrement',    'Decrement (dB)',     'Sweep'),
     Item('temperature',  'Temperature (°C)',   'Run', 1),
+    Item('ripple',       'Ripple (dB)',        'Other'),
 ]
 ITEM = {i.key: i for i in ITEMS}
+# The items you type into each row of the dialog's table, like a text
+# column, and that are saved as text.
+TYPED = ['ripple']
 # A new file's columns always start with the fixed items. An existing file
 # only needs the ones the app relies on: Label/SN and λ, to find the rows
 # a new one replaces (see find_same), and Status, to mark them.
@@ -115,14 +123,19 @@ _KEY_BY_HEADER.update({norm(h): key for h, key in OLD_HEADERS.items()})
 
 def column_options():
     """The column dropdown's list: the items that aren't fixed, under greyed
-    group headings that can't be picked, then "Text column…"."""
+    group headings that can't be picked, with "Text Column…" last."""
     opts = []
-    for group in ('Peak', 'Sweep', 'Run'):
+    for group in ('Peak', 'Sweep', 'Run', 'Other'):
         opts.append({'label': f'——— {group} ———', 'value': f'__{group}', 'disabled': True})
         opts += [{'label': i.header, 'value': i.key} for i in ITEMS if i.group == group]
-    opts.append({'label': '——— Other ———', 'value': '__other', 'disabled': True})
-    opts.append({'label': 'Text column…', 'value': TEXT})
+    opts.append({'label': 'Text Column…', 'value': TEXT})
     return opts
+
+
+def is_builtin(header):
+    """Whether header is a built-in column's, in any case (see norm), so a
+    file would read that column back as the item, not as text."""
+    return norm(header) in _KEY_BY_HEADER
 
 
 def column_problem(columns):
@@ -134,7 +147,7 @@ def column_problem(columns):
         if key is None:
             if not name:
                 return 'Type a name for each text column.'
-            if norm(name) in _KEY_BY_HEADER:
+            if is_builtin(name):
                 return f'"{name}" is a built-in column. Give the text column another name.'
         if norm(name) in seen:
             return f'"{name}" is in the table twice. Remove one.'
@@ -463,10 +476,10 @@ def find_same(saved, values):
 def _write(cell, key, value, decimals):
     """One cell. A number is saved as it is, and an item with decimals gets
     the number format that shows them, as the dialog did. key None = a text
-    column."""
+    column. A typed item (TYPED) is text too."""
     if value is None or value == '':
         cell.value = None
-    elif key is None or key == 'label':
+    elif key is None or key == 'label' or key in TYPED:
         cell.value = str(value)
         cell.number_format = '@'   # so Excel keeps a typed 0160060 as text too
     elif key == 'date':

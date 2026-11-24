@@ -11,11 +11,16 @@ The state lives in a dcc.Store ('pf-state') as a plain dict:
          when Save asks for it
   cols   the columns. For a new file, the ones after the fixed columns
          (Date, Time, Source, Detector, Label/SN, λ (nm), Status); for a
-         file, all of them in its order. Each is {'id': n, 'item': key}, or
-         {'id': n, 'text': header} for a text column.
+         file, all of them in its order. Each is {'id': n, 'item': key},
+         {'id': n, 'text': header} for a text column, or {'id': n, 'sub':
+         True} for the sublabel's column. In a file, that's the column named
+         like the sublabel, so it keeps its 'text' too.
+  sub    the sweep's sublabel column name (Params.sublabel), or None. A new
+         file's remembered sublabel column is left out while it's None.
   dec    item key -> decimals
   rows   one per peak: {'id': n, 'peak': 'peak:2' or 'custom', 'texts':
-         {column id as str: text}}
+         {column id as str: text}} for the text columns and the typed items
+         (peak_file.TYPED)
   saved  for a file: its current rows, which the new peaks could replace,
          with their cells as text (see peak_file.read)
   recent for a file: its last few rows as the file shows them, which the
@@ -44,20 +49,26 @@ FOLDER_CHARS = 60   # a longer folder is shortened in the File menu
 # header is the first line, a space, and the second line, so a comma stays at
 # the end of the first line. Any other header is one line.
 TWO_LINES = {
-    **{f'{q}_{b}': (f'{q.capitalize()},', f'{b} ({u})')
+    **{f'{q}_{b}': (f'{q.capitalize()},', f'{b.capitalize()} ({u})')
        for q, u in (('depth', 'dB'), ('width', 'pm'))
        for b in ('max', 'avg', 'min', 'custom')},
-    'il_custom':   ('IL,', 'custom (dB)'),
-    'wl_start':    ('λ start', '(nm)'),
-    'wl_stop':     ('λ stop', '(nm)'),
-    'speed':       ('Sweep', 'speed (nm/s)'),
-    'step':        ('Step size', '(pm)'),
-    'tls_power':   ('TLS power', '(dBm)'),
-    'avg_time':    ('Averaging', 'time (µs)'),
-    'pm_range':    ('Power', 'range (dBm)'),
+    'il_custom':   ('IL,', 'Custom (dB)'),
+    'wl_start':    ('λ Start', '(nm)'),
+    'wl_stop':     ('λ Stop', '(nm)'),
+    'speed':       ('Sweep', 'Speed (nm/s)'),
+    'step':        ('Step Size', '(pm)'),
+    'tls_power':   ('TLS Power', '(dBm)'),
+    'avg_time':    ('Averaging', 'Time (µs)'),
+    'pm_range':    ('Power', 'Range (dBm)'),
     'decrement':   ('Decrement', '(dB)'),
     'temperature': ('Temperature', '(°C)'),
+    'ripple':      ('Ripple', '(dB)'),
 }
+# The sublabel's column (Params.sublabel): its value in the column dropdowns,
+# and the first line of its header, over the column name ("Sublabel:" over
+# "Tube"). The file's header is only the column name.
+SUB = 'sublabel'
+SUB_TITLE = 'Sublabel:'
 
 ERROR_COLOR = '#C0392B'
 WARN_COLOR = '#b35900'
@@ -91,6 +102,8 @@ TEXT_BOX = {'width': '100%', 'minWidth': '110px', 'boxSizing': 'border-box', 'fo
 
 def _lines(key, header):
     """A header as the table shows it: (first line, second line or '')."""
+    if key == SUB:
+        return SUB_TITLE, header
     return TWO_LINES.get(key, (header, ''))
 
 
@@ -128,6 +141,25 @@ def _peak_option(option):
 COLUMN_OPTIONS = [_column_option(o) for o in pf.column_options()]
 
 
+def _sub_shown(state):
+    """Whether the table has the sublabel's column."""
+    return bool(state.get('sub')) and any(c.get('sub') for c in state['cols'])
+
+
+def column_options(state, adding=False):
+    """A column dropdown's list: COLUMN_OPTIONS, plus "Sublabel: Tube" after
+    the Run items while the sweep has a sublabel ("Sublabel:" over "Tube" in
+    a field). The Add Column list (adding) leaves it out once the table has
+    the sublabel's column, so it can't be added twice."""
+    sub = state.get('sub')
+    if not sub or (adding and _sub_shown(state)):
+        return COLUMN_OPTIONS
+    text = f'{SUB_TITLE} {sub}'
+    entry = {'label': _label(text, SUB_TITLE, sub), 'value': SUB, 'search': text}
+    at = next(i for i, o in enumerate(COLUMN_OPTIONS) if o['value'] == '__Other')
+    return COLUMN_OPTIONS[:at] + [entry] + COLUMN_OPTIONS[at:]
+
+
 def _short_folder(folder):
     """A folder as the File menu shows it: whole, or when it's longer than
     FOLDER_CHARS, its first part, "…", and the last parts that fit. The
@@ -145,44 +177,52 @@ def _short_folder(folder):
 
 
 def file_options(paths):
-    """The File menu: New file, Open file…, then the files in paths (newest
-    first) under a "Recent files" heading, each with its folder (the whole
+    """The File menu: New File, Open File…, then the files in paths (newest
+    first) under a "Recent Files" heading, each with its folder (the whole
     folder on hover). Plain text: in Dash 4.1, a dropdown whose options are
     components can go back to old options and value when its list opens
     after a callback has changed them."""
-    opts = [{'label': 'New file', 'value': NEW_FILE},
-            {'label': 'Open file…', 'value': OPEN_FILE}]
+    opts = [{'label': 'New File', 'value': NEW_FILE},
+            {'label': 'Open File…', 'value': OPEN_FILE}]
     if paths:
-        opts.append({'label': '——— Recent files ———', 'value': '__recent', 'disabled': True})
+        opts.append({'label': '——— Recent Files ———', 'value': '__recent', 'disabled': True})
     for path in paths:
         name, folder = os.path.basename(path), os.path.dirname(path)
         opts.append({'label': f'{name} — {_short_folder(folder)}', 'value': path, 'title': path})
     return opts
 
 
-def modal(hidden_style):
+def modal(hidden_style, sublabel=None):
     """The dialog, hidden until "Save Peak Info" opens it. The File menu
-    comes first, then the Label/SN and Temperature boxes that every row
-    shares, then the table. Temperature is saved only when its column is in
-    the table, but its box is always there. Its -/+ buttons step by 0.1, so
-    the browser won't take a second decimal place either. Dash sends what the
-    browser won't take as None, the same as an empty box, so Save first asks
-    the page which it is (plot.py), and problem() checks both."""
+    comes first, then the boxes that every row shares: Label/SN, the
+    sublabel (only when the sweep has one; sublabel is its column name), and
+    Temperature. Then the table. The sublabel and Temperature are saved only
+    when their columns are in the table, but their boxes are always there.
+    Temperature's -/+ buttons step by 0.1, so the browser won't take a second
+    decimal place either. Dash sends what the browser won't take as None,
+    the same as an empty box, so Save first asks the page which it is
+    (plot.py), and problem() checks both."""
     return html.Div(id='peak-modal', style=hidden_style, children=html.Div([
         html.H4('Save Peak Info', style={'marginTop': 0}),
         html.Div([
             # The File menu: a pick acts, and then the value goes back to
-            # None, so the field always shows its placeholder, "File menu"
+            # None, so the field always shows its placeholder, "File Menu"
             # (plot.py's pick_peak_file). The line below names the file. No
             # search box. Tall enough for the whole list: 2 commands, a
             # heading and pf.RECENT_FILES files.
             html.Div(dcc.Dropdown(id='peak-file-select', options=[], value=None,
-                                  placeholder='File menu', clearable=False, searchable=False,
+                                  placeholder='File Menu', clearable=False, searchable=False,
                                   maxHeight=480, className='pf-file-dd',
                                   style={'width': '280px'})),
             html.Div([html.Label('Label/SN', style=LABEL_STYLE),
                       dcc.Input(id='peak-label', type='text', placeholder='Required',
                                 debounce=False, style=FIELD_STYLE)]),
+            # Titled like its column's header, "Sublabel: Tube". Without a
+            # sublabel, it's hidden but there, for the callbacks.
+            html.Div([html.Label(f'{SUB_TITLE} {sublabel}' if sublabel else '', style=LABEL_STYLE),
+                      dcc.Input(id='peak-sublabel', type='text', placeholder='Optional',
+                                debounce=False, style=FIELD_STYLE)],
+                     id='peak-sublabel-box', style=None if sublabel else {'display': 'none'}),
             html.Div([
                 html.Label('Temperature (°C)', style=LABEL_STYLE),
                 # Wide enough for "Optional" between Dash 4's -/+ buttons.
@@ -216,32 +256,39 @@ def modal(hidden_style):
 
 
 # ---- the state ---------------------------------------------------------------------
-def new_file_state(columns, decimals):
-    """A new file's state, from the remembered columns ([{'item': key} or
-    {'text': name}]) and decimals."""
+def new_file_state(columns, decimals, sub=None):
+    """A new file's state, from the remembered columns ([{'item': key},
+    {'text': name} or {'sub': True}]) and decimals. sub: the sweep's
+    sublabel column name, or None."""
     cols = [{'id': i, **c} for i, c in enumerate(columns, start=1)]
     return {'mode': 'new', 'path': '', 'cols': cols, 'dec': {**pf.DEFAULT_DECIMALS, **decimals},
-            'rows': [], 'saved': [], 'recent': [], 'msg': '', 'bad': False,
+            'sub': sub, 'rows': [], 'saved': [], 'recent': [], 'msg': '', 'bad': False,
             'next': len(cols) + 1}
 
 
-def file_state(path, decimals):
+def file_state(path, decimals, sub=None):
     """An existing file's state, read from disk. decimals: the fallback for a
-    column with no number in it yet. A file that can't be used gives a state
-    with bad=True and the reason in msg."""
+    column with no number in it yet. sub: the sweep's sublabel column name,
+    or None; the file's column with that name, in any case, is the
+    sublabel's. A file that can't be used gives a state with bad=True and
+    the reason in msg."""
     try:
         info = pf.read(path)
     except pf.PeakFileError as e:
         return {'mode': 'file', 'path': path, 'cols': [], 'dec': dict(pf.DEFAULT_DECIMALS),
-                'rows': [], 'saved': [], 'recent': [], 'msg': str(e), 'bad': True, 'next': 1}
+                'sub': sub, 'rows': [], 'saved': [], 'recent': [], 'msg': str(e), 'bad': True,
+                'next': 1}
     cols = [{'id': i, **c} for i, c in enumerate(info['columns'], start=1)]
+    for c in cols:
+        if sub and 'text' in c and pf.norm(c['text']) == pf.norm(sub):
+            c['sub'] = True
     msg = ''
     if pf.in_use(path):
         msg = (f'{os.path.basename(path)} is open in another program, probably Excel. '
                'Close it before you press Save.')
     return {'mode': 'file', 'path': path, 'cols': cols,
             'dec': {**pf.DEFAULT_DECIMALS, **decimals, **info['decimals']},
-            'rows': [], 'saved': info['saved'], 'recent': info['recent'],
+            'sub': sub, 'rows': [], 'saved': info['saved'], 'recent': info['recent'],
             'msg': msg, 'bad': False, 'next': len(cols) + 1}
 
 
@@ -257,23 +304,47 @@ def session_columns(state):
 
 
 def _columns(state):
-    """(column id, item key or None for a text column, header) per column, in order."""
-    cols = [(c['id'], c.get('item'), pf.ITEM[c['item']].header if 'item' in c else c['text'])
-            for c in state['cols']]
+    """(column id, key, header) per column, in order. key: an item key, SUB
+    for the sublabel's column, or None for a text column. A new file's
+    sublabel column is left out while the sweep has no sublabel."""
+    cols = []
+    for c in state['cols']:
+        if c.get('sub'):
+            if state.get('sub'):
+                cols.append((c['id'], SUB, c.get('text') or state['sub']))
+        elif 'item' in c:
+            cols.append((c['id'], c['item'], pf.ITEM[c['item']].header))
+        else:
+            cols.append((c['id'], None, c['text']))
     if state['mode'] == 'new':
         cols = [(FIXED_IDS[k], k, pf.ITEM[k].header) for k in pf.FIXED] + cols
     return cols
 
 
 def file_columns(state):
-    """A new file's columns as (item key or None, header) pairs, fixed ones first."""
-    return [(key, header.strip()) for _, key, header in _columns(state)]
+    """A new file's columns as (item key or None, header) pairs, fixed ones
+    first. The file has no sublabel item: its column is a text column."""
+    return [(None if key == SUB else key, header.strip()) for _, key, header in _columns(state)]
 
 
 def row_texts(state, row):
     """A row's text cells by column header."""
     return {header.strip(): row['texts'].get(str(cid), '')
             for cid, key, header in _columns(state) if key is None}
+
+
+def entered(state, row, sublabel):
+    """What Save takes for a row from the dialog's boxes, not from the sweep:
+    'texts', header -> text for the text columns and the sublabel's column
+    (sublabel: the sublabel box's text), and item key -> text for the typed
+    items (pf.TYPED)."""
+    out = {'texts': row_texts(state, row)}
+    for cid, key, header in _columns(state):
+        if key == SUB:
+            out['texts'][header.strip()] = (sublabel or '').strip()
+        elif key in pf.TYPED:
+            out[key] = row['texts'].get(str(cid), '').strip()
+    return out
 
 
 def _dec_key(state, cid):
@@ -284,10 +355,26 @@ def _dec_key(state, cid):
     return next((c.get('item') for c in state['cols'] if c['id'] == cid), None)
 
 
-def _column_choice(value):
+def _column_choice(value, state):
     """Whether a column dropdown's value is one of its options: an item that
-    isn't fixed, or "Text column…" (not a group heading or anything else)."""
-    return value == pf.TEXT or (value in pf.ITEM and value not in pf.FIXED)
+    isn't fixed, "Text Column…", or the sublabel's entry while the sweep has
+    a sublabel (not a group heading or anything else)."""
+    return (value == pf.TEXT or (value in pf.ITEM and value not in pf.FIXED)
+            or (value == SUB and bool(state.get('sub'))))
+
+
+def _kind(col):
+    """A column's value in its dropdown: its item key, SUB or pf.TEXT."""
+    return col.get('item') or (SUB if col.get('sub') else pf.TEXT)
+
+
+def _make(col_id, value):
+    """A new file's column for a column dropdown's value."""
+    if value == pf.TEXT:
+        return {'id': col_id, 'text': ''}
+    if value == SUB:
+        return {'id': col_id, 'sub': True}
+    return {'id': col_id, 'item': value}
 
 
 def update(state, changes, current):
@@ -310,12 +397,11 @@ def update(state, changes, current):
                 continue
             if value is None:                           # cleared: remove the column
                 gone_cols.add(cid)
-            elif value == pf.TEXT and 'item' in c:
-                del c['item']
-                c['text'] = ''
-            elif value != pf.TEXT and c.get('item') != value and _column_choice(value):
-                c.pop('text', None)
-                c['item'] = value
+            elif value != _kind(c) and _column_choice(value, s):
+                # Another kind of column. One that turns into a text column
+                # starts with no name.
+                c.clear()
+                c.update(_make(cid, value))
         for i, value in current.get('pf-name', []):
             c = cols.get(i['col'])
             if c is not None and 'text' in c:
@@ -343,15 +429,17 @@ def update(state, changes, current):
                 d = pf.decimals_of(key, s['dec']) + i['step']
                 s['dec'][key] = min(max(d, 0), pf.MAX_DECIMALS)
         elif kind == 'pf-add' and value is not None:
-            if i['what'] == 'col' and s['mode'] == 'new' and _column_choice(value):
-                col = {'id': s['next'], 'text': ''} if value == pf.TEXT else {'id': s['next'], 'item': value}
-                s['cols'].append(col)
+            if (i['what'] == 'col' and s['mode'] == 'new' and _column_choice(value, s)
+                    and not (value == SUB and _sub_shown(s))):
+                s['cols'].append(_make(s['next'], value))
                 s['next'] += 1
             elif i['what'] == 'row':
                 add_row(s, value)
     s['cols'] = [c for c in s['cols'] if c['id'] not in gone_cols]
     s['rows'] = [r for r in s['rows'] if r['id'] not in gone_rows]
-    text_ids = {str(c['id']) for c in s['cols'] if 'text' in c}
+    # The columns with a box in each row: text columns and typed items.
+    text_ids = {str(c['id']) for c in s['cols']
+                if ('text' in c and not c.get('sub')) or c.get('item') in pf.TYPED}
     for r in s['rows']:
         r['texts'] = {k: t for k, t in r['texts'].items() if k in text_ids}
     return None if s == state else s
@@ -380,6 +468,13 @@ def problem(state, label, values_of, name_of, temperature=None, entry=''):
     if not rows:
         return 'Add a peak to save.'
     if state['mode'] == 'new':
+        # A text column can't take the sublabel's name either: the file would
+        # read it back as the sublabel's column.
+        sub = state.get('sub')
+        for c in state['cols']:
+            if sub and 'text' in c and pf.norm(c['text']) == pf.norm(sub):
+                return (f'"{c["text"].strip()}" is the sublabel\'s column. '
+                        'Give the text column another name.')
         trouble = pf.column_problem(file_columns(state))
         if trouble:
             return trouble
@@ -410,7 +505,7 @@ def _dec_cell(state, cid, key, header):
     has its name box here instead, so every header stays one dropdown tall."""
     if key is None and state['mode'] == 'new':
         return html.Th(dcc.Input(id={'type': 'pf-name', 'col': cid}, type='text', value=header,
-                                 placeholder='Column name', debounce=True,
+                                 placeholder='Column Name', debounce=True,
                                  style={**TEXT_BOX, 'textAlign': 'left'}),
                        style=CELL)
     d = pf.decimals_of(key, state['dec']) if key else None
@@ -444,7 +539,7 @@ def _head_cell(state, cid, key, header):
         return _plain_head(key, header, grey=True)
     if cid in FIXED_IDS.values():
         return _plain_head(key, header, grey=False)
-    return html.Th(dcc.Dropdown(id={'type': 'pf-col', 'col': cid}, options=COLUMN_OPTIONS,
+    return html.Th(dcc.Dropdown(id={'type': 'pf-col', 'col': cid}, options=column_options(state),
                                 value=key or pf.TEXT, clearable=True, maxHeight=320,
                                 className='pf-dd', style=DROPDOWN), style=HEAD)
 
@@ -498,11 +593,13 @@ def _saved_rows(state, cols, replaced):
     return rows + more
 
 
-def table(state, peak_options, values_of, label, temperature):
+def table(state, peak_options, values_of, label, temperature, sublabel=None):
     """The dialog's table: decimals controls, column headers, a file's last
     few rows and the rows Save will mark replaced, then one row per peak with
-    the values as the file will show them, and an "Add peak…" row.
-    values_of(peak) -> item key -> value for that peak's row."""
+    the values as the file will show them, and an "Add Peak…" row.
+    values_of(peak) -> item key -> value for that peak's row. sublabel: the
+    sublabel box's text, which its column shows in every row. A text column
+    and a typed item (pf.TYPED) have a box in each row instead."""
     cols = _columns(state)
     is_new = state['mode'] == 'new'
     label = (label or '').strip()
@@ -511,13 +608,13 @@ def table(state, peak_options, values_of, label, temperature):
     heads = [html.Th(style=ROW_HEAD)] + [_head_cell(state, cid, key, h) for cid, key, h in cols]
     if is_new:
         heads.append(html.Th(dcc.Dropdown(
-            id={'type': 'pf-add', 'what': 'col'}, options=COLUMN_OPTIONS, value=None,
-            placeholder='Add column…', clearable=False, maxHeight=320, className='pf-dd',
-            style=DROPDOWN), style=HEAD))
+            id={'type': 'pf-add', 'what': 'col'}, options=column_options(state, adding=True),
+            value=None, placeholder='Add Column…', clearable=False, maxHeight=320,
+            className='pf-dd', style=DROPDOWN), style=HEAD))
     new_rows, replaced = [], set()
     for r in state['rows']:
         values = {**values_of(r['peak']), 'label': label or None, 'temperature': temperature,
-                  'status': pf.CURRENT}
+                  'status': pf.CURRENT, SUB: (sublabel or '').strip() or None}
         peak = dcc.Dropdown(id={'type': 'pf-row', 'row': r['id']}, options=peak_options,
                             value=r['peak'], clearable=True, className='pf-dd', style=DROPDOWN)
         first = [peak]
@@ -527,7 +624,7 @@ def table(state, peak_options, values_of, label, temperature):
             first.append(_status([s for s in state['saved'] if s['row'] in targets], cols))
         cells = [html.Td(first, style=ROW_HEAD)]
         for cid, key, _ in cols:
-            if key is None:
+            if key is None or key in pf.TYPED:
                 cells.append(html.Td(dcc.Input(
                     id={'type': 'pf-text', 'row': r['id'], 'col': cid}, type='text',
                     value=r['texts'].get(str(cid), ''), debounce=True,
@@ -542,7 +639,7 @@ def table(state, peak_options, values_of, label, temperature):
     body += new_rows
     body.append(html.Tr(html.Td(dcc.Dropdown(
         id={'type': 'pf-add', 'what': 'row'}, options=peak_options, value=None,
-        placeholder='Add peak…' if peak_options else 'No peak to add',
+        placeholder='Add Peak…' if peak_options else 'No Peak to Add',
         disabled=not peak_options, clearable=False, className='pf-dd', style=DROPDOWN),
         style=ROW_HEAD)))
     return html.Table([html.Thead([html.Tr(decs), html.Tr(heads)]), html.Tbody(body)],
