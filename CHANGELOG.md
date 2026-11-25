@@ -5,14 +5,12 @@
 ### Added
 
 - "Remind Me to Save Peak Info" in the config window: when it's checked, "Close Window" and "Close & Repeat" show a warning if no peak info was saved for the sweep. ([#157](https://github.com/imreburn/Wavelength-Reference/issues/157))
-- "Add Sublabel" in the config window: a second label with its own column name, prefix and counter, such as a tube number. Its counter moves with the label's, and "Save Peak Info" saves it in its own column.
-- "Ripple (dB)" in the "Add Column…" list of "Save Peak Info".
+- "Add Sublabel" in the config window: a second label with its own column name, prefix and counter, such as a tube number.
+- "Ripple (dB)" and "Item" in the "Add Column…" list of "Save Peak Info". Item's boxes start with the last saved Item until the program closes.
 
 ### Changed
 
 - In the config window, the "Label & Save" section moved to the top of the middle column, above "Reference".
-- Label counters can have up to 8 digits.
-- "Save Peak Info" uses title case for its labels and column names, like "Add Column…" and "Depth, Max (dB)". Files saved before still work.
 
 ## [3.0.2] - 2026-11-20
 

@@ -33,13 +33,16 @@ import peak_file as pf
 
 # Remembered across display_plot() calls (i.e. across loop iterations) for the
 # "Save Peak Info" dialog: the file saved to last (a full path), where the
-# dialog starts, and a new file's columns ([{'item': key} or {'text': name}]
-# after the fixed ones) and decimals (item key -> decimals), and the
-# Temperature box at the last Save (None when it was empty). Label/SN isn't.
+# dialog starts, and a new file's columns ([{'item': key}, {'text': name} or
+# {'sub': True}] after the fixed ones) and decimals (item key -> decimals),
+# the Temperature box at the last Save (None when it was empty), and what the
+# boxes of the items in peak_dialog.CARRIED (Item) start with: item key ->
+# the text the last Save gave them (peak_dialog.carried). Label/SN isn't.
 _last_peak_file = ''
 _peak_columns   = []
 _peak_decimals  = {}
 _peak_temperature = None
+_peak_carried   = {}
 # The files "Save Peak Info" opened or saved to lately, kept across runs:
 # newest first, one path per line (see peak_file.remember). The File menu
 # lists them under "Recent Files".
@@ -2405,9 +2408,9 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         file), with a row for each range's default peak (_range_tab's
         default_peak; a range with none gets no row)."""
         if path:
-            state = pdlg.file_state(path, _peak_decimals, sub_name)
+            state = pdlg.file_state(path, _peak_decimals, sub_name, _peak_carried)
         else:
-            state = pdlg.new_file_state(_peak_columns, _peak_decimals, sub_name)
+            state = pdlg.new_file_state(_peak_columns, _peak_decimals, sub_name, _peak_carried)
         for t in tabs:
             peak = t.default_peak(m2_of[t.key])
             if peak and not state['bad']:
@@ -2607,6 +2610,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         global _last_peak_file, _peak_temperature
         _last_peak_file = os.path.abspath(path)
         _peak_temperature = temperature
+        _peak_carried.update(pdlg.carried(rows))
         _peak_saved['ok'] = True   # the reminder (remind_save_peak) is satisfied
         _remember_peak_file(path)
         log.info(f"Saved peak info: {path} (rows added {added}, replaced {replaced})")

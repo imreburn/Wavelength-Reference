@@ -21,6 +21,8 @@ The state lives in a dcc.Store ('pf-state') as a plain dict:
   rows   one per peak: {'id': n, 'peak': 'peak:2' or 'custom', 'texts':
          {column id as str: text}} for the text columns and the typed items
          (peak_file.TYPED)
+  start  item key -> the text a new box of that item starts with: for the
+         items in CARRIED, the one saved last in this run (see carried)
   saved  for a file: its current rows, which the new peaks could replace,
          with their cells as text (see peak_file.read)
   recent for a file: its last few rows as the file shows them, which the
@@ -65,10 +67,16 @@ TWO_LINES = {
     'ripple':      ('Ripple', '(dB)'),
 }
 # The sublabel's column (Params.sublabel): its value in the column dropdowns,
-# and the first line of its header, over the column name ("Sublabel:" over
-# "Tube"). The file's header is only the column name.
+# and the tag above its header, in the decimals row. Everywhere else, in the
+# lists, the header and its box's title, it's just its column name ("Tube"),
+# the header the file gets.
 SUB = 'sublabel'
-SUB_TITLE = 'Sublabel:'
+SUB_TAG = 'Sublabel'
+# The typed items whose boxes start with the value saved last in this run,
+# the way the Temperature box does (plot.py keeps it; see carried). Item is
+# usually the same for every peak and every sweep of a batch. Ripple isn't
+# here: it's measured for each peak.
+CARRIED = ('item_name',)
 
 ERROR_COLOR = '#C0392B'
 WARN_COLOR = '#b35900'
@@ -102,8 +110,6 @@ TEXT_BOX = {'width': '100%', 'minWidth': '110px', 'boxSizing': 'border-box', 'fo
 
 def _lines(key, header):
     """A header as the table shows it: (first line, second line or '')."""
-    if key == SUB:
-        return SUB_TITLE, header
     return TWO_LINES.get(key, (header, ''))
 
 
@@ -147,15 +153,14 @@ def _sub_shown(state):
 
 
 def column_options(state, adding=False):
-    """A column dropdown's list: COLUMN_OPTIONS, plus "Sublabel: Tube" after
-    the Run items while the sweep has a sublabel ("Sublabel:" over "Tube" in
-    a field). The Add Column list (adding) leaves it out once the table has
-    the sublabel's column, so it can't be added twice."""
+    """A column dropdown's list: COLUMN_OPTIONS, plus the sublabel's column
+    name, like "Tube", after the Run items while the sweep has a sublabel.
+    The Add Column list (adding) leaves it out once the table has the
+    sublabel's column, so it can't be added twice."""
     sub = state.get('sub')
     if not sub or (adding and _sub_shown(state)):
         return COLUMN_OPTIONS
-    text = f'{SUB_TITLE} {sub}'
-    entry = {'label': _label(text, SUB_TITLE, sub), 'value': SUB, 'search': text}
+    entry = {'label': sub, 'value': SUB, 'search': sub}
     at = next(i for i, o in enumerate(COLUMN_OPTIONS) if o['value'] == '__Other')
     return COLUMN_OPTIONS[:at] + [entry] + COLUMN_OPTIONS[at:]
 
@@ -217,9 +222,10 @@ def modal(hidden_style, sublabel=None):
             html.Div([html.Label('Label/SN', style=LABEL_STYLE),
                       dcc.Input(id='peak-label', type='text', placeholder='Required',
                                 debounce=False, style=FIELD_STYLE)]),
-            # Titled like its column's header, "Sublabel: Tube". Without a
-            # sublabel, it's hidden but there, for the callbacks.
-            html.Div([html.Label(f'{SUB_TITLE} {sublabel}' if sublabel else '', style=LABEL_STYLE),
+            # Titled with its column's header, like "Tube", as Label/SN and
+            # Temperature are. Without a sublabel, it's hidden but there, for
+            # the callbacks.
+            html.Div([html.Label(sublabel or '', style=LABEL_STYLE),
                       dcc.Input(id='peak-sublabel', type='text', placeholder='Optional',
                                 debounce=False, style=FIELD_STYLE)],
                      id='peak-sublabel-box', style=None if sublabel else {'display': 'none'}),
@@ -256,28 +262,34 @@ def modal(hidden_style, sublabel=None):
 
 
 # ---- the state ---------------------------------------------------------------------
-def new_file_state(columns, decimals, sub=None):
+def _starts(start):
+    """The start texts a state keeps: CARRIED items only, and not empty ones."""
+    return {k: v for k, v in (start or {}).items() if k in CARRIED and v}
+
+
+def new_file_state(columns, decimals, sub=None, start=None):
     """A new file's state, from the remembered columns ([{'item': key},
     {'text': name} or {'sub': True}]) and decimals. sub: the sweep's
-    sublabel column name, or None."""
+    sublabel column name, or None. start: item key -> what its boxes start
+    with (see carried)."""
     cols = [{'id': i, **c} for i, c in enumerate(columns, start=1)]
     return {'mode': 'new', 'path': '', 'cols': cols, 'dec': {**pf.DEFAULT_DECIMALS, **decimals},
-            'sub': sub, 'rows': [], 'saved': [], 'recent': [], 'msg': '', 'bad': False,
-            'next': len(cols) + 1}
+            'sub': sub, 'start': _starts(start), 'rows': [], 'saved': [], 'recent': [],
+            'msg': '', 'bad': False, 'next': len(cols) + 1}
 
 
-def file_state(path, decimals, sub=None):
+def file_state(path, decimals, sub=None, start=None):
     """An existing file's state, read from disk. decimals: the fallback for a
     column with no number in it yet. sub: the sweep's sublabel column name,
     or None; the file's column with that name, in any case, is the
-    sublabel's. A file that can't be used gives a state with bad=True and
-    the reason in msg."""
+    sublabel's. start: as for new_file_state. A file that can't be used
+    gives a state with bad=True and the reason in msg."""
     try:
         info = pf.read(path)
     except pf.PeakFileError as e:
         return {'mode': 'file', 'path': path, 'cols': [], 'dec': dict(pf.DEFAULT_DECIMALS),
-                'sub': sub, 'rows': [], 'saved': [], 'recent': [], 'msg': str(e), 'bad': True,
-                'next': 1}
+                'sub': sub, 'start': _starts(start), 'rows': [], 'saved': [], 'recent': [],
+                'msg': str(e), 'bad': True, 'next': 1}
     cols = [{'id': i, **c} for i, c in enumerate(info['columns'], start=1)]
     for c in cols:
         if sub and 'text' in c and pf.norm(c['text']) == pf.norm(sub):
@@ -288,14 +300,31 @@ def file_state(path, decimals, sub=None):
                'Close it before you press Save.')
     return {'mode': 'file', 'path': path, 'cols': cols,
             'dec': {**pf.DEFAULT_DECIMALS, **decimals, **info['decimals']},
-            'sub': sub, 'rows': [], 'saved': info['saved'], 'recent': info['recent'],
-            'msg': msg, 'bad': False, 'next': len(cols) + 1}
+            'sub': sub, 'start': _starts(start), 'rows': [], 'saved': info['saved'],
+            'recent': info['recent'], 'msg': msg, 'bad': False, 'next': len(cols) + 1}
 
 
 def add_row(state, peak):
-    """Add a row for peak (in place)."""
-    state['rows'].append({'id': state['next'], 'peak': peak, 'texts': {}})
+    """Add a row for peak (in place). Its boxes of the CARRIED items start
+    with the state's start texts."""
+    start = state.get('start', {})
+    texts = {str(cid): start[key] for cid, key, _ in _columns(state) if key in start}
+    state['rows'].append({'id': state['next'], 'peak': peak, 'texts': texts})
     state['next'] += 1
+
+
+def carried(rows):
+    """What the CARRIED items' boxes start with after a Save of these rows
+    (the dicts it gave pf.save), for each item it had a column for: the
+    last row's text that isn't empty, or '' when every row left it empty.
+    plot.py keeps it for the rest of the run, as it does Temperature."""
+    out = {}
+    for key in CARRIED:
+        texts = [r[key] for r in rows if key in r]
+        if texts:
+            filled = [t for t in texts if t]
+            out[key] = filled[-1] if filled else ''
+    return out
 
 
 def session_columns(state):
@@ -437,6 +466,15 @@ def update(state, changes, current):
                 add_row(s, value)
     s['cols'] = [c for c in s['cols'] if c['id'] not in gone_cols]
     s['rows'] = [r for r in s['rows'] if r['id'] not in gone_rows]
+    # A CARRIED item's column that was just added, or just picked in place
+    # of another kind, starts each row's box with the start text, as a new
+    # row does (add_row). A box someone emptied stays empty.
+    start, was = s.get('start', {}), {c['id']: _kind(c) for c in state['cols']}
+    for c in s['cols']:
+        key = c.get('item')
+        if key in start and was.get(c['id']) != key:
+            for r in s['rows']:
+                r['texts'].setdefault(str(c['id']), start[key])
     # The columns with a box in each row: text columns and typed items.
     text_ids = {str(c['id']) for c in s['cols']
                 if ('text' in c and not c.get('sub')) or c.get('item') in pf.TYPED}
@@ -502,12 +540,16 @@ def problem(state, label, values_of, name_of, temperature=None, entry=''):
 def _dec_cell(state, cid, key, header):
     """The cell above a column's header: its decimals control ("− n +"),
     greyed out for a file. A new file's text column, which has no decimals,
-    has its name box here instead, so every header stays one dropdown tall."""
+    has its name box here instead, so every header stays one dropdown tall.
+    The sublabel's column has the tag "Sublabel" here, in a file too."""
     if key is None and state['mode'] == 'new':
         return html.Th(dcc.Input(id={'type': 'pf-name', 'col': cid}, type='text', value=header,
                                  placeholder='Column Name', debounce=True,
                                  style={**TEXT_BOX, 'textAlign': 'left'}),
                        style=CELL)
+    if key == SUB:
+        return html.Th(html.Span(SUB_TAG, style={'fontSize': '12px', 'fontWeight': 'normal',
+                                                 'color': '#555'}), style=CELL)
     d = pf.decimals_of(key, state['dec']) if key else None
     if d is None:
         return html.Th(style=CELL)

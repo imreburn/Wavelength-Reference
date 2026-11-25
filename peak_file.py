@@ -92,11 +92,12 @@ ITEMS = [
     Item('decrement',    'Decrement (dB)',     'Sweep'),
     Item('temperature',  'Temperature (°C)',   'Run', 1),
     Item('ripple',       'Ripple (dB)',        'Other'),
+    Item('item_name',    'Item',               'Other'),
 ]
 ITEM = {i.key: i for i in ITEMS}
 # The items you type into each row of the dialog's table, like a text
 # column, and that are saved as text.
-TYPED = ['ripple']
+TYPED = ['ripple', 'item_name']
 # A new file's columns always start with the fixed items. An existing file
 # only needs the ones the app relies on: Label/SN and λ, to find the rows
 # a new one replaces (see find_same), and Status, to mark them.
