@@ -106,6 +106,11 @@ VALUE = {**CELL, 'fontFamily': DATA_CSS_FONT, 'fontSize': '13px',
 # widest. A column is as wide as its widest content: a field, a value, or a
 # decimals control. The lists open as wide as their longest option.
 DROPDOWN = {'width': '100%', 'minWidth': 'max-content', 'fontSize': '13px'}
+# The column dropdowns' lists are this tall (px), about 15 items, so the
+# long list needs little scrolling. The dialog sits TOP_GAP px below the top
+# of the window (plot.py), so they have room to open below the table's header.
+LIST_HEIGHT = 500
+TOP_GAP = 24
 TEXT_BOX = {'width': '100%', 'minWidth': '110px', 'boxSizing': 'border-box', 'fontSize': '13px',
             'padding': '2px 5px', 'textAlign': 'center'}
 
@@ -149,18 +154,13 @@ def _peak_option(option):
 COLUMN_OPTIONS = [_column_option(o) for o in pf.column_options()]
 
 
-def _sub_shown(state):
-    """Whether the table has the sublabel's column."""
-    return bool(state.get('sub')) and any(c.get('sub') for c in state['cols'])
-
-
-def column_options(state, adding=False):
+def column_options(state):
     """A column dropdown's list: COLUMN_OPTIONS, plus the sublabel's column
     name, like "Tube", after the Run items while the sweep has a sublabel.
-    The Add Column list (adding) leaves it out once the table has the
-    sublabel's column, so it can't be added twice."""
+    It doesn't change with the table: a column in it twice is refused at
+    Save, the same for every column (see problem)."""
     sub = state.get('sub')
-    if not sub or (adding and _sub_shown(state)):
+    if not sub:
         return COLUMN_OPTIONS
     entry = {'label': sub, 'value': SUB, 'search': sub}
     at = next(i for i, o in enumerate(COLUMN_OPTIONS) if o['value'] == '__Other')
@@ -270,7 +270,7 @@ def modal(hidden_style, sublabel=None):
         dcc.Store(id='pf-save-request', data=None),
     ], style={'backgroundColor': 'white', 'padding': '20px 24px', 'borderRadius': '8px',
               'width': 'fit-content', 'minWidth': '560px', 'maxWidth': '95vw',
-              'maxHeight': '90vh', 'overflowY': 'auto', 'boxSizing': 'border-box',
+              'maxHeight': f'calc(100vh - {2 * TOP_GAP}px)', 'overflowY': 'auto', 'boxSizing': 'border-box',
               'fontFamily': WINDOW_CSS_FONT, 'boxShadow': '0 4px 20px rgba(0,0,0,0.25)'}))
 
 
@@ -467,8 +467,7 @@ def update(state, changes, current):
                 d = pf.decimals_of(key, s['dec']) + i['step']
                 s['dec'][key] = min(max(d, 0), pf.MAX_DECIMALS)
         elif kind == 'pf-add' and value is not None:
-            if (i['what'] == 'col' and s['mode'] == 'new' and _column_choice(value, s)
-                    and not (value == SUB and _sub_shown(s))):
+            if i['what'] == 'col' and s['mode'] == 'new' and _column_choice(value, s):
                 s['cols'].append(_make(s['next'], value))
                 s['next'] += 1
             elif i['what'] == 'row':
@@ -590,7 +589,7 @@ def _head_cell(state, cid, key, header):
     if state['mode'] == 'file':
         return _plain_head(key, header, grey=True)
     return html.Th(dcc.Dropdown(id={'type': 'pf-col', 'col': cid}, options=column_options(state),
-                                value=key or pf.TEXT, clearable=True, maxHeight=320,
+                                value=key or pf.TEXT, clearable=True, maxHeight=LIST_HEIGHT,
                                 className='pf-dd', style=DROPDOWN), style=HEAD)
 
 
@@ -665,8 +664,8 @@ def table(state, peak_options, values_of, label, temperature, sublabel=None, ear
     heads = [html.Th(style=ROW_HEAD)] + [_head_cell(state, cid, key, h) for cid, key, h in cols]
     if is_new:
         heads.append(html.Th(dcc.Dropdown(
-            id={'type': 'pf-add', 'what': 'col'}, options=column_options(state, adding=True),
-            value=None, placeholder='Add Column…', clearable=False, maxHeight=320,
+            id={'type': 'pf-add', 'what': 'col'}, options=column_options(state),
+            value=None, placeholder='Add Column…', clearable=False, maxHeight=LIST_HEIGHT,
             className='pf-dd', style=DROPDOWN), style=HEAD))
     new_rows, targets = [], set()
     for r in state['rows']:

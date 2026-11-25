@@ -1592,7 +1592,11 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     # The sweep's sublabel column name (Params.sublabel), or None. It titles
     # the dialog's sublabel box and names the sublabel's column.
     sub_name = params.sublabel[0] if params.sublabel else None
-    peak_modal = pdlg.modal(MODAL_HIDDEN, sub_name)
+    # Save Peak Info sits near the top of the window, not in the middle, so
+    # its column lists have room to open below the table's header.
+    PEAK_HIDDEN = {**MODAL_HIDDEN, 'alignItems': 'flex-start', 'paddingTop': f'{pdlg.TOP_GAP}px'}
+    PEAK_SHOWN  = {**PEAK_HIDDEN, 'display': 'flex'}
+    peak_modal = pdlg.modal(PEAK_HIDDEN, sub_name)
 
     # ------------------------------------------------------------------
     # "Apply Filter" modal — pick a smoothing filter and its parameters,
@@ -2441,7 +2445,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         # Label/SN and the sublabel start with the sweep's, and Temperature
         # and Earlier Rows with the ones saved last. An edit in the dialog is
         # for its Saves only: it never changes the sweep's label or sublabel.
-        return (MODAL_SHOWN, _peak_file_options(), _fresh_peak_state(_first_peak_file(), _m2_of(m2s)),
+        return (PEAK_SHOWN, _peak_file_options(), _fresh_peak_state(_first_peak_file(), _m2_of(m2s)),
                 params.label or '', params.sublabel[1] if params.sublabel else '',
                 _peak_temperature, _peak_earlier, '')
 
@@ -2575,7 +2579,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     )
     def close_or_save_peak(cancel, request, state, label, temperature, sublabel, earlier, *m2s):
         if callback_context.triggered_id == 'peak-cancel':
-            return MODAL_HIDDEN, dash.no_update, ''
+            return PEAK_HIDDEN, dash.no_update, ''
         if not state or not request:
             return dash.no_update, dash.no_update, ''
         label = (label or '').strip()
@@ -2626,7 +2630,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         done = [f"{len(added)} new row" + ('s' if len(added) > 1 else '')]
         if earlier_rows:
             done.append(f"{len(earlier_rows)} earlier row{'s' if len(earlier_rows) > 1 else ''} {action}")
-        return MODAL_HIDDEN, _status(f"Peak info saved: {os.path.basename(path)} ({', '.join(done)})"), ''
+        return PEAK_HIDDEN, _status(f"Peak info saved: {os.path.basename(path)} ({', '.join(done)})"), ''
 
     # ------------------------------------------------------------------
     # Apply-filter modal: open / cancel / apply
