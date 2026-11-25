@@ -63,9 +63,13 @@ ROW_LINE = Border(bottom=Side(style='hair'))
 HEADER = Alignment(horizontal='center', wrap_text=True)
 MIN_WIDTH = 5   # characters: a column of 1-digit numbers still shows "Tube" whole
 # A new file prints with Excel's "Narrow" margins (inches), scaled to "Fit All
-# Columns on One Page". Set only when the file is made: later Saves keep
-# whatever print settings it has, changes made in Excel included.
+# Columns on One Page", with its file name at the top of every page (PAGE_HEADER:
+# Excel's code for the file's name, so a renamed file prints its new name).
+# Set only when the file is made: later Saves keep whatever print settings it
+# has, changes made in Excel included.
 NARROW_MARGINS = dict(left=0.25, right=0.25, top=0.75, bottom=0.75, header=0.3, footer=0.3)
+PAGE_HEADER = '&F'
+PAGE_HEADER_PT = 14   # its size: regular, not bold (user)
 
 
 class PeakFileError(Exception):
@@ -610,6 +614,8 @@ def save(path, rows, *, columns=None, decimals=None, earlier=MARK):
         ws.page_margins = PageMargins(**NARROW_MARGINS)
         ws.sheet_properties.pageSetUpPr.fitToPage = True
         ws.page_setup.fitToWidth, ws.page_setup.fitToHeight = 1, 0   # 0: as many pages tall as it takes
+        ws.oddHeader.center.text = PAGE_HEADER   # every page: no first-page or even-page header of its own
+        ws.oddHeader.center.size = PAGE_HEADER_PT
         saved, next_row = [], 2
     else:
         wb = _load(path)

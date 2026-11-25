@@ -260,7 +260,7 @@ def modal(hidden_style, sublabel=None):
             ], style={'display': 'flex', 'alignItems': 'center', 'gap': '8px'}),
             html.Div([
                 html.Button('Cancel (Esc)', id='peak-cancel', n_clicks=0),
-                html.Button('Save', id='peak-save-confirm', n_clicks=0, style={'marginLeft': '8px'}),
+                html.Button('Save (Ctrl+S)', id='peak-save-confirm', n_clicks=0, style={'marginLeft': '8px'}),
             ]),
         ], style={'display': 'flex', 'alignItems': 'center', 'justifyContent': 'space-between',
                   'gap': '24px'}),

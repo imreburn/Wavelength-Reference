@@ -2297,6 +2297,38 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         Input('save-peak-btn', 'n_clicks'),
     )
 
+    # Ctrl+S clicks Save in Save Peak Info, while it's open. It works in a
+    # field too, since a Ctrl key never types anything (the letter shortcuts
+    # above skip fields). It leaves the field first, as a click on Save does:
+    # a text column's box sends its text only then. preventDefault keeps the
+    # browser from saving the page itself. Ctrl only, the Control key on the
+    # Mac too; a held key saves once.
+    app.clientside_callback(
+        """
+        function(n) {
+            if (!window._saveKeyBound) {
+                window._saveKeyBound = true;
+                document.addEventListener('keydown', function(e) {
+                    if (!e.ctrlKey || e.altKey || e.metaKey || (e.key || '').toLowerCase() !== 's') return;
+                    var m = document.getElementById('peak-modal');
+                    if (!m || m.style.display === 'none') return;
+                    e.preventDefault();
+                    if (e.repeat) return;
+                    var f = document.activeElement;
+                    if (f && f !== document.body && f.blur) f.blur();
+                    setTimeout(function () {
+                        var btn = document.getElementById('peak-save-confirm');
+                        if (btn) btn.click();
+                    }, 150);
+                });
+            }
+            return '';
+        }
+        """,
+        Output('peak-save-confirm', 'title'),
+        Input('peak-save-confirm', 'n_clicks'),
+    )
+
     # The key guard: while the Save Peak Info reminder is open, the window
     # ignores every key. That covers Enter, Esc and the letter shortcuts
     # above (P and L too, which act on Power Readout, and Power Readout may
