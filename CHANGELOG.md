@@ -4,11 +4,19 @@
 
 ### Added
 
-- "Remind Me to Save Peak Info" in the config window: when it's checked, "Close Window" and "Close & Repeat" show a warning if no peak info was saved for the sweep. ([#157](https://github.com/imreburn/Wavelength-Reference/issues/157))
+- "Remind Me to Save Peak Info" in the config window: when it's checked, "Close Window" and "Close & Repeat" show a warning popup if no peak info was saved for the sweep. ([#157](https://github.com/imreburn/Wavelength-Reference/issues/157))
+- "Add Sublabel" in the config window: a second label with its own column name, prefix and counter, such as a tube number. ([#182](https://github.com/imreburn/Wavelength-Reference/issues/182))
+- "Ripple (dB)" and "Item" in the "Add Column…" list of "Save Peak Info". Item's boxes start with the last saved Item until the program closes.
+- "Earlier Rows of the Same Peak" in "Save Peak Info": "Mark as Old" or "Delete". ([#177](https://github.com/imreburn/Wavelength-Reference/issues/177)). When the same peak is found, now there are two options to handle it: it can be either marked as old (the current option) or deleted (the new option). 
+- Ctrl+S saves in "Save Peak Info".
 
 ### Changed
 
 - In the config window, the "Label & Save" section moved to the top of the middle column, above "Reference".
+- In the Excel file of "Save Peak Info", cells are centered, and each row has a thin line under it. ([#165](https://github.com/imreburn/Wavelength-Reference/issues/165))
+- A new Excel file from "Save Peak Info" prints with narrow margins, all columns on one page, and its file name at the top of every page.
+- In the peak file, Status says "latest" and "old" (was "current" and "replaced"), and an old row stays black except its red Status. ([#177](https://github.com/imreburn/Wavelength-Reference/issues/177))
+- "Save Peak Info" has no fixed columns: a new file starts with Status, Date, Source, Detector, Label/SN and λ (nm), but any column can be changed or removed. However, Save needs Status, Label/SN and λ (nm) columns. ([#166](https://github.com/imreburn/Wavelength-Reference/issues/166))
 
 ## [3.0.2] - 2026-11-20
 

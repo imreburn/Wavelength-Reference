@@ -27,6 +27,7 @@ from config_helper import (
     use_ui_font, ui_font,
     validate_inputs, validate_extras, validate_passfail, validation_error,
     LABEL_DIGIT_OPTIONS, LABEL_DIGIT_DEFAULT, LABEL_START_DEFAULT, validate_label, label_counter,
+    build_label, validate_sublabel_name, SUBLABEL_NAME_DEFAULT,
     TIME_FORMAT, TIME_PLACEHOLDER,
 )
 from info_text import PASSFAIL_INFO, REFERENCE_INFO, PARAMETERS_INFO, AUTOSAVE_INFO
@@ -50,6 +51,9 @@ PRESET_MAX_WIDTH = 28
 PRESET_DIALOG_WIDTH = 30
 # The gap after each range column's fields.
 RANGE_PADX = (0, 6)
+# The label's and the sublabel's "Starting from" fields, in characters: room
+# for the 8 digits a counter can have.
+COUNTER_WIDTH = 8
 SPEED_LABEL, STEP_LABEL = FIELD_LABELS[2], FIELD_LABELS[3]
 
 # A checkbox's letter key (R, L, A, P) counts only after this many seconds with no
@@ -104,12 +108,15 @@ MSG_LABEL_NOTICE   = ("The new label from the graph window doesn't fit the prefi
 #   reference     — current reference status (True/False)
 #   label_n       — the label counter value the last Run used; None when its
 #                   label had no number (or there was no label)
+#   sub           — the last Run's sublabel: {"name", "prefix", "digits", "n",
+#                   "text"}, where n is its counter (None with 0 digits); None
+#                   when it had none
 #   pos           — last window position (x, y); None until first close, then
 #                   tracks wherever the user moved it
 #   notice        — why the graph window's label edit wasn't carried over
 #                   (see relabel); the next window shows it once
 _state = {"ref_available": False, "ref_time": None, "reference": False, "label_n": None,
-          "pos": None, "notice": None}
+          "sub": None, "pos": None, "notice": None}
 
 
 def mark_ref_available(sweep_time):
@@ -123,12 +130,33 @@ def mark_ref_available(sweep_time):
 
 
 def advance_label():
-    """Move the label counter past the number the last Run used, so the window
-    reopens on the next label. main.py calls this once a sweep has finished; a
-    cancelled or failed sweep never gets here, so its number is kept for the
-    retry. Past the digit limit, the reopened window refuses to Run."""
+    """Move the label and sublabel counters past the numbers the last Run
+    used, so the window reopens on the next ones. main.py calls this once a
+    sweep has finished; a cancelled or failed sweep never gets here, so its
+    numbers are kept for the retry. Past the digit limit, the reopened window
+    refuses to Run."""
     if _state["label_n"] is not None:
         _last["info"]["start"] = str(_state["label_n"] + 1)
+    sub = _state["sub"]
+    if sub and sub["n"] is not None:
+        _last["info"]["sub_start"] = str(sub["n"] + 1)
+
+
+def _counter_of(label):
+    """The counter in `label`, a label changed in the graph window, when it
+    keeps the last Run's prefix and number of digits; else None."""
+    info = _last.get("info", {})
+    return label_counter(label or "", info.get("prefix", ""), int(info.get("digits", "0")))
+
+
+def _label_moved(label):
+    """How far `label`, a label changed in the graph window, moved the last
+    Run's label counter: +1 for SN05 changed to SN06. None when it doesn't
+    keep the prefix and the number of digits, or there's no counter."""
+    n = _counter_of(label)
+    if n is None or _state["label_n"] is None:
+        return None
+    return n - _state["label_n"]
 
 
 def relabel(run_label, label):
@@ -138,20 +166,44 @@ def relabel(run_label, label):
 
     With "Add Label/SN" off, a change is for that sweep only. A change that keeps
     the prefix and only changes the counter (the same number of digits) moves
-    the counter on from it: SN05 changed to SN04 makes the next label SN05. Any
-    other change is discarded. Then the next window shows why, and this
-    returns that message, so main.py doesn't auto-run. Otherwise it returns
-    None. A counter moved past the digit limit is refused at Run, as usual.
+    the counter on from it: SN05 changed to SN04 makes the next label SN05.
+    The sublabel's counter moves by the same amount, so if SN05 went with
+    T05, the next pair is SN05 and T05. Any other change is discarded. Then
+    the next window shows why, and this returns that message, so main.py
+    doesn't auto-run. Otherwise it returns None. A counter moved past the
+    digit limit is refused at Run, as usual.
     """
     info = _last.get("info", {})
     if not info.get("add_label") or label == run_label:
         return None
-    n = label_counter(label or "", info.get("prefix", ""), int(info.get("digits", "0")))
+    n = _counter_of(label)
     if n is not None:
         info["start"] = str(n + 1)
+        moved, sub = _label_moved(label), _state["sub"]
+        if moved is not None and sub and sub["n"] is not None:
+            info["sub_start"] = str(sub["n"] + moved + 1)
         return None
     _state["notice"] = MSG_LABEL_NOTICE
     return _state["notice"]
+
+
+def sublabel_for(label):
+    """The sublabel that goes with `label`, a label changed in the graph
+    window, as Params.sublabel: the last Run's, with its counter moved as far
+    as the label's counter moved (SN05 changed to SN04 takes T05 to T04).
+    The Run's own sublabel when the label's counter didn't move it, or when
+    the move would take it below 0 or past its digit limit. None when the
+    Run had no sublabel. display_plot calls this on every change."""
+    sub = _state["sub"]
+    if not sub:
+        return None
+    moved = _label_moved(label)
+    if moved is None or sub["n"] is None:
+        return sub["name"], sub["text"]
+    n = sub["n"] + moved
+    if not 0 <= n <= 10 ** sub["digits"] - 1:
+        return sub["name"], sub["text"]
+    return sub["name"], build_label(sub["prefix"], sub["digits"], n)
 
 
 def preset_names(presets):
@@ -548,13 +600,24 @@ def get_inputs(readout=None, auto_run=False, source=None):
             return
         # More Info is checked here, not in Save: its fields never lock, so a
         # label fix doesn't need Change (which would clear the reference).
-        label, label_n = None, None
+        label, label_n, sub = None, None, None
         if add_label_var.get():
             label, label_n, error = validate_label(prefix_var.get(), digits_var.get(), start_var.get())
             if error:
                 result_label.config(text=f"Error: {error}", foreground="red")
                 return
+            # The sublabel goes only with a label.
+            if add_sub_var.get():
+                text, sub_n, error = validate_label(sub_prefix_var.get(), sub_digits_var.get(),
+                                                    sub_start_var.get(), what="Sublabel")
+                error = validate_sublabel_name(sub_name_var.get()) or error
+                if error:
+                    result_label.config(text=f"Error: {error}", foreground="red")
+                    return
+                sub = {"name": sub_name_var.get().strip(), "prefix": sub_prefix_var.get(),
+                       "digits": int(sub_digits_var.get()), "n": sub_n, "text": text}
         params.label = label
+        params.sublabel = (sub["name"], sub["text"]) if sub else None
         options.autosave_raw     = bool(autosave_raw_var.get())
         options.remind_save_peak = bool(remind_save_peak_var.get())
 
@@ -570,9 +633,15 @@ def get_inputs(readout=None, auto_run=False, source=None):
             digits = int(digits_var.get())
             if label_n == 10 ** digits - 1:
                 log.warning("Label %s is the last one for %d digits.", label, digits)
+        if sub and sub["n"] is not None and sub["n"] == 10 ** sub["digits"] - 1:
+            log.warning("Sublabel %s is the last one for %d digits.", sub["text"], sub["digits"])
         _state["label_n"] = label_n
+        _state["sub"] = sub
         _last["info"] = {"add_label": add_label_var.get(), "prefix": prefix_var.get(),
                          "digits": digits_var.get(), "start": start_var.get(),
+                         "add_sub": add_sub_var.get(), "sub_name": sub_name_var.get(),
+                         "sub_prefix": sub_prefix_var.get(), "sub_digits": sub_digits_var.get(),
+                         "sub_start": sub_start_var.get(),
                          "autosave_raw": autosave_raw_var.get(),
                          "remind_save_peak": remind_save_peak_var.get()}
 
@@ -1048,11 +1117,12 @@ def get_inputs(readout=None, auto_run=False, source=None):
         return sec
 
     # ---- Label & Save ------------------------------------------------------
-    # An optional label (prefix + zero-padded counter), autosave, and the
-    # reminder to save peak info. Session-only (kept in _last, not presets)
-    # and never locked by Save; Run validates the label. Not bound to
-    # on_entry_change, so edits keep the saved state. The first section in the
-    # column. Not a column_section: its grid gives the spare width to column 1.
+    # An optional label (prefix + zero-padded counter), its sublabel, autosave,
+    # and the reminder to save peak info. Session-only (kept in _last, not
+    # presets) and never locked by Save; Run validates the label and the
+    # sublabel. Not bound to on_entry_change, so edits keep the saved state.
+    # The first section in the column. Not a column_section: its grid gives
+    # the spare width to column 1.
     info_container = ttk.Frame(mid_col)
     info_container.pack(anchor="w", fill="x")
     section_header(info_container, "Label & Save (Optional)", 0, info=AUTOSAVE_INFO)
@@ -1066,40 +1136,69 @@ def get_inputs(readout=None, auto_run=False, source=None):
     prefix_var    = tk.StringVar(value=init_info.get("prefix", ""))
     digits_var    = tk.StringVar(value=init_info.get("digits", LABEL_DIGIT_DEFAULT))
     start_var     = tk.StringVar(value=init_info.get("start", LABEL_START_DEFAULT))
+    # The sublabel, such as a tube number: the name of the Save Peak Info
+    # column it goes in, then a prefix and a counter like the label's. Its
+    # counter moves with the label's (advance_label, relabel).
+    add_sub_var    = tk.IntVar(value=init_info.get("add_sub", 0))
+    sub_name_var   = tk.StringVar(value=init_info.get("sub_name", SUBLABEL_NAME_DEFAULT))
+    sub_prefix_var = tk.StringVar(value=init_info.get("sub_prefix", ""))
+    sub_digits_var = tk.StringVar(value=init_info.get("sub_digits", LABEL_DIGIT_DEFAULT))
+    sub_start_var  = tk.StringVar(value=init_info.get("sub_start", LABEL_START_DEFAULT))
     autosave_raw_var     = tk.IntVar(value=init_info.get("autosave_raw", 0))
     remind_save_peak_var = tk.IntVar(value=init_info.get("remind_save_peak", 0))
+
+    def preview_label(row):
+        """The preview next to the checkbox at `row`. Fixed width so the row
+        doesn't shift as its text changes. Bold, at the other labels' size."""
+        preview = ttk.Label(info_container, text="", anchor="w", width=20,
+                            font=ui_font(None, "bold"))
+        preview.grid(row=row, column=1, pady=4, sticky="w")
+        return preview
+
+    def counter_rows(row, prefix, digits, start):
+        """The Prefix row at `row` and the Counter row under it, the label's
+        or the sublabel's. Returns their fields: (prefix, digits, starting
+        from)."""
+        # Right-aligned next to its field, like the labels in the other sections.
+        ttk.Label(info_container, text="Prefix", anchor="e").grid(
+            row=row, column=0, pady=4, padx=(0, 8), sticky="e")
+        prefix_entry = ttk.Entry(info_container, textvariable=prefix, width=20)
+        prefix_entry.grid(row=row, column=1, pady=4, sticky="w")
+        # The counter row: its two fields each carry their own name, like Starting from.
+        ttk.Label(info_container, text="Counter", anchor="e").grid(
+            row=row + 1, column=0, pady=4, padx=(0, 8), sticky="e")
+        digits_frame = ttk.Frame(info_container)
+        digits_frame.grid(row=row + 1, column=1, pady=4, sticky="w")
+        ttk.Label(digits_frame, text="Digits").pack(side="left", padx=(0, 2))
+        digits_menu = Dropdown(digits_frame, digits, LABEL_DIGIT_OPTIONS)
+        digits_menu.pack(side="left")
+        ttk.Label(digits_frame, text="Starting from").pack(side="left", padx=(12, 2))
+        start_entry = ttk.Entry(digits_frame, textvariable=start, width=COUNTER_WIDTH)
+        start_entry.pack(side="left")
+        return prefix_entry, digits_menu, start_entry
 
     add_label_cb = ttk.Checkbutton(info_container, text="Add Label/SN (A)", variable=add_label_var)
     add_label_cb.grid(row=2, column=0, pady=4, sticky="w")
     _bind_checkbox_key(root, "a", add_label_cb)
-    # Fixed width so the row doesn't shift as the preview text changes. Bold,
-    # at the other labels' size.
-    label_preview = ttk.Label(info_container, text="", anchor="w", width=20,
-                             font=ui_font(None, "bold"))
-    label_preview.grid(row=2, column=1, pady=4, sticky="w")
+    label_preview = preview_label(2)
+    prefix_entry, digits_menu, start_entry = counter_rows(3, prefix_var, digits_var, start_var)
 
-    # Right-aligned next to its field, like the labels in the other sections.
-    ttk.Label(info_container, text="Prefix", anchor="e").grid(
-        row=3, column=0, pady=4, padx=(0, 8), sticky="e")
-    prefix_entry = ttk.Entry(info_container, textvariable=prefix_var, width=20)
-    prefix_entry.grid(row=3, column=1, pady=4, sticky="w")
-
-    # The counter row: its two fields each carry their own name, like Starting from.
-    ttk.Label(info_container, text="Counter", anchor="e").grid(
-        row=4, column=0, pady=4, padx=(0, 8), sticky="e")
-    digits_frame = ttk.Frame(info_container)
-    digits_frame.grid(row=4, column=1, pady=4, sticky="w")
-    ttk.Label(digits_frame, text="Digits").pack(side="left", padx=(0, 2))
-    digits_menu = Dropdown(digits_frame, digits_var, LABEL_DIGIT_OPTIONS)
-    digits_menu.pack(side="left")
-    ttk.Label(digits_frame, text="Starting from").pack(side="left", padx=(12, 2))
-    start_entry = ttk.Entry(digits_frame, textvariable=start_var, width=6)
-    start_entry.pack(side="left")
+    # The sublabel's rows, under the label's. Its checkbox works only while
+    # "Add Label/SN" is checked (update_label_ui).
+    add_sub_cb = ttk.Checkbutton(info_container, text="Add Sublabel", variable=add_sub_var)
+    add_sub_cb.grid(row=5, column=0, pady=4, sticky="w")
+    sub_preview = preview_label(5)
+    ttk.Label(info_container, text="Column Name", anchor="e").grid(
+        row=6, column=0, pady=4, padx=(0, 8), sticky="e")
+    sub_name_entry = ttk.Entry(info_container, textvariable=sub_name_var, width=20)
+    sub_name_entry.grid(row=6, column=1, pady=4, sticky="w")
+    sub_prefix_entry, sub_digits_menu, sub_start_entry = counter_rows(
+        7, sub_prefix_var, sub_digits_var, sub_start_var)
 
     # Spans both columns so its long text doesn't widen column 0 (which would
     # push the Prefix/Digits fields to the right).
     ttk.Checkbutton(info_container, text="Autosave Raw Data", variable=autosave_raw_var).grid(
-        row=5, column=0, columnspan=2, pady=4, sticky="w")
+        row=9, column=0, columnspan=2, pady=4, sticky="w")
     # The name the file will get, on its own line under the checkbox's text.
     # The time part is only stamped at Run, so it stands in as its format (see
     # save_csv.auto_raw_path), and ".../" stands for the data folder.
@@ -1109,7 +1208,7 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # the column is cut off instead of widening the window. The row stays
     # while auto-save is off, so the window's height doesn't change either.
     save_note = ttk.Label(info_container, text="", foreground="gray", anchor="w", width=1)
-    save_note.grid(row=6, column=0, columnspan=2, padx=(CHECKBOX_TEXT_INDENT, 0), pady=(0, 4),
+    save_note.grid(row=10, column=0, columnspan=2, padx=(CHECKBOX_TEXT_INDENT, 0), pady=(0, 4),
                    sticky="ew")
 
     # When checked, the graph window asks before it closes if no Save Peak
@@ -1118,24 +1217,42 @@ def get_inputs(readout=None, auto_run=False, source=None):
     # columns, like Autosave Raw Data.
     ttk.Checkbutton(info_container, text="Remind Me to Save Peak Info",
                     variable=remind_save_peak_var).grid(
-        row=7, column=0, columnspan=2, pady=4, sticky="w")
+        row=11, column=0, columnspan=2, pady=4, sticky="w")
+
+    def show_preview(preview, on, digits, start, text, error):
+        """A preview's text: the label (or sublabel), or why Run would refuse
+        it, in short: "over 99" past the digit limit, else "invalid". Run
+        shows the full message in the status line. Gray while it's off."""
+        if error:
+            start = start.strip()
+            over  = (digits in LABEL_DIGIT_OPTIONS[1:] and start.isascii() and start.isdigit()
+                     and int(start) >= 10 ** int(digits))
+            preview.config(text=f"over {10 ** int(digits) - 1}" if over else "invalid",
+                           foreground="red" if on else "gray")
+        else:
+            preview.config(text=text, foreground="black" if on else "gray")
 
     def update_label_ui(*_):
-        """Enable the label fields to match the checkbox/digits; refresh the preview."""
+        """Enable the label and sublabel fields to match their checkboxes and
+        digits; refresh both previews and the file name."""
         on = bool(add_label_var.get())
         prefix_entry.config(state="normal" if on else "disabled")
         digits_menu.config(state="normal" if on else "disabled")
         start_entry.config(state="normal" if on and digits_var.get() != "0" else "disabled")
         label, _, error = validate_label(prefix_var.get(), digits_var.get(), start_var.get())
-        if error:
-            # Short reason here; Run shows the full message in the status line.
-            digits = digits_var.get()
-            start  = start_var.get().strip()
-            over   = digits in LABEL_DIGIT_OPTIONS[1:] and start.isascii() and start.isdigit() and int(start) >= 10 ** int(digits)
-            label_preview.config(text=f"over {10 ** int(digits) - 1}" if over else "invalid",
-                                 foreground="red" if on else "gray")
-        else:
-            label_preview.config(text=label, foreground="black" if on else "gray")
+        show_preview(label_preview, on, digits_var.get(), start_var.get(), label, error)
+
+        # The sublabel needs the label, so its checkbox is grayed out without
+        # it. Its preview also says "invalid" for a column name Run refuses.
+        add_sub_cb.config(state="normal" if on else "disabled")
+        sub_on = on and bool(add_sub_var.get())
+        for field in (sub_name_entry, sub_prefix_entry, sub_digits_menu):
+            field.config(state="normal" if sub_on else "disabled")
+        sub_start_entry.config(state="normal" if sub_on and sub_digits_var.get() != "0" else "disabled")
+        sub, _, sub_error = validate_label(sub_prefix_var.get(), sub_digits_var.get(),
+                                           sub_start_var.get(), what="Sublabel")
+        sub_error = sub_error or validate_sublabel_name(sub_name_var.get())
+        show_preview(sub_preview, sub_on, sub_digits_var.get(), sub_start_var.get(), sub, sub_error)
 
         # Filename preview: shown only while auto-save is on, and the label is
         # included only when there is a valid one.
@@ -1148,7 +1265,8 @@ def get_inputs(readout=None, auto_run=False, source=None):
         else:
             save_note.config(text=f".../Raw Data/{TIME_PLACEHOLDER}.csv")
 
-    for v in (add_label_var, prefix_var, digits_var, start_var, autosave_raw_var):
+    for v in (add_label_var, prefix_var, digits_var, start_var, add_sub_var, sub_name_var,
+              sub_prefix_var, sub_digits_var, sub_start_var, autosave_raw_var):
         v.trace_add("write", update_label_ui)
     update_label_ui()
 
@@ -1214,10 +1332,14 @@ def get_inputs(readout=None, auto_run=False, source=None):
     if preset_error:
         result_label.config(text=MSG_PRESETS_OFF.format(error=preset_error), foreground="red")
 
-    # The previous sweep may have pushed the label counter past its digit limit.
-    # Say so now rather than only when Run is pressed (or a Repeat stalls).
+    # The previous sweep may have pushed the label or sublabel counter past its
+    # digit limit. Say so now rather than only when Run is pressed (or a
+    # Repeat stalls).
     if add_label_var.get():
         _, _, label_error = validate_label(prefix_var.get(), digits_var.get(), start_var.get())
+        if not label_error and add_sub_var.get():
+            _, _, label_error = validate_label(sub_prefix_var.get(), sub_digits_var.get(),
+                                               sub_start_var.get(), what="Sublabel")
         if label_error:
             result_label.config(text=f"Error: {label_error}", foreground="red")
     # The last graph window's label change that couldn't be carried over.

@@ -113,40 +113,48 @@ Each peak has two base points, one on each side (left and right). Depth and widt
 
 
 AUTOSAVE_INFO="""
-The fields in this section don't lock after Save, so you can change them without clicking Change. They aren't saved in presets and are kept until the program closes.
+You can change this section anytime, even after Save. They aren't saved in presets and are kept until the program closes.
 
 
 **Label**
 
-- Check "Add Label/SN" to give each sweep a label: **a prefix followed by a counter.** For example, in SN007, SN is the prefix and 007 is the counter. The label is previewed next to the checkbox.
+- Check "Add Label/SN" (Keyboard shortcut: "A") to give each sweep a label: **a prefix followed by a counter.** The label is previewed next to the checkbox.
 
-- Press A to check or uncheck the box. This doesn't work while you're typing in a field.
+- You can leave out either the prefix or the counter, **but not both.** The prefix can be any text, even just numbers, but it can't contain \\ / : * ? " < > | or end with a space or a dot, because the label can become part of a file name.
 
-- **You can leave out either the prefix or the counter, but not both.** The prefix can be any text, even just numbers, but it can't contain \\ / : * ? " < > | or end with a space or a dot, because the label can become part of a file name.
-
-- The counter is set with two fields: "Digits" and "Starting from". "Digits" (0 to 4) sets how many digits the counter has, and 0 means no counter. The counter is padded with zeros, so 3 digits starting from 7 gives 007.
+- The counter is set with two fields: "Digits" and "Starting from". "Digits" sets how many digits the counter has, and 0 means no counter. The counter is padded with zeros, so 3 digits starting from 7 gives 007.
 
 - "Digits" also sets the range for "Starting from". With 2 digits, for example, you can enter 0 to 99.
 
 - **The counter automatically increases by 1 after each sweep finishes. Numbers in the prefix never change.** After a cancelled or failed sweep, the counter stays the same, so you can try again with the same label. Once the last value is used (99 with 2 digits), the window shows an error, and Run won't start until you change "Digits" or "Starting from".
 
-- The label is shown in the graph window's right panel, where you can change it. "Save Raw Data" and "Save Peak Info" use the changed label.
+- The label is shown in the graph window's right panel, where you can change it. "Save Raw Data" and "Save Peak Info" use the changed label. **If you change only the counter within the range, the counter here continues from it.** For example, change SN05 to SN04, and the next label is SN05. Any other change is for that sweep only: Auto-run then stops in the config window, so you can check the label.
 
-- **If you change only the counter there, the counter here continues from it.** For example, change SN05 to SN04, and the next label is SN05. Any other change is for that sweep only: "Close & Repeat" then stops here with a message, so you can check the label before you click Run.
+- You can also change the label in "Save Peak Info". But the change only lives in the dialog.
 
+
+**Sublabel**
+
+- Check "Add Sublabel" to give each sweep a second label, such as a tube number. It is enabled only while "Add Label/SN" is checked.
+
+- "Column Name" is the name of the Save Peak Info column the sublabel goes in, like Tube (default). It can't be the name of one of existing columns, like Temp. (°C).
+
+- The prefix and the counter work the same way as the label's.
+
+- **Like the label, the sublabel's counter increases by 1 after each sweep.** If you change the label's counter in the graph window, the sublabel's counter also changes by the same amount.
+
+- In Save Peak Info, the sublabel is in the box next to Label/SN, titled with its column name. For a new file, add its column from the "Add Column…" list, where it's listed by its column name too. In an existing file, it goes in the column with that name. In the table, "Sublabel" is shown above its column. 
+
+- Changes to the sublabel in Save Peak Info lives only in it, like the label.
 
 **Autosave Raw Data**
 
-- If "Autosave Raw Data" is checked, the raw data is saved to the Raw Data folder after each sweep. The file is the same as the one "Save Raw Data..." saves in the graph window.
+- If "Autosave Raw Data" is checked, the raw data is saved to the Raw Data folder after each sweep.
 
-- The graph window shows a status message with the file name, or an error if the save failed.
-
-- With a label, the file name is "<label>_<time>.csv". Without one, it's "<time>.csv". The time is when you click Run, in the form YYYY-MM-DD_hh-mm-ss. The name is previewed below the checkbox, where ".../" stands for the data folder.
+- With a label, the file name is "<label>_<time>.csv". Without one, it's "<time>.csv". The time is when you click Run, in the form YYYY-MM-DD_hh-mm-ss. The name is previewed below the checkbox, where ".../" stands for the data folder. The graph window shows a status message with the file name, or an error if the save failed.
 
 
 **Remind Me to Save Peak Info**
 
-- If "Remind Me to Save Peak Info" is checked, the graph window shows a warning when you click "Close Window" or "Close & Repeat" (or press W or Enter) before you've saved any peak info for that sweep. Click "Cancel" to go back, or "Proceed" to continue.
-
-- Peak info counts as saved once "Save Peak Info..." has written it to the file. The window's X button closes the window without a warning.
+- If "Remind Me to Save Peak Info" is checked, the graph window shows a warning when you click "Close Window" or "Close & Repeat" if you haven't saved any peak info yet. The window's X button closes the window without a warning.
 """

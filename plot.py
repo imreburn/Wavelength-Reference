@@ -33,16 +33,22 @@ import peak_file as pf
 
 # Remembered across display_plot() calls (i.e. across loop iterations) for the
 # "Save Peak Info" dialog: the file saved to last (a full path), where the
-# dialog starts, and a new file's columns ([{'item': key} or {'text': name}]
-# after the fixed ones) and decimals (item key -> decimals), and the
-# Temperature box at the last Save (None when it was empty). Label/SN isn't.
+# dialog starts, and a new file's columns ([{'item': key}, {'text': name} or
+# {'sub': True}]; [] gives peak_file.DEFAULT_COLUMNS) and decimals (item key
+# -> decimals), the Temperature box at the last Save (None when it was
+# empty), what the boxes of the items in peak_dialog.CARRIED (Item) start
+# with: item key -> the text the last Save gave them (peak_dialog.carried),
+# and the Earlier Rows dropdown at the last Save (pf.MARK when the program
+# starts, so it never starts by deleting rows). Label/SN isn't.
 _last_peak_file = ''
 _peak_columns   = []
 _peak_decimals  = {}
 _peak_temperature = None
+_peak_carried   = {}
+_peak_earlier   = pf.MARK
 # The files "Save Peak Info" opened or saved to lately, kept across runs:
 # newest first, one path per line (see peak_file.remember). The File menu
-# lists them under "Recent files".
+# lists them under "Recent Files".
 RECENT_PEAK_FILES = data_path('recent_peak_files.txt', mkdir=False)
 # Also remembered across display_plot() calls: each table's columns and
 # decimals from its Customize dialog, and the peak numbers hidden in each
@@ -62,7 +68,7 @@ _hidden_items = set()
 # opens outside the dropdown's element, and Dash's list doesn't wrap, so it
 # shows the label on one line. Dash's field grid puts the text in an
 # auto-width first column; 1fr gives the text the free space instead.
-# The File menu (class pf-file-dd) always shows its placeholder, "File menu",
+# The File menu (class pf-file-dd) always shows its placeholder, "File Menu",
 # so the placeholder gets the normal text color.
 INDEX_STRING = '''<!DOCTYPE html>
 <html>
@@ -1353,7 +1359,8 @@ def _overview_tab(app, tabs):
 
 
 def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title="Absorption Spectrum",
-                 autosaved_to=None, autosave_error=None, remind_save_peak=False):
+                 autosaved_to=None, autosave_error=None, remind_save_peak=False,
+                 sublabel_for=None):
     """
     Parameters
     ----------
@@ -1367,6 +1374,10 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         The config window's "Remind Me to Save Peak Info" (Options):
         until a Save in Save Peak Info goes through, Close Window and Close &
         Repeat show a warning first. Off for PlotSweep.
+    sublabel_for : callable, optional
+        label -> the sublabel that goes with it (config_window.sublabel_for),
+        so a change to the Label field moves params.sublabel's counter with
+        the label's. None (PlotSweep) leaves the sublabel as it is.
 
     Notes
     -----
@@ -1578,7 +1589,14 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     MODAL_HIDDEN = {**MODAL_OVERLAY, 'display': 'none'}
     MODAL_SHOWN  = {**MODAL_OVERLAY, 'display': 'flex'}
 
-    peak_modal = pdlg.modal(MODAL_HIDDEN)
+    # The sweep's sublabel column name (Params.sublabel), or None. It titles
+    # the dialog's sublabel box and names the sublabel's column.
+    sub_name = params.sublabel[0] if params.sublabel else None
+    # Save Peak Info sits near the top of the window, not in the middle, so
+    # its column lists have room to open below the table's header.
+    PEAK_HIDDEN = {**MODAL_HIDDEN, 'alignItems': 'flex-start', 'paddingTop': f'{pdlg.TOP_GAP}px'}
+    PEAK_SHOWN  = {**PEAK_HIDDEN, 'display': 'flex'}
+    peak_modal = pdlg.modal(PEAK_HIDDEN, sub_name)
 
     # ------------------------------------------------------------------
     # "Apply Filter" modal — pick a smoothing filter and its parameters,
@@ -2279,6 +2297,38 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         Input('save-peak-btn', 'n_clicks'),
     )
 
+    # Ctrl+S clicks Save in Save Peak Info, while it's open. It works in a
+    # field too, since a Ctrl key never types anything (the letter shortcuts
+    # above skip fields). It leaves the field first, as a click on Save does:
+    # a text column's box sends its text only then. preventDefault keeps the
+    # browser from saving the page itself. Ctrl only, the Control key on the
+    # Mac too; a held key saves once.
+    app.clientside_callback(
+        """
+        function(n) {
+            if (!window._saveKeyBound) {
+                window._saveKeyBound = true;
+                document.addEventListener('keydown', function(e) {
+                    if (!e.ctrlKey || e.altKey || e.metaKey || (e.key || '').toLowerCase() !== 's') return;
+                    var m = document.getElementById('peak-modal');
+                    if (!m || m.style.display === 'none') return;
+                    e.preventDefault();
+                    if (e.repeat) return;
+                    var f = document.activeElement;
+                    if (f && f !== document.body && f.blur) f.blur();
+                    setTimeout(function () {
+                        var btn = document.getElementById('peak-save-confirm');
+                        if (btn) btn.click();
+                    }, 150);
+                });
+            }
+            return '';
+        }
+        """,
+        Output('peak-save-confirm', 'title'),
+        Input('peak-save-confirm', 'n_clicks'),
+    )
+
     # The key guard: while the Save Peak Info reminder is open, the window
     # ignores every key. That covers Enter, Esc and the letter shortcuts
     # above (P and L too, which act on Power Readout, and Power Readout may
@@ -2397,9 +2447,9 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         file), with a row for each range's default peak (_range_tab's
         default_peak; a range with none gets no row)."""
         if path:
-            state = pdlg.file_state(path, _peak_decimals)
+            state = pdlg.file_state(path, _peak_decimals, sub_name, _peak_carried)
         else:
-            state = pdlg.new_file_state(_peak_columns, _peak_decimals)
+            state = pdlg.new_file_state(_peak_columns, _peak_decimals, sub_name, _peak_carried)
         for t in tabs:
             peak = t.default_peak(m2_of[t.key])
             if peak and not state['bad']:
@@ -2415,20 +2465,24 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         Output('peak-file-select', 'options', allow_duplicate=True),
         Output('pf-state', 'data', allow_duplicate=True),
         Output('peak-label', 'value'),
+        Output('peak-sublabel', 'value'),
         Output('peak-temperature', 'value'),
+        Output('peak-earlier', 'value'),
         Output('peak-modal-error', 'children', allow_duplicate=True),
         Input('save-peak-btn', 'n_clicks'),
         *M2_STATES,
         prevent_initial_call=True,
     )
     def open_peak_modal(n_clicks, *m2s):
-        # Label/SN starts with the sweep's label, and Temperature with the
-        # one saved last.
-        return (MODAL_SHOWN, _peak_file_options(), _fresh_peak_state(_first_peak_file(), _m2_of(m2s)),
-                params.label or '', _peak_temperature, '')
+        # Label/SN and the sublabel start with the sweep's, and Temperature
+        # and Earlier Rows with the ones saved last. An edit in the dialog is
+        # for its Saves only: it never changes the sweep's label or sublabel.
+        return (PEAK_SHOWN, _peak_file_options(), _fresh_peak_state(_first_peak_file(), _m2_of(m2s)),
+                params.label or '', params.sublabel[1] if params.sublabel else '',
+                _peak_temperature, _peak_earlier, '')
 
     # A pick in the File menu. Its value goes back to None, so it shows "File
-    # menu" again. "Open file…" asks the system's Open dialog for the file. A
+    # Menu" again. "Open File…" asks the system's Open dialog for the file. A
     # file other than the dialog's own starts the state over, built here (see
     # open_peak_modal), and goes to the top of the recent files if it opens
     # without an error. The dialog's own file, or Cancel in the Open dialog,
@@ -2509,16 +2563,18 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         Input('pf-state', 'data'),
         Input('peak-label', 'value'),
         Input('peak-temperature', 'value'),
+        Input('peak-sublabel', 'value'),
+        Input('peak-earlier', 'value'),
         *M2_STATES,
         prevent_initial_call=True,
     )
-    def render_peak_dialog(state, label, temperature, *m2s):
+    def render_peak_dialog(state, label, temperature, sublabel, earlier, *m2s):
         # Any change also clears the last Save's error message.
         if not state:
             return [], '', '', '', ''
         m2_of = _m2_of(m2s)
-        table = pdlg.table(state, _peak_choices(m2_of),
-                           lambda peak: _row_values(peak, m2_of), label, temperature)
+        table = pdlg.table(state, _peak_choices(m2_of), lambda peak: _row_values(peak, m2_of),
+                           label, temperature, sublabel, earlier or pf.MARK)
         return table, pdlg.file_line(state), pdlg.save_hint(state), pdlg.file_message(state), ''
 
     # Save goes through the page first. The Temperature box is a number
@@ -2548,23 +2604,26 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         State('pf-state', 'data'),
         State('peak-label', 'value'),
         State('peak-temperature', 'value'),
+        State('peak-sublabel', 'value'),
+        State('peak-earlier', 'value'),
         *M2_STATES,
         prevent_initial_call=True,
     )
-    def close_or_save_peak(cancel, request, state, label, temperature, *m2s):
+    def close_or_save_peak(cancel, request, state, label, temperature, sublabel, earlier, *m2s):
         if callback_context.triggered_id == 'peak-cancel':
-            return MODAL_HIDDEN, dash.no_update, ''
+            return PEAK_HIDDEN, dash.no_update, ''
         if not state or not request:
             return dash.no_update, dash.no_update, ''
         label = (label or '').strip()
+        earlier = earlier or pf.MARK
         m2_of = _m2_of(m2s)
         trouble = pdlg.problem(state, label, lambda peak: _row_values(peak, m2_of),
                                lambda peak: _peak_name(peak, m2_of),
-                               temperature, request.get('temperature', ''))
+                               temperature, request.get('temperature', ''), earlier)
         if trouble:
             return dash.no_update, dash.no_update, trouble
         rows = [{**_row_values(r['peak'], m2_of), 'label': label, 'temperature': temperature,
-                 'texts': pdlg.row_texts(state, r)} for r in state['rows']]
+                 **pdlg.entered(state, r, sublabel)} for r in state['rows']]
 
         window = _window_holder.get('window')
         if window is None:
@@ -2583,25 +2642,27 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
                 path = result[0] if isinstance(result, (list, tuple)) else result
                 if not path.lower().endswith('.xlsx'):
                     path += '.xlsx'
-                added, replaced = pf.save(path, rows, columns=pdlg.file_columns(state),
-                                          decimals=state['dec'])
+                added, earlier_rows = pf.save(path, rows, columns=pdlg.file_columns(state),
+                                              decimals=state['dec'], earlier=earlier)
             else:
                 path = state['path']
-                added, replaced = pf.save(path, rows, decimals=state['dec'])
+                added, earlier_rows = pf.save(path, rows, decimals=state['dec'], earlier=earlier)
         except pf.PeakFileError as e:
             return dash.no_update, dash.no_update, str(e)
 
-        global _last_peak_file, _peak_temperature
+        global _last_peak_file, _peak_temperature, _peak_earlier
         _last_peak_file = os.path.abspath(path)
         _peak_temperature = temperature
+        _peak_carried.update(pdlg.carried(rows))
+        _peak_earlier = earlier
         _peak_saved['ok'] = True   # the reminder (remind_save_peak) is satisfied
         _remember_peak_file(path)
-        log.info(f"Saved peak info: {path} (rows added {added}, replaced {replaced})")
+        action = 'deleted' if earlier == pf.DELETE else 'marked old'
+        log.info(f"Saved peak info: {path} (rows added {added}, earlier rows {action} {earlier_rows})")
         done = [f"{len(added)} new row" + ('s' if len(added) > 1 else '')]
-        if replaced:
-            done.append(f"{len(replaced)} earlier row{'s' if len(replaced) > 1 else ''} "
-                        "marked replaced")
-        return MODAL_HIDDEN, _status(f"Peak info saved: {os.path.basename(path)} ({', '.join(done)})"), ''
+        if earlier_rows:
+            done.append(f"{len(earlier_rows)} earlier row{'s' if len(earlier_rows) > 1 else ''} {action}")
+        return PEAK_HIDDEN, _status(f"Peak info saved: {os.path.basename(path)} ({', '.join(done)})"), ''
 
     # ------------------------------------------------------------------
     # Apply-filter modal: open / cancel / apply
@@ -2682,7 +2743,9 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     # so even closing the window with its own X keeps it. Save raw data, Save
     # peak info and Sweep info read params.label, and so does main.py once the
     # window closes (config_window.relabel). A label that can't go into a file
-    # name isn't used: the last good one stays.
+    # name isn't used: the last good one stays. The sublabel follows it
+    # (sublabel_for): a label counter moved back by one moves the sublabel's
+    # counter back by one too.
     _run_label = params.label or ''
 
     @app.callback(
@@ -2697,6 +2760,8 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
             used = f" Still using {params.label}." if params.label else " Still no label."
             return html.Span(error + used, style={'color': '#c0392b'})
         params.label = text or None
+        if sublabel_for and params.sublabel:
+            params.sublabel = sublabel_for(params.label) or params.sublabel
         if not text:
             return "Label removed."
         if text == _run_label:

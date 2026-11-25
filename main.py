@@ -1,5 +1,5 @@
 from inst_helper import prep_inst, close_inst, InstrumentError
-from config_window import get_inputs, mark_ref_available, advance_label, relabel
+from config_window import get_inputs, mark_ref_available, advance_label, relabel, sublabel_for
 from inst_run import run_sweep, SweepCancelled
 from inst_run_ext import run_sweep_ext
 from analyze_data import combine_scans
@@ -117,7 +117,7 @@ try:
         params.pm_range = saved_pm_range
         for raw_w in datasets:
             raw_w.data = combine_scans(raw_w.scans)
-        # The sweep finished, so its label is used: move the counter on.
+        # The sweep finished, so its label is used: move the counters on.
         advance_label()
 
         # The reference is kept per range. "Use Reference" needs the same
@@ -141,16 +141,18 @@ try:
                 log.exception("Auto-save of raw data failed")
                 autosaved_to, autosave_error = None, str(e)
 
-        # The graph window can change params.label (its Label field).
+        # The graph window can change params.label (its Label field), and the
+        # sublabel moves with it (sublabel_for).
         run_label = params.label
         auto_run = display_plot(datasets, params=params, readout=readout,
                                 autosaved_to=autosaved_to, autosave_error=autosave_error,
-                                remind_save_peak=options.remind_save_peak)
+                                remind_save_peak=options.remind_save_peak,
+                                sublabel_for=sublabel_for)
         # The plot window sets this on idle timeout; its normal close would
         # otherwise loop back to the config window instead of exiting.
         if shutdown.requested():
             break
-        # A changed label moves the counter on, or, when it doesn't fit the
+        # A changed label moves the counters on, or, when it doesn't fit the
         # prefix and counter, the config window waits for Run and says why.
         if relabel(run_label, params.label):
             auto_run = False
