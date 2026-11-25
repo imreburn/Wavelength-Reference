@@ -14,10 +14,10 @@ Numbers are saved as measured, not rounded. A column's decimals set only how
 many places the dialog and the cell's number format show, and the dialog
 rounds the way Excel does (see number_text), so both show the same text.
 
-Rows are never overwritten. A file keeps one current row per peak (see
+Rows are never overwritten. A file keeps one latest row per peak (see
 find_same): a Save adds its rows like any other and marks the earlier rows
-of the same peaks replaced, in their Status cells. So a sample's history
-stays in the file.
+of the same peaks old, in their Status cells, so a sample's history stays in
+the file. Or it deletes them, when the dialog says so (save's earlier).
 
 No Dash here. plot.py and peak_dialog.py pass in plain values.
 """
@@ -32,17 +32,23 @@ from typing import NamedTuple, Optional
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.page import PageMargins
 
 SHEET = 'Peaks'
 # Two rows are the same peak when they have the same Label/SN and a λ this
 # close (nm), whatever their date, source or detector. Each Save marks the
-# earlier current rows of its peaks replaced, so the current row of a peak
-# is always the one saved last.
+# earlier rows of its peaks old, or deletes them (see save's earlier), so a
+# peak's latest row is always the one saved last.
 SAME_PEAK_NM = 0.01
-# The Status column's values. Any text other than REPLACED counts as current.
-CURRENT, REPLACED = 'current', 'replaced'
-REPLACED_COLOR = 'FF808080'         # a replaced row's text is grey,
-REPLACED_STATUS_COLOR = 'FFC00000'  # except its Status: Excel's dark red
+# The Status column's values: LATEST for a peak's row saved last, OLD for
+# its earlier ones. Any text not in OLD_STATUSES counts as latest, so older
+# files' "current" rows do too, and their "replaced" rows count as old.
+LATEST, OLD = 'latest', 'old'
+OLD_STATUSES = (OLD, 'replaced')    # "replaced": the word before "old"
+OLD_STATUS_COLOR = 'FFC00000'       # an old row's Status: Excel's dark red; the rest stays as it is
+# What a Save does with the earlier rows of the peaks it saves (save's
+# earlier): MARK them old, or DELETE them.
+MARK, DELETE = 'mark', 'delete'
 MAX_DECIMALS = 10           # the same limit as the tables' Customize dialog
 DATE_FORMAT = 'mm/dd/yyyy'  # Excel's format for the Date column
 TIME_FORMAT = 'hh:mm:ss'    # Excel's format for the Time column
@@ -52,6 +58,14 @@ TEXT = 'text'               # the column dropdown's value for "Text Column…"
 # thinner than its usual thin one.
 CENTER = Alignment(horizontal='center')
 ROW_LINE = Border(bottom=Side(style='hair'))
+# Columns are as narrow as they can be, so all of them print on one page
+# (see fit_widths): the header wraps, the rows below it don't.
+HEADER = Alignment(horizontal='center', wrap_text=True)
+MIN_WIDTH = 5   # characters: a column of 1-digit numbers still shows "Tube" whole
+# A new file prints with Excel's "Narrow" margins (inches), scaled to "Fit All
+# Columns on One Page". Set only when the file is made: later Saves keep
+# whatever print settings it has, changes made in Excel included.
+NARROW_MARGINS = dict(left=0.25, right=0.25, top=0.75, bottom=0.75, header=0.3, footer=0.3)
 
 
 class PeakFileError(Exception):
@@ -61,21 +75,18 @@ class PeakFileError(Exception):
 class Item(NamedTuple):
     key: str                        # stable id, used by the dialog and its session memory
     header: str                     # the column header, in the file and in the dropdown
-    group: str                      # 'Fixed' columns are always there; the others are picked
+    group: str                      # its group in the column dropdowns (see column_options)
     decimals: Optional[int] = None  # starting decimals; None = no decimals control
 
 
 # The headers are in title case. Headers are compared ignoring case (see
 # norm), so files saved before that, with "Depth, max (dB)" and the like,
-# still work.
+# still work. Every item can be picked, removed or changed (#166); a new file
+# starts with DEFAULT_COLUMNS, and Save needs the REQUIRED ones.
 ITEMS = [
-    Item('date',         'Date',               'Fixed'),
-    Item('time',         'Time',               'Fixed'),
-    Item('source',       'Source',             'Fixed'),
-    Item('detector',     'Detector',           'Fixed'),
-    Item('label',        'Label/SN',           'Fixed'),
-    Item('wl',           'λ (nm)',             'Fixed', 1),
-    Item('status',       'Status',             'Fixed'),
+    Item('status',       'Status',             'Required'),
+    Item('label',        'Label/SN',           'Required'),
+    Item('wl',           'λ (nm)',             'Required', 1),
     Item('depth_max',    'Depth, Max (dB)',    'Peak', 3),
     Item('depth_avg',    'Depth, Avg (dB)',    'Peak', 3),
     Item('depth_min',    'Depth, Min (dB)',    'Peak', 3),
@@ -95,7 +106,11 @@ ITEMS = [
     Item('pm_range',     'Power Range (dBm)',  'Sweep'),
     Item('dyn_scans',    'Scans',              'Sweep'),
     Item('decrement',    'Decrement (dB)',     'Sweep'),
-    Item('temperature',  'Temperature (°C)',   'Run', 1),
+    Item('date',         'Date',               'Run'),
+    Item('time',         'Time',               'Run'),
+    Item('source',       'Source',             'Run'),
+    Item('detector',     'Detector',           'Run'),
+    Item('temperature',  'Temp. (°C)',         'Run', 1),
     Item('ripple',       'Ripple (dB)',        'Other'),
     Item('item_name',    'Item',               'Other'),
 ]
@@ -103,11 +118,11 @@ ITEM = {i.key: i for i in ITEMS}
 # The items you type into each row of the dialog's table, like a text
 # column, and that are saved as text.
 TYPED = ['ripple', 'item_name']
-# A new file's columns always start with the fixed items. An existing file
-# only needs the ones the app relies on: Label/SN and λ, to find the rows
-# a new one replaces (see find_same), and Status, to mark them.
-FIXED = [i.key for i in ITEMS if i.group == 'Fixed']
-REQUIRED = ['label', 'wl', 'status']
+# The columns a new file starts with, in order (#166). Every file needs the
+# REQUIRED ones, which the app relies on: Label/SN and λ, to find a peak's
+# earlier rows (see find_same), and Status, to mark them.
+DEFAULT_COLUMNS = ['status', 'date', 'source', 'detector', 'label', 'wl']
+REQUIRED = ['status', 'label', 'wl']
 RECENT_ROWS = 5    # the saved rows the dialog shows from an existing file
 RECENT_FILES = 10  # the files the recent list keeps (see remember)
 DEFAULT_DECIMALS = {i.key: i.decimals for i in ITEMS if i.decimals is not None}
@@ -121,17 +136,18 @@ def norm(header):
 
 # Headers an item had before it was renamed, so files saved with them keep
 # working. Their header in the file stays as it is.
-OLD_HEADERS = {'Label (SN)': 'label'}   # renamed after 3.0.1
+OLD_HEADERS = {'Label (SN)': 'label',               # renamed after 3.0.1
+               'Temperature (°C)': 'temperature'}   # shortened after 3.0.2, for narrow columns
 
 _KEY_BY_HEADER = {norm(i.header): i.key for i in ITEMS}
 _KEY_BY_HEADER.update({norm(h): key for h, key in OLD_HEADERS.items()})
 
 
 def column_options():
-    """The column dropdown's list: the items that aren't fixed, under greyed
-    group headings that can't be picked, with "Text Column…" last."""
+    """The column dropdown's list: every item, under greyed group headings
+    that can't be picked, with "Text Column…" last."""
     opts = []
-    for group in ('Peak', 'Sweep', 'Run', 'Other'):
+    for group in ('Required', 'Peak', 'Sweep', 'Run', 'Other'):
         opts.append({'label': f'——— {group} ———', 'value': f'__{group}', 'disabled': True})
         opts += [{'label': i.header, 'value': i.key} for i in ITEMS if i.group == group]
     opts.append({'label': 'Text Column…', 'value': TEXT})
@@ -146,7 +162,11 @@ def is_builtin(header):
 
 def column_problem(columns):
     """Why a new file's columns can't be saved, or None. columns: (item key,
-    or None for a text column; header) pairs in order, fixed ones included."""
+    or None for a text column; header) pairs in order."""
+    keys = {key for key, _ in columns}
+    missing = [ITEM[k].header for k in REQUIRED if k not in keys]
+    if missing:
+        return f'Add a "{missing[0]}" column. A file needs Status, Label/SN and λ (nm).'
     seen = set()
     for key, header in columns:
         name = header.strip()
@@ -386,24 +406,23 @@ def _label_text(value):
     return text or None
 
 
-def _is_replaced(status):
-    """Whether a Status cell marks its row replaced."""
-    return str(status or '').strip().casefold() == REPLACED
+def _is_old(status):
+    """Whether a Status cell marks its row old (OLD_STATUSES, in any case)."""
+    return str(status or '').strip().casefold() in OLD_STATUSES
 
 
 def _saved(ws, cols):
-    """The current rows, which a new row can replace: {'row': Excel row,
-    'label': its label (see _label_text), 'wl': λ} for each row with a label
-    and a λ that isn't marked replaced. Plain data, since the dialog keeps
-    them in a dcc.Store."""
+    """The rows a new row can be the same peak as: {'row': Excel row,
+    'label': its label (see _label_text), 'wl': λ, 'old': whether its Status
+    marks it old} for each row with a label and a λ. Plain data, since the
+    dialog keeps them in a dcc.Store."""
     col = {key: idx for idx, key, _ in cols if key}
     out = []
     for r in range(2, _last_row(ws) + 1):
-        if _is_replaced(ws.cell(r, col['status']).value):
-            continue
         label, wl = _label_text(ws.cell(r, col['label']).value), ws.cell(r, col['wl']).value
         if label and _is_number(wl):
-            out.append({'row': r, 'label': label, 'wl': float(wl)})
+            out.append({'row': r, 'label': label, 'wl': float(wl),
+                        'old': _is_old(ws.cell(r, col['status']).value)})
     return out
 
 
@@ -442,8 +461,8 @@ def _recent(ws, cols):
 def read(path):
     """What the dialog needs from a peak file: its columns in order ({'item':
     key} or {'text': header}), the decimals its numbers show, the last few
-    rows as text (see _recent), and the current rows, which the new peaks
-    could replace (see _saved), each with its 'cells' as text too.
+    rows as text (see _recent), and the rows the new peaks could be the same
+    peak as (see _saved), each with its 'cells' as text too.
     Raises PeakFileError."""
     wb = _load(path)
     try:
@@ -467,15 +486,17 @@ def same_wl(a, b):
     return abs(a - b) <= SAME_PEAK_NM + 1e-9
 
 
-def find_same(saved, values):
-    """The Excel rows a new row with these values (item key -> value)
-    replaces: every current saved row (see _saved) of the same peak, which
-    is the same label and a λ within SAME_PEAK_NM (see same_wl). [] when
-    the new row has no label or no λ."""
+def find_same(saved, values, earlier=MARK):
+    """The Excel rows a new row with these values (item key -> value) makes
+    earlier: the saved rows (see _saved) of the same peak, which is the same
+    label and a λ within SAME_PEAK_NM (see same_wl). To MARK, only the ones
+    not old yet; to DELETE, every one, old ones too. [] when the new row has
+    no label or no λ."""
     label, wl = _label_text(values.get('label')), values.get('wl')
     if not label or not _is_number(wl):
         return []
-    return [s['row'] for s in saved if s['label'] == label and same_wl(s['wl'], wl)]
+    return [s['row'] for s in saved if s['label'] == label and same_wl(s['wl'], wl)
+            and (earlier == DELETE or not s['old'])]
 
 
 # ---- writing ------------------------------------------------------------------------
@@ -501,18 +522,39 @@ def _write(cell, key, value, decimals):
             cell.number_format = number_format(d)
 
 
-def _mark_replaced(ws, row, cols):
-    """Mark a saved row replaced: REPLACED in its Status cell, in red, and
-    the rest of the row in grey."""
+def _mark_old(ws, row, cols):
+    """Mark a saved row old: OLD in its Status cell, in red (#177). The rest
+    of the row stays as it is: black, or grey for a row marked before that."""
     for idx, key, _ in cols:
-        cell = ws.cell(row, idx)
-        font = copy(cell.font)
         if key == 'status':
-            cell.value = REPLACED
-            font.color = REPLACED_STATUS_COLOR
-        else:
-            font.color = REPLACED_COLOR
-        cell.font = font
+            cell = ws.cell(row, idx)
+            font = copy(cell.font)
+            font.color = OLD_STATUS_COLOR
+            cell.value, cell.font = OLD, font
+
+
+def _width(text, bold=False):
+    """About how many of Excel's width units text takes. The unit is a
+    digit's width in the sheet's font; capitals are wider, and bold text is
+    wider still."""
+    width = sum(1.3 if ch.isupper() else 1.0 for ch in text)
+    return width * 1.1 if bold else width
+
+
+def fit_widths(ws, cols):
+    """Make every column as narrow as it can be, so all of them print on one
+    page: as wide as its widest cell below the header, as Excel shows it (see
+    _cell_text), and as its header's longest word, so a wrapped header never
+    breaks a word in two; MIN_WIDTH at least. The header wraps to that width
+    (HEADER), in a file saved before this too, so its header isn't cut off.
+    Done on every Save, over every row: a width set by hand in Excel is reset."""
+    last = _last_row(ws)
+    for idx, _, header in cols:
+        ws.cell(1, idx).alignment = HEADER
+        cells = (_cell_text(ws.cell(r, idx)) for r in range(2, last + 1))
+        widest = max([_width(t) for t in cells if t != '—']
+                     + [_width(w, bold=True) for w in str(header).split()] + [MIN_WIDTH])
+        ws.column_dimensions[get_column_letter(idx)].width = round(widest + 2, 1)
 
 
 def _save_atomic(wb, path):
@@ -534,23 +576,24 @@ def _save_atomic(wb, path):
         raise PeakFileError(f"Can't save {name}: {e.strerror or e}.")
 
 
-def save(path, rows, *, columns=None, decimals=None):
+def save(path, rows, *, columns=None, decimals=None, earlier=MARK):
     """Add rows to the peak file at path, after its last row, and return
-    (added, replaced): the Excel rows written, and the saved rows they
-    replaced.
+    (added, earlier_rows): the Excel rows written, and the rows they marked
+    old or deleted (Excel rows as they were before this Save).
 
     rows: one per peak, item key -> value, plus 'texts': {header: text} for
     the text columns. Numbers are saved as they are; the decimals set only
-    their number format. Their Status is CURRENT.
+    their number format. Their Status is LATEST.
     columns: for a new file, its columns as (item key or None, header) pairs
     in order. Without it, the file at path must exist, and its header sets
     the columns and its numbers set the decimals.
     decimals: item key -> decimals for a new file, and the fallback for an
     existing file's column that has no number yet.
-    Each row marks every current row of the same peak replaced (find_same:
-    the same label and a λ within SAME_PEAK_NM; see _mark_replaced), even
-    an earlier row of this Save; nothing else in those rows changes. So a
-    peak's current row is the one saved last. Raises PeakFileError.
+    earlier: what happens to the saved rows of the same peak (find_same: the
+    same label and a λ within SAME_PEAK_NM). MARK marks each row that isn't
+    old yet OLD (see _mark_old), even an earlier row of this Save; nothing
+    else in it changes. DELETE deletes every one, old ones too (#177). So a
+    peak's latest row is the one saved last. Raises PeakFileError.
     """
     name = os.path.basename(path)
     decimals = {**DEFAULT_DECIMALS, **(decimals or {})}
@@ -562,9 +605,11 @@ def save(path, rows, *, columns=None, decimals=None):
         bold = Font(bold=True)
         for idx, _, header in cols:
             cell = ws.cell(1, idx, header)
-            cell.font, cell.alignment, cell.border = bold, CENTER, ROW_LINE
-            ws.column_dimensions[get_column_letter(idx)].width = max(11, len(header) + 3)
+            cell.font, cell.border = bold, ROW_LINE
         ws.freeze_panes = 'A2'
+        ws.page_margins = PageMargins(**NARROW_MARGINS)
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
+        ws.page_setup.fitToWidth, ws.page_setup.fitToHeight = 1, 0   # 0: as many pages tall as it takes
         saved, next_row = [], 2
     else:
         wb = _load(path)
@@ -573,21 +618,29 @@ def save(path, rows, *, columns=None, decimals=None):
         decimals.update(file_decimals)
         saved, next_row = _saved(ws, cols), _last_row(ws) + 1
 
-    added, replaced = [], []
-    for values in ({**v, 'status': CURRENT} for v in rows):
+    added, done = [], []
+    if earlier == DELETE:
+        # From the bottom up, so the rows still to delete keep their numbers.
+        done = sorted({old for v in rows for old in find_same(saved, v, DELETE)})
+        for old in reversed(done):
+            ws.delete_rows(old)
+        saved, next_row = [], _last_row(ws) + 1
+    for values in ({**v, 'status': LATEST} for v in rows):
         texts = {norm(h): t for h, t in values.get('texts', {}).items()}
-        for old in find_same(saved, values):
-            _mark_replaced(ws, old, cols)
-            replaced.append(old)
-        saved = [s for s in saved if s['row'] not in replaced]
+        if earlier == MARK:
+            for old in find_same(saved, values):
+                _mark_old(ws, old, cols)
+                done.append(old)
+            for s in saved:
+                s['old'] = s['old'] or s['row'] in done
         for idx, key, header in cols:
             value = values.get(key) if key else texts.get(norm(header))
             cell = ws.cell(next_row, idx)
             _write(cell, key, value, decimals)
             cell.alignment, cell.border = CENTER, ROW_LINE   # empty cells too: a line across the row
         label, wl = _label_text(values.get('label')), values.get('wl')
-        if label and _is_number(wl):   # now current itself
-            saved.append({'row': next_row, 'label': label, 'wl': float(wl)})
+        if label and _is_number(wl) and earlier == MARK:   # now the latest itself
+            saved.append({'row': next_row, 'label': label, 'wl': float(wl), 'old': False})
         added.append(next_row)
         next_row += 1
     # Excel's filter buttons on the header row, stretched over every column
@@ -595,5 +648,6 @@ def save(path, rows, *, columns=None, decimals=None):
     # so its settings stay on their columns.
     first = ws.auto_filter.ref.split(':')[0] if ws.auto_filter.ref else 'A1'
     ws.auto_filter.ref = f'{first}:{get_column_letter(cols[-1][0])}{_last_row(ws)}'
+    fit_widths(ws, cols)
     _save_atomic(wb, path)
-    return added, replaced
+    return added, done

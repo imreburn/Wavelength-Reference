@@ -9,9 +9,9 @@ The state lives in a dcc.Store ('pf-state') as a plain dict:
          existing file, whose header sets them
   path   for a file: its full path. '' for a new file, which gets its name
          when Save asks for it
-  cols   the columns. For a new file, the ones after the fixed columns
-         (Date, Time, Source, Detector, Label/SN, λ (nm), Status); for a
-         file, all of them in its order. Each is {'id': n, 'item': key},
+  cols   the columns, in order: for a new file, the ones picked, which
+         start as peak_file.DEFAULT_COLUMNS (nothing is fixed, #166); for a
+         file, all of its columns. Each is {'id': n, 'item': key},
          {'id': n, 'text': header} for a text column, or {'id': n, 'sub':
          True} for the sublabel's column. In a file, that's the column named
          like the sublabel, so it keeps its 'text' too.
@@ -23,8 +23,8 @@ The state lives in a dcc.Store ('pf-state') as a plain dict:
          (peak_file.TYPED)
   start  item key -> the text a new box of that item starts with: for the
          items in CARRIED, the one saved last in this run (see carried)
-  saved  for a file: its current rows, which the new peaks could replace,
-         with their cells as text (see peak_file.read)
+  saved  for a file: its rows the new peaks could be the same peak as, old
+         ones too, with their cells as text (see peak_file.read)
   recent for a file: its last few rows as the file shows them, which the
          table lists above the new rows (see peak_file._recent)
   msg    for a file: why it can't be used, or a warning; '' if neither
@@ -40,9 +40,10 @@ import peak_file as pf
 from constants import PEAK_TEMPERATURE_RANGE
 from plot_tables import DATA_CSS_FONT, WINDOW_CSS_FONT, SMALL_BTN_STYLE
 
-# A new file's fixed columns get ids of their own (the others are numbers).
-FIXED_IDS = {'date': 'f-date', 'time': 'f-time', 'source': 'f-source',
-             'detector': 'f-detector', 'label': 'f-label', 'wl': 'f-wl', 'status': 'f-status'}
+# What Save does with the earlier rows of the peaks it saves (#177): the
+# dropdown next to Save, peak_file.save's earlier.
+EARLIER_OPTIONS = [{'label': 'Mark as Old', 'value': pf.MARK},
+                   {'label': 'Delete', 'value': pf.DELETE}]
 # The File menu's values for its two commands. Its files' values are their paths.
 NEW_FILE = '__new'
 OPEN_FILE = '__open'
@@ -63,7 +64,7 @@ TWO_LINES = {
     'avg_time':    ('Averaging', 'Time (µs)'),
     'pm_range':    ('Power', 'Range (dBm)'),
     'decrement':   ('Decrement', '(dB)'),
-    'temperature': ('Temperature', '(°C)'),
+    'temperature': ('Temp.', '(°C)'),
     'ripple':      ('Ripple', '(dB)'),
 }
 # The sublabel's column (Params.sublabel): its value in the column dropdowns,
@@ -248,10 +249,21 @@ def modal(hidden_style, sublabel=None):
         html.Div(id='pf-table', style={'overflowX': 'auto', 'paddingBottom': '4px'}),
         html.Div(id='peak-modal-error', style={'color': ERROR_COLOR, 'fontSize': '12px',
                                                'minHeight': '16px', 'margin': '8px 0'}),
+        # The buttons, with the choice of what Save does to the earlier rows
+        # of the same peak on their left, so it's in sight at every Save. The
+        # table above shows what it will do. Later options can join this row.
         html.Div([
-            html.Button('Cancel (Esc)', id='peak-cancel', n_clicks=0),
-            html.Button('Save', id='peak-save-confirm', n_clicks=0, style={'marginLeft': '8px'}),
-        ], style={'textAlign': 'right'}),
+            html.Div([
+                html.Label('Earlier Rows of the Same Peak', style={'fontWeight': 'bold', 'fontSize': '13px'}),
+                dcc.Dropdown(id='peak-earlier', options=EARLIER_OPTIONS, value=pf.MARK,
+                             clearable=False, searchable=False, style={'width': '150px', 'fontSize': '13px'}),
+            ], style={'display': 'flex', 'alignItems': 'center', 'gap': '8px'}),
+            html.Div([
+                html.Button('Cancel (Esc)', id='peak-cancel', n_clicks=0),
+                html.Button('Save', id='peak-save-confirm', n_clicks=0, style={'marginLeft': '8px'}),
+            ]),
+        ], style={'display': 'flex', 'alignItems': 'center', 'justifyContent': 'space-between',
+                  'gap': '24px'}),
         dcc.Store(id='pf-state', data=None),
         # Save's click with the browser's verdict on the Temperature box (see
         # plot.py's close_or_save_peak).
@@ -270,9 +282,10 @@ def _starts(start):
 
 def new_file_state(columns, decimals, sub=None, start=None):
     """A new file's state, from the remembered columns ([{'item': key},
-    {'text': name} or {'sub': True}]) and decimals. sub: the sweep's
-    sublabel column name, or None. start: item key -> what its boxes start
-    with (see carried)."""
+    {'text': name} or {'sub': True}]), or pf.DEFAULT_COLUMNS when there are
+    none, and decimals. sub: the sweep's sublabel column name, or None.
+    start: item key -> what its boxes start with (see carried)."""
+    columns = columns or [{'item': key} for key in pf.DEFAULT_COLUMNS]
     cols = [{'id': i, **c} for i, c in enumerate(columns, start=1)]
     return {'mode': 'new', 'path': '', 'cols': cols, 'dec': {**pf.DEFAULT_DECIMALS, **decimals},
             'sub': sub, 'start': _starts(start), 'rows': [], 'saved': [], 'recent': [],
@@ -346,14 +359,12 @@ def _columns(state):
             cols.append((c['id'], c['item'], pf.ITEM[c['item']].header))
         else:
             cols.append((c['id'], None, c['text']))
-    if state['mode'] == 'new':
-        cols = [(FIXED_IDS[k], k, pf.ITEM[k].header) for k in pf.FIXED] + cols
     return cols
 
 
 def file_columns(state):
-    """A new file's columns as (item key or None, header) pairs, fixed ones
-    first. The file has no sublabel item: its column is a text column."""
+    """A new file's columns as (item key or None, header) pairs. The file has
+    no sublabel item: its column is a text column."""
     return [(None if key == SUB else key, header.strip()) for _, key, header in _columns(state)]
 
 
@@ -379,17 +390,14 @@ def entered(state, row, sublabel):
 
 def _dec_key(state, cid):
     """The item key a decimals control's column shows."""
-    for key, fixed_id in FIXED_IDS.items():
-        if cid == fixed_id:
-            return key
     return next((c.get('item') for c in state['cols'] if c['id'] == cid), None)
 
 
 def _column_choice(value, state):
-    """Whether a column dropdown's value is one of its options: an item that
-    isn't fixed, "Text Column…", or the sublabel's entry while the sweep has
-    a sublabel (not a group heading or anything else)."""
-    return (value == pf.TEXT or (value in pf.ITEM and value not in pf.FIXED)
+    """Whether a column dropdown's value is one of its options: an item,
+    "Text Column…", or the sublabel's entry while the sweep has a sublabel
+    (not a group heading or anything else)."""
+    return (value == pf.TEXT or value in pf.ITEM
             or (value == SUB and bool(state.get('sub'))))
 
 
@@ -484,14 +492,15 @@ def update(state, changes, current):
     return None if s == state else s
 
 
-def problem(state, label, values_of, name_of, temperature=None, entry=''):
+def problem(state, label, values_of, name_of, temperature=None, entry='', earlier=pf.MARK):
     """Why Save can't go ahead, worded for the dialog, or None.
     values_of(peak) -> item key -> value for that peak's row, as for table();
     name_of(peak) -> its name, like "1568.0 nm". temperature: the
     Temperature box's number, or None. entry: the browser's verdict on the
     box: '' when it took the text (or the box is empty), 'number' when the
     text isn't a number, 'step' when it has more than one decimal place,
-    'range' for any other reason."""
+    'range' for any other reason. earlier: the Earlier Rows dropdown's value
+    (pf.MARK or pf.DELETE)."""
     if state.get('bad'):
         return state['msg']
     if not label:
@@ -529,7 +538,7 @@ def problem(state, label, values_of, name_of, temperature=None, entry=''):
     if state['mode'] == 'file':
         taken = {}
         for r in rows:
-            for target in pf.find_same(state['saved'], {**values_of(r['peak']), 'label': label}):
+            for target in pf.find_same(state['saved'], {**values_of(r['peak']), 'label': label}, earlier):
                 if target in taken:
                     return (f'{taken[target]} and {name_of(r["peak"])} would both replace '
                             'the same saved peak. Remove one.')
@@ -577,45 +586,49 @@ def _plain_head(key, header, grey):
 
 def _head_cell(state, cid, key, header):
     """A column's header: plain text for a file's columns (grey: they can't
-    be changed) and a new file's fixed ones, otherwise a dropdown."""
+    be changed), a dropdown for a new file's (none is fixed, #166)."""
     if state['mode'] == 'file':
         return _plain_head(key, header, grey=True)
-    if cid in FIXED_IDS.values():
-        return _plain_head(key, header, grey=False)
     return html.Th(dcc.Dropdown(id={'type': 'pf-col', 'col': cid}, options=column_options(state),
                                 value=key or pf.TEXT, clearable=True, maxHeight=320,
                                 className='pf-dd', style=DROPDOWN), style=HEAD)
 
 
-def _status(targets, cols):
-    """For a file: whether the row is new or replaces saved rows (targets,
-    from state['saved']), on two lines, so the column stays narrow. One row
-    is named by its label, then its λ and date; more than one (a file that
-    already had two current rows of the peak) by the label, then their row
-    numbers, which the rows above show. Shown below the row's peak."""
+def _status(targets, cols, earlier):
+    """For a file: whether the row is new or makes saved rows earlier
+    (targets, from state['saved']): "replaces" them when Save marks them old
+    (orange), "deletes" them when it deletes them (red). On two lines, so the
+    column stays narrow. One row is named by its label, then its λ and date
+    (just λ in a file without a Date column); more than one by the label,
+    then their row numbers, which the rows above show. Shown below the row's
+    peak."""
     style = {'fontSize': '12px', 'marginTop': '2px'}
     if not targets:
         return html.Div('new row', style={**style, 'color': SAVED_COLOR})
     text = {key: t for (_, key, _), t in zip(cols, targets[0]['cells']) if key}
     if len(targets) == 1:
-        second = f"{text.get('wl', '—')} nm, {text.get('date', '—')}"
+        second = f"{text.get('wl', '—')} nm" + (f", {text['date']}" if 'date' in text else '')
     else:
         nums = [str(t['row']) for t in targets]
         second = f"rows {', '.join(nums[:-1])} and {nums[-1]}"
-    return html.Div([f"replaces {text.get('label', '—')}", html.Br(), second],
-                    style={**style, 'color': WARN_COLOR})
+    deleting = earlier == pf.DELETE
+    return html.Div([f"{'deletes' if deleting else 'replaces'} {text.get('label', '—')}", html.Br(), second],
+                    style={**style, 'color': ERROR_COLOR if deleting else WARN_COLOR})
 
 
-def _saved_row(saved, cols, replaced):
+def _saved_row(saved, cols, earlier=None):
     """One of a file's saved rows ({'row': Excel row, 'cells': texts}), as
-    the file shows it, in grey. When Save will mark it replaced, its row
-    number and Status say so in orange."""
+    the file shows it, in grey. When Save will mark it old (earlier
+    pf.MARK), its row number and Status say so in orange; when Save will
+    delete it (pf.DELETE), the row is struck through in red."""
     style = {**VALUE, 'color': SAVED_COLOR}
-    cells = [html.Td(f"row {saved['row']}", style={**ROW_HEAD, 'fontSize': '12px',
-                                                  'color': WARN_COLOR if replaced else SAVED_COLOR})]
+    if earlier == pf.DELETE:
+        style = {**style, 'color': ERROR_COLOR, 'textDecoration': 'line-through'}
+    mark = {pf.MARK: WARN_COLOR, pf.DELETE: ERROR_COLOR}.get(earlier, SAVED_COLOR)
+    cells = [html.Td(f"row {saved['row']}", style={**ROW_HEAD, 'fontSize': '12px', 'color': mark})]
     for (_, key, _), text in zip(cols, saved['cells']):
-        if key == 'status' and replaced:
-            cells.append(html.Td(pf.REPLACED, style={**style, 'color': WARN_COLOR}))
+        if key == 'status' and earlier == pf.MARK:
+            cells.append(html.Td(pf.OLD, style={**style, 'color': WARN_COLOR}))
             continue
         if key is None:   # a text column: long notes don't widen the table
             text = html.Div(text, title=text, style={'maxWidth': '140px', 'overflow': 'hidden',
@@ -624,25 +637,26 @@ def _saved_row(saved, cols, replaced):
     return html.Tr(cells)
 
 
-def _saved_rows(state, cols, replaced):
+def _saved_rows(state, cols, targets, earlier):
     """A file's last few rows above the new rows, as the file has them, then,
-    below a dashed line, the rows Save will mark replaced, even ones that
-    are among the last few too."""
-    rows = [_saved_row(r, cols, False) for r in state.get('recent', [])]
-    more = [_saved_row(s, cols, True) for s in state.get('saved', []) if s['row'] in replaced]
+    below a dashed line, the rows Save will mark old or delete (targets),
+    even ones that are among the last few too."""
+    rows = [_saved_row(r, cols) for r in state.get('recent', [])]
+    more = [_saved_row(s, cols, earlier) for s in state.get('saved', []) if s['row'] in targets]
     if rows and more:
         # 2px, so it wins over the value cells' own 1px borders.
         more[0].style = {'borderTop': '2px dashed #bbb'}
     return rows + more
 
 
-def table(state, peak_options, values_of, label, temperature, sublabel=None):
+def table(state, peak_options, values_of, label, temperature, sublabel=None, earlier=pf.MARK):
     """The dialog's table: decimals controls, column headers, a file's last
-    few rows and the rows Save will mark replaced, then one row per peak with
-    the values as the file will show them, and an "Add Peak…" row.
-    values_of(peak) -> item key -> value for that peak's row. sublabel: the
-    sublabel box's text, which its column shows in every row. A text column
-    and a typed item (pf.TYPED) have a box in each row instead."""
+    few rows and the rows Save will mark old or delete (earlier: pf.MARK or
+    pf.DELETE), then one row per peak with the values as the file will show
+    them, and an "Add Peak…" row. values_of(peak) -> item key -> value for
+    that peak's row. sublabel: the sublabel box's text, which its column
+    shows in every row. A text column and a typed item (pf.TYPED) have a box
+    in each row instead."""
     cols = _columns(state)
     is_new = state['mode'] == 'new'
     label = (label or '').strip()
@@ -654,17 +668,17 @@ def table(state, peak_options, values_of, label, temperature, sublabel=None):
             id={'type': 'pf-add', 'what': 'col'}, options=column_options(state, adding=True),
             value=None, placeholder='Add Column…', clearable=False, maxHeight=320,
             className='pf-dd', style=DROPDOWN), style=HEAD))
-    new_rows, replaced = [], set()
+    new_rows, targets = [], set()
     for r in state['rows']:
         values = {**values_of(r['peak']), 'label': label or None, 'temperature': temperature,
-                  'status': pf.CURRENT, SUB: (sublabel or '').strip() or None}
+                  'status': pf.LATEST, SUB: (sublabel or '').strip() or None}
         peak = dcc.Dropdown(id={'type': 'pf-row', 'row': r['id']}, options=peak_options,
                             value=r['peak'], clearable=True, className='pf-dd', style=DROPDOWN)
         first = [peak]
         if not is_new and label and values.get('wl') is not None:
-            targets = pf.find_same(state['saved'], values)
-            replaced.update(targets)
-            first.append(_status([s for s in state['saved'] if s['row'] in targets], cols))
+            mine = pf.find_same(state['saved'], values, earlier)
+            targets.update(mine)
+            first.append(_status([s for s in state['saved'] if s['row'] in mine], cols, earlier))
         cells = [html.Td(first, style=ROW_HEAD)]
         for cid, key, _ in cols:
             if key is None or key in pf.TYPED:
@@ -675,7 +689,7 @@ def table(state, peak_options, values_of, label, temperature, sublabel=None):
             else:
                 cells.append(html.Td(pf.display(key, values.get(key), state['dec']), style=VALUE))
         new_rows.append(html.Tr(cells))
-    body = _saved_rows(state, cols, replaced)
+    body = _saved_rows(state, cols, targets, earlier)
     if body and new_rows:
         # A line between the file's rows and the new ones.
         new_rows[0].style = {'borderTop': '2px solid #bbb'}

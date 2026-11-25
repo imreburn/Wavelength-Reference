@@ -34,15 +34,18 @@ import peak_file as pf
 # Remembered across display_plot() calls (i.e. across loop iterations) for the
 # "Save Peak Info" dialog: the file saved to last (a full path), where the
 # dialog starts, and a new file's columns ([{'item': key}, {'text': name} or
-# {'sub': True}] after the fixed ones) and decimals (item key -> decimals),
-# the Temperature box at the last Save (None when it was empty), and what the
-# boxes of the items in peak_dialog.CARRIED (Item) start with: item key ->
-# the text the last Save gave them (peak_dialog.carried). Label/SN isn't.
+# {'sub': True}]; [] gives peak_file.DEFAULT_COLUMNS) and decimals (item key
+# -> decimals), the Temperature box at the last Save (None when it was
+# empty), what the boxes of the items in peak_dialog.CARRIED (Item) start
+# with: item key -> the text the last Save gave them (peak_dialog.carried),
+# and the Earlier Rows dropdown at the last Save (pf.MARK when the program
+# starts, so it never starts by deleting rows). Label/SN isn't.
 _last_peak_file = ''
 _peak_columns   = []
 _peak_decimals  = {}
 _peak_temperature = None
 _peak_carried   = {}
+_peak_earlier   = pf.MARK
 # The files "Save Peak Info" opened or saved to lately, kept across runs:
 # newest first, one path per line (see peak_file.remember). The File menu
 # lists them under "Recent Files".
@@ -2428,6 +2431,7 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         Output('peak-label', 'value'),
         Output('peak-sublabel', 'value'),
         Output('peak-temperature', 'value'),
+        Output('peak-earlier', 'value'),
         Output('peak-modal-error', 'children', allow_duplicate=True),
         Input('save-peak-btn', 'n_clicks'),
         *M2_STATES,
@@ -2435,11 +2439,11 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
     )
     def open_peak_modal(n_clicks, *m2s):
         # Label/SN and the sublabel start with the sweep's, and Temperature
-        # with the one saved last. An edit in the dialog is for its Saves
-        # only: it never changes the sweep's label or sublabel.
+        # and Earlier Rows with the ones saved last. An edit in the dialog is
+        # for its Saves only: it never changes the sweep's label or sublabel.
         return (MODAL_SHOWN, _peak_file_options(), _fresh_peak_state(_first_peak_file(), _m2_of(m2s)),
                 params.label or '', params.sublabel[1] if params.sublabel else '',
-                _peak_temperature, '')
+                _peak_temperature, _peak_earlier, '')
 
     # A pick in the File menu. Its value goes back to None, so it shows "File
     # Menu" again. "Open File…" asks the system's Open dialog for the file. A
@@ -2524,16 +2528,17 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         Input('peak-label', 'value'),
         Input('peak-temperature', 'value'),
         Input('peak-sublabel', 'value'),
+        Input('peak-earlier', 'value'),
         *M2_STATES,
         prevent_initial_call=True,
     )
-    def render_peak_dialog(state, label, temperature, sublabel, *m2s):
+    def render_peak_dialog(state, label, temperature, sublabel, earlier, *m2s):
         # Any change also clears the last Save's error message.
         if not state:
             return [], '', '', '', ''
         m2_of = _m2_of(m2s)
-        table = pdlg.table(state, _peak_choices(m2_of),
-                           lambda peak: _row_values(peak, m2_of), label, temperature, sublabel)
+        table = pdlg.table(state, _peak_choices(m2_of), lambda peak: _row_values(peak, m2_of),
+                           label, temperature, sublabel, earlier or pf.MARK)
         return table, pdlg.file_line(state), pdlg.save_hint(state), pdlg.file_message(state), ''
 
     # Save goes through the page first. The Temperature box is a number
@@ -2564,19 +2569,21 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
         State('peak-label', 'value'),
         State('peak-temperature', 'value'),
         State('peak-sublabel', 'value'),
+        State('peak-earlier', 'value'),
         *M2_STATES,
         prevent_initial_call=True,
     )
-    def close_or_save_peak(cancel, request, state, label, temperature, sublabel, *m2s):
+    def close_or_save_peak(cancel, request, state, label, temperature, sublabel, earlier, *m2s):
         if callback_context.triggered_id == 'peak-cancel':
             return MODAL_HIDDEN, dash.no_update, ''
         if not state or not request:
             return dash.no_update, dash.no_update, ''
         label = (label or '').strip()
+        earlier = earlier or pf.MARK
         m2_of = _m2_of(m2s)
         trouble = pdlg.problem(state, label, lambda peak: _row_values(peak, m2_of),
                                lambda peak: _peak_name(peak, m2_of),
-                               temperature, request.get('temperature', ''))
+                               temperature, request.get('temperature', ''), earlier)
         if trouble:
             return dash.no_update, dash.no_update, trouble
         rows = [{**_row_values(r['peak'], m2_of), 'label': label, 'temperature': temperature,
@@ -2599,25 +2606,26 @@ def display_plot(datasets: list[Dataset], params: Params, *, readout=None, title
                 path = result[0] if isinstance(result, (list, tuple)) else result
                 if not path.lower().endswith('.xlsx'):
                     path += '.xlsx'
-                added, replaced = pf.save(path, rows, columns=pdlg.file_columns(state),
-                                          decimals=state['dec'])
+                added, earlier_rows = pf.save(path, rows, columns=pdlg.file_columns(state),
+                                              decimals=state['dec'], earlier=earlier)
             else:
                 path = state['path']
-                added, replaced = pf.save(path, rows, decimals=state['dec'])
+                added, earlier_rows = pf.save(path, rows, decimals=state['dec'], earlier=earlier)
         except pf.PeakFileError as e:
             return dash.no_update, dash.no_update, str(e)
 
-        global _last_peak_file, _peak_temperature
+        global _last_peak_file, _peak_temperature, _peak_earlier
         _last_peak_file = os.path.abspath(path)
         _peak_temperature = temperature
         _peak_carried.update(pdlg.carried(rows))
+        _peak_earlier = earlier
         _peak_saved['ok'] = True   # the reminder (remind_save_peak) is satisfied
         _remember_peak_file(path)
-        log.info(f"Saved peak info: {path} (rows added {added}, replaced {replaced})")
+        action = 'deleted' if earlier == pf.DELETE else 'marked old'
+        log.info(f"Saved peak info: {path} (rows added {added}, earlier rows {action} {earlier_rows})")
         done = [f"{len(added)} new row" + ('s' if len(added) > 1 else '')]
-        if replaced:
-            done.append(f"{len(replaced)} earlier row{'s' if len(replaced) > 1 else ''} "
-                        "marked replaced")
+        if earlier_rows:
+            done.append(f"{len(earlier_rows)} earlier row{'s' if len(earlier_rows) > 1 else ''} {action}")
         return MODAL_HIDDEN, _status(f"Peak info saved: {os.path.basename(path)} ({', '.join(done)})"), ''
 
     # ------------------------------------------------------------------

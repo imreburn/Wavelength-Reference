@@ -137,7 +137,7 @@ You can change this section anytime, even after Save. They aren't saved in prese
 
 - Check "Add Sublabel" to give each sweep a second label, such as a tube number. It is enabled only while "Add Label/SN" is checked.
 
-- "Column Name" is the name of the Save Peak Info column the sublabel goes in, like Tube (default). It can't be the name of one of existing columns, like Temperature (°C).
+- "Column Name" is the name of the Save Peak Info column the sublabel goes in, like Tube (default). It can't be the name of one of existing columns, like Temp. (°C).
 
 - The prefix and the counter work the same way as the label's.
 
