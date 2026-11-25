@@ -85,7 +85,8 @@ LABEL_STYLE = {'fontWeight': 'bold', 'display': 'block', 'marginBottom': '4px'}
 FIELD_STYLE = {'width': '180px', 'boxSizing': 'border-box', 'fontSize': '14px', 'padding': '2px 5px'}
 # Values and decimals controls are centered; the column headers and the row
 # headers (the first column: peaks, a file's row numbers) are left-aligned.
-# That's the dialog only: Save doesn't set an alignment in the file.
+# That's the dialog only: in the file, Save centers every cell it writes,
+# headers too (peak_file.CENTER).
 CELL = {'padding': '3px 6px', 'whiteSpace': 'nowrap', 'verticalAlign': 'middle',
         'textAlign': 'center'}
 ROW_HEAD = {**CELL, 'textAlign': 'left'}

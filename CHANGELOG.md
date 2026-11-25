@@ -11,6 +11,7 @@
 ### Changed
 
 - In the config window, the "Label & Save" section moved to the top of the middle column, above "Reference".
+- In the Excel file of "Save Peak Info", cells are centered, and each row has a thin line under it. ([#165](https://github.com/imreburn/Wavelength-Reference/issues/165))
 
 ## [3.0.2] - 2026-11-20
 

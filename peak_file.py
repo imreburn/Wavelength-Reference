@@ -30,7 +30,7 @@ from decimal import ROUND_HALF_UP, Decimal, localcontext
 from typing import NamedTuple, Optional
 
 import openpyxl
-from openpyxl.styles import Font
+from openpyxl.styles import Alignment, Border, Font, Side
 from openpyxl.utils import get_column_letter
 
 SHEET = 'Peaks'
@@ -47,6 +47,11 @@ MAX_DECIMALS = 10           # the same limit as the tables' Customize dialog
 DATE_FORMAT = 'mm/dd/yyyy'  # Excel's format for the Date column
 TIME_FORMAT = 'hh:mm:ss'    # Excel's format for the Time column
 TEXT = 'text'               # the column dropdown's value for "Text Column…"
+# Every cell a Save writes, the header's too, is centered and has a line
+# under it, so each row has one (#165). Hair is Excel's thinnest line, a step
+# thinner than its usual thin one.
+CENTER = Alignment(horizontal='center')
+ROW_LINE = Border(bottom=Side(style='hair'))
 
 
 class PeakFileError(Exception):
@@ -557,7 +562,7 @@ def save(path, rows, *, columns=None, decimals=None):
         bold = Font(bold=True)
         for idx, _, header in cols:
             cell = ws.cell(1, idx, header)
-            cell.font = bold
+            cell.font, cell.alignment, cell.border = bold, CENTER, ROW_LINE
             ws.column_dimensions[get_column_letter(idx)].width = max(11, len(header) + 3)
         ws.freeze_panes = 'A2'
         saved, next_row = [], 2
@@ -577,7 +582,9 @@ def save(path, rows, *, columns=None, decimals=None):
         saved = [s for s in saved if s['row'] not in replaced]
         for idx, key, header in cols:
             value = values.get(key) if key else texts.get(norm(header))
-            _write(ws.cell(next_row, idx), key, value, decimals)
+            cell = ws.cell(next_row, idx)
+            _write(cell, key, value, decimals)
+            cell.alignment, cell.border = CENTER, ROW_LINE   # empty cells too: a line across the row
         label, wl = _label_text(values.get('label')), values.get('wl')
         if label and _is_number(wl):   # now current itself
             saved.append({'row': next_row, 'label': label, 'wl': float(wl)})
